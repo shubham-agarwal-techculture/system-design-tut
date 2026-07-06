@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import { useProgressContext } from "@/context/ProgressContext";
 import {
   getLesson,
@@ -52,9 +52,7 @@ export default function LessonPage() {
 
   const handleComplete = () => {
     markLessonComplete(lesson.id, lesson.durationMinutes);
-    if (nextLesson) {
-      navigate(`/lesson/${nextLesson.id}`);
-    }
+    if (nextLesson) navigate(`/lesson/${nextLesson.id}`);
   };
 
   return (
@@ -71,14 +69,10 @@ export default function LessonPage() {
 
       <header className="mb-8">
         <div className="mb-3 flex items-center gap-3">
-          <span
-            className={`badge border ${colors.bg} ${colors.text} ${colors.border}`}
-          >
+          <span className={`badge border ${colors.bg} ${colors.text} ${colors.border}`}>
             Phase {phase.number}
           </span>
-          <span className="text-xs text-subtle">
-            {formatMinutes(lesson.durationMinutes)}
-          </span>
+          <span className="text-xs text-subtle">{formatMinutes(lesson.durationMinutes)}</span>
           {done && <span className="badge-complete text-xs">✓ Completed</span>}
         </div>
         <h1 className="heading-xl">{lesson.title}</h1>
@@ -86,12 +80,42 @@ export default function LessonPage() {
         <div className="divider-ornate mt-6" />
       </header>
 
+      {/* Main tutorial content */}
+      <div className="prose-lesson mb-10 space-y-10">
+        {lesson.sections.map((section, i) => (
+          <section key={i}>
+            <h2 className="heading-md mb-4">{section.title}</h2>
+            <div className="space-y-4">
+              {section.paragraphs.map((p, j) => (
+                <p key={j} className="text-sm leading-relaxed text-[var(--color-ink-soft)]">
+                  {p}
+                </p>
+              ))}
+            </div>
+            {section.bullets && section.bullets.length > 0 && (
+              <ul className="mt-4 space-y-2">
+                {section.bullets.map((b, k) => (
+                  <li
+                    key={k}
+                    className="flex gap-3 text-sm leading-relaxed text-[var(--color-ink-soft)]"
+                  >
+                    <span className={`mt-0.5 shrink-0 font-serif ${colors.text}`}>◆</span>
+                    {b}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ))}
+      </div>
+
+      {/* Quick reference concepts */}
       <section className="mb-8">
-        <h2 className="section-label mb-4">Key concepts</h2>
-        <ul className="space-y-3">
+        <h2 className="section-label mb-4">Concept checklist</h2>
+        <ul className="space-y-2">
           {lesson.concepts.map((concept, i) => (
             <li key={i} className="card flex gap-3 px-4 py-3">
-              <span className={`mt-0.5 shrink-0 font-serif ${colors.text}`}>◆</span>
+              <span className={`mt-0.5 shrink-0 font-serif ${colors.text}`}>✓</span>
               <span className="text-sm leading-relaxed text-[var(--color-ink-soft)]">
                 {concept}
               </span>
@@ -100,9 +124,72 @@ export default function LessonPage() {
         </ul>
       </section>
 
+      {/* Real-world examples */}
+      {lesson.examples.length > 0 && (
+        <section className="mb-8">
+          <h2 className="section-label mb-4">Real-world examples</h2>
+          <div className="space-y-3">
+            {lesson.examples.map((ex, i) => (
+              <div key={i} className="card-lifted p-4">
+                <h3 className="font-serif text-sm font-semibold text-[var(--color-ink)]">
+                  {ex.title}
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted">{ex.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Best practices */}
+      <section className="mb-8">
+        <h2 className="section-label mb-4">Best practices</h2>
+        <ul className="space-y-2">
+          {lesson.practices.map((p, i) => (
+            <li
+              key={i}
+              className="flex gap-3 rounded-lg border border-emerald-900/15 bg-emerald-950/5 px-4 py-3 text-sm leading-relaxed text-[var(--color-ink-soft)]"
+            >
+              <span className="shrink-0 text-emerald-800">→</span>
+              {p}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* Common pitfalls */}
+      <section className="mb-8">
+        <h2 className="section-label mb-4">Common pitfalls</h2>
+        <ul className="space-y-2">
+          {lesson.pitfalls.map((p, i) => (
+            <li
+              key={i}
+              className="flex gap-3 rounded-lg border border-red-900/15 bg-red-950/5 px-4 py-3 text-sm leading-relaxed text-[var(--color-ink-soft)]"
+            >
+              <span className="shrink-0 text-red-900">⚠</span>
+              {p}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* Key takeaways */}
+      <section className="card-callout mb-8 p-5">
+        <h2 className="mb-3 font-serif text-sm font-semibold text-[var(--color-brass)]">
+          Key takeaways
+        </h2>
+        <ul className="space-y-2">
+          {lesson.keyTakeaways.map((t, i) => (
+            <li key={i} className="text-sm leading-relaxed text-[var(--color-ink-soft)]">
+              {i + 1}. {t}
+            </li>
+          ))}
+        </ul>
+      </section>
+
       <section className="card-callout mb-8 p-5">
         <h2 className="mb-2 font-serif text-sm font-semibold text-[var(--color-brass)]">
-          Why it matters
+          Why it matters in system design
         </h2>
         <p className="text-sm leading-relaxed text-[var(--color-ink-soft)]">
           {lesson.whyItMatters}
@@ -110,17 +197,17 @@ export default function LessonPage() {
       </section>
 
       <section className="mb-8">
-        <h2 className="section-label mb-4">Reflect on this</h2>
+        <h2 className="section-label mb-4">Reflect & apply</h2>
         <div className="space-y-3">
           {lesson.reflectionQuestions.map((q, i) => (
             <div key={i} className="card p-4">
               <p className="mb-3 text-sm italic text-[var(--color-ink-soft)]">{q}</p>
               <textarea
                 placeholder="Write your thoughts in the margin..."
-                defaultValue={progress.lessonNotes[lesson.id] ?? ""}
-                onBlur={(e) => setLessonNote(lesson.id, e.target.value)}
+                defaultValue={progress.lessonNotes[`${lesson.id}-${i}`] ?? ""}
+                onBlur={(e) => setLessonNote(`${lesson.id}-${i}`, e.target.value)}
                 className="input-field font-serif"
-                rows={2}
+                rows={3}
               />
             </div>
           ))}

@@ -1,5 +1,16 @@
 export type Difficulty = "beginner" | "intermediate" | "advanced" | "expert";
 
+export interface LessonSection {
+  title: string;
+  paragraphs: string[];
+  bullets?: string[];
+}
+
+export interface LessonExample {
+  title: string;
+  description: string;
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -7,7 +18,12 @@ export interface Lesson {
   phaseId: string;
   durationMinutes: number;
   summary: string;
+  sections: LessonSection[];
   concepts: string[];
+  practices: string[];
+  pitfalls: string[];
+  examples: LessonExample[];
+  keyTakeaways: string[];
   whyItMatters: string;
   reflectionQuestions: string[];
   resources?: string[];
