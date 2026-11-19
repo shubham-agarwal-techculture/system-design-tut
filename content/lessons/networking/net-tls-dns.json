@@ -1,0 +1,273 @@
+{
+  "id": "net-tls-dns",
+  "title": "TLS & DNS",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 38,
+  "summary": "TLS encrypts data in transit and verifies server identity. DNS translates human-readable domain names into IP addresses. Both are invisible infrastructure that every distributed system depends on—failures in either cause outages that are sudden, global, and hard to debug without understanding how they work.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "net-tcp-udp"
+  ],
+  "tags": [
+    "networking",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "TLS: Encryption and Identity",
+      "paragraphs": [
+        "Transport Layer Security (TLS) sits above TCP and provides confidentiality (encryption), integrity (tamper detection), and authentication (server identity verification). When you visit https://example.com, TLS ensures no intermediary can read your traffic and that you're actually talking to example.com's server—not an impostor. TLS 1.3 (2018) is the current standard; TLS 1.0 and 1.1 are deprecated; TLS 1.2 remains widely supported.",
+        "The TLS handshake negotiates cipher suites, exchanges keys, and verifies certificates. In TLS 1.3, a full handshake takes 1 RTT (down from 2 RTTs in TLS 1.2). Session resumption and 0-RTT modes allow returning clients to send encrypted data immediately. The handshake flow: ClientHello (supported ciphers, key share) → ServerHello (chosen cipher, certificate, key share) → client verifies certificate → both derive session keys → encrypted application data flows.",
+        "Certificates are X.509 documents binding a public key to a domain name, signed by a Certificate Authority (CA). Browsers and operating systems trust hundreds of root CAs. Let's Encrypt revolutionized TLS by providing free, automated certificates via the ACME protocol. In production, certificate management—provisioning, renewal, rotation—is an operational discipline. Expired certificates are a top cause of production outages."
+      ],
+      "bullets": [
+        "Certificate chain: leaf cert → intermediate CA → root CA (trusted by client)",
+        "SNI (Server Name Indication): client sends hostname in handshake for virtual hosting",
+        "mTLS: mutual TLS where client also presents a certificate for service-to-service auth"
+      ]
+    },
+    {
+      "title": "Certificate Management in Production",
+      "paragraphs": [
+        "Automated certificate renewal is non-negotiable for production systems. Tools like cert-manager (Kubernetes), AWS ACM, and Let's Encrypt with cron jobs handle renewal before expiry. Monitor certificate expiration dates—set alerts at 30, 14, and 7 days before expiry. A common pattern: terminate TLS at the load balancer or CDN using managed certificates, and use internal CA or mTLS for service-to-service communication within a VPC.",
+        "Certificate transparency logs publicly record all issued certificates, enabling detection of fraudulent certs for your domain. HTTP Strict Transport Security (HSTS) headers tell browsers to always use HTTPS, preventing sslstrip attacks. HSTS preload lists bake this into browsers permanently. For high-security services, implement certificate pinning (carefully—pinning breaks if you rotate CAs without updating pins).",
+        "Performance considerations: TLS handshakes add latency (1 RTT for TLS 1.3, more for 1.2). Session tickets and resumption reduce this for returning clients. At scale, TLS computation (especially with older cipher suites) can be CPU-intensive—hardware acceleration, ECDSA certificates (smaller, faster than RSA), and TLS termination at the edge (CDN/ALB) offload this from application servers."
+      ],
+      "bullets": [
+        "ACME protocol: automated certificate issuance and renewal (Let's Encrypt, ZeroSSL)",
+        "Wildcard certs (*.example.com): simplify management but increase blast radius if compromised",
+        "OCSP stapling: server provides cert revocation status, avoiding client lookup delay"
+      ]
+    },
+    {
+      "title": "DNS: The Internet's Phone Book",
+      "paragraphs": [
+        "The Domain Name System (DNS) translates domain names (api.example.com) into IP addresses (203.0.113.42). Without DNS, users would need to memorize IP addresses. DNS is a hierarchical, distributed database: root servers (.com, .org) → TLD nameservers → authoritative nameservers for each domain. No single entity controls DNS, which is why it's remarkably resilient— but misconfigurations at any level cause outages.",
+        "When your application resolves a hostname, the OS resolver checks its cache, then queries a recursive resolver (your ISP's, 8.8.8.8, or 1.1.1.1). The recursive resolver traverses the hierarchy: root → TLD (.com) → authoritative (example.com's nameserver) → returns the A record (IPv4) or AAAA record (IPv6). This full lookup takes 20–120ms on a cache miss. Caching at every layer—OS, browser, recursive resolver, CDN—is critical for performance.",
+        "DNS records serve different purposes: A/AAAA (IP address), CNAME (alias to another domain), MX (mail server), TXT (verification, SPF, DKIM), NS (nameserver delegation), SRV (service location). TTL (Time to Live) on each record controls how long resolvers cache it. Low TTL (60s) enables fast failover but increases query load. High TTL (3600s) improves performance but slows propagation of changes."
+      ],
+      "bullets": [
+        "DNS propagation: changes take up to TTL seconds to reach all resolvers globally",
+        "Split-horizon DNS: internal resolvers return private IPs; external return public IPs",
+        "DNS over HTTPS (DoH) and DNS over TLS (DoT): encrypted DNS queries, privacy-focused"
+      ]
+    },
+    {
+      "title": "DNS in System Design and Operations",
+      "paragraphs": [
+        "DNS is a load balancing and failover mechanism. Round-robin DNS returns different IPs for successive queries, distributing traffic across servers. GeoDNS (Route 53 latency-based routing, Cloudflare Load Balancing) returns IPs based on the querier's location, routing users to the nearest datacenter. During migrations or blue-green deployments, DNS TTL management is crucial—lower TTL days before a cutover so clients pick up new IPs quickly.",
+        "DNS is also a failure point. In 2016, a DDoS attack on Dyn DNS provider took down Twitter, Spotify, and Reddit. Mitigations: use multiple DNS providers (primary + secondary), implement health-checked failover records, and don't rely solely on DNS for critical failover (use load balancers with health checks for faster detection). DNS caching means a failed authoritative server might not be noticed immediately—but stale records persist until TTL expires.",
+        "Service discovery in microservices often replaces or supplements DNS. Kubernetes uses CoreDNS internally; Consul and etcd provide dynamic service registration. But external clients still need DNS to reach your API gateway. The pattern: DNS points to a stable load balancer IP or anycast address; the load balancer or service mesh handles internal routing to dynamic backends."
+      ]
+    },
+    {
+      "title": "Security Considerations",
+      "paragraphs": [
+        "DNS spoofing and cache poisoning redirect users to malicious servers. DNSSEC cryptographically signs DNS records, preventing tampering—but adoption is incomplete. In practice, TLS certificate validation is your primary defense: even if DNS is poisoned, the attacker's server can't present a valid certificate for your domain.",
+        "Subdomain takeover occurs when a DNS record points to a deprovisioned service (e.g., a deleted Heroku app or S3 bucket). An attacker claims the resource and receives traffic intended for your domain. Prevent this by removing DNS records when decommissioning services and auditing CNAME records regularly.",
+        "Internal DNS leakage can expose infrastructure details. Authoritative nameservers should not reveal internal hostnames to external queriers. Use separate internal and external DNS views. For Kubernetes, ensure service DNS (*.svc.cluster.local) is not resolvable from the public internet."
+      ],
+      "bullets": [
+        "CAA records: restrict which CAs can issue certificates for your domain",
+        "SPF/DKIM/DMARC TXT records: email authentication, prevent spoofing",
+        "Wildcard DNS records: convenient but increase subdomain takeover risk"
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "TLS: Encryption and Identity",
+        "paragraphs": [
+          "Transport Layer Security (TLS) sits above TCP and provides confidentiality (encryption), integrity (tamper detection), and authentication (server identity verification). When you visit https://example.com, TLS ensures no intermediary can read your traffic and that you're actually talking to example.com's server—not an impostor. TLS 1.3 (2018) is the current standard; TLS 1.0 and 1.1 are deprecated; TLS 1.2 remains widely supported.",
+          "The TLS handshake negotiates cipher suites, exchanges keys, and verifies certificates. In TLS 1.3, a full handshake takes 1 RTT (down from 2 RTTs in TLS 1.2). Session resumption and 0-RTT modes allow returning clients to send encrypted data immediately. The handshake flow: ClientHello (supported ciphers, key share) → ServerHello (chosen cipher, certificate, key share) → client verifies certificate → both derive session keys → encrypted application data flows.",
+          "Certificates are X.509 documents binding a public key to a domain name, signed by a Certificate Authority (CA). Browsers and operating systems trust hundreds of root CAs. Let's Encrypt revolutionized TLS by providing free, automated certificates via the ACME protocol. In production, certificate management—provisioning, renewal, rotation—is an operational discipline. Expired certificates are a top cause of production outages."
+        ],
+        "bullets": [
+          "Certificate chain: leaf cert → intermediate CA → root CA (trusted by client)",
+          "SNI (Server Name Indication): client sends hostname in handshake for virtual hosting",
+          "mTLS: mutual TLS where client also presents a certificate for service-to-service auth"
+        ]
+      },
+      {
+        "title": "Certificate Management in Production",
+        "paragraphs": [
+          "Automated certificate renewal is non-negotiable for production systems. Tools like cert-manager (Kubernetes), AWS ACM, and Let's Encrypt with cron jobs handle renewal before expiry. Monitor certificate expiration dates—set alerts at 30, 14, and 7 days before expiry. A common pattern: terminate TLS at the load balancer or CDN using managed certificates, and use internal CA or mTLS for service-to-service communication within a VPC.",
+          "Certificate transparency logs publicly record all issued certificates, enabling detection of fraudulent certs for your domain. HTTP Strict Transport Security (HSTS) headers tell browsers to always use HTTPS, preventing sslstrip attacks. HSTS preload lists bake this into browsers permanently. For high-security services, implement certificate pinning (carefully—pinning breaks if you rotate CAs without updating pins).",
+          "Performance considerations: TLS handshakes add latency (1 RTT for TLS 1.3, more for 1.2). Session tickets and resumption reduce this for returning clients. At scale, TLS computation (especially with older cipher suites) can be CPU-intensive—hardware acceleration, ECDSA certificates (smaller, faster than RSA), and TLS termination at the edge (CDN/ALB) offload this from application servers."
+        ],
+        "bullets": [
+          "ACME protocol: automated certificate issuance and renewal (Let's Encrypt, ZeroSSL)",
+          "Wildcard certs (*.example.com): simplify management but increase blast radius if compromised",
+          "OCSP stapling: server provides cert revocation status, avoiding client lookup delay"
+        ]
+      },
+      {
+        "title": "DNS: The Internet's Phone Book",
+        "paragraphs": [
+          "The Domain Name System (DNS) translates domain names (api.example.com) into IP addresses (203.0.113.42). Without DNS, users would need to memorize IP addresses. DNS is a hierarchical, distributed database: root servers (.com, .org) → TLD nameservers → authoritative nameservers for each domain. No single entity controls DNS, which is why it's remarkably resilient— but misconfigurations at any level cause outages.",
+          "When your application resolves a hostname, the OS resolver checks its cache, then queries a recursive resolver (your ISP's, 8.8.8.8, or 1.1.1.1). The recursive resolver traverses the hierarchy: root → TLD (.com) → authoritative (example.com's nameserver) → returns the A record (IPv4) or AAAA record (IPv6). This full lookup takes 20–120ms on a cache miss. Caching at every layer—OS, browser, recursive resolver, CDN—is critical for performance.",
+          "DNS records serve different purposes: A/AAAA (IP address), CNAME (alias to another domain), MX (mail server), TXT (verification, SPF, DKIM), NS (nameserver delegation), SRV (service location). TTL (Time to Live) on each record controls how long resolvers cache it. Low TTL (60s) enables fast failover but increases query load. High TTL (3600s) improves performance but slows propagation of changes."
+        ],
+        "bullets": [
+          "DNS propagation: changes take up to TTL seconds to reach all resolvers globally",
+          "Split-horizon DNS: internal resolvers return private IPs; external return public IPs",
+          "DNS over HTTPS (DoH) and DNS over TLS (DoT): encrypted DNS queries, privacy-focused"
+        ]
+      },
+      {
+        "title": "DNS in System Design and Operations",
+        "paragraphs": [
+          "DNS is a load balancing and failover mechanism. Round-robin DNS returns different IPs for successive queries, distributing traffic across servers. GeoDNS (Route 53 latency-based routing, Cloudflare Load Balancing) returns IPs based on the querier's location, routing users to the nearest datacenter. During migrations or blue-green deployments, DNS TTL management is crucial—lower TTL days before a cutover so clients pick up new IPs quickly.",
+          "DNS is also a failure point. In 2016, a DDoS attack on Dyn DNS provider took down Twitter, Spotify, and Reddit. Mitigations: use multiple DNS providers (primary + secondary), implement health-checked failover records, and don't rely solely on DNS for critical failover (use load balancers with health checks for faster detection). DNS caching means a failed authoritative server might not be noticed immediately—but stale records persist until TTL expires.",
+          "Service discovery in microservices often replaces or supplements DNS. Kubernetes uses CoreDNS internally; Consul and etcd provide dynamic service registration. But external clients still need DNS to reach your API gateway. The pattern: DNS points to a stable load balancer IP or anycast address; the load balancer or service mesh handles internal routing to dynamic backends."
+        ]
+      },
+      {
+        "title": "Security Considerations",
+        "paragraphs": [
+          "DNS spoofing and cache poisoning redirect users to malicious servers. DNSSEC cryptographically signs DNS records, preventing tampering—but adoption is incomplete. In practice, TLS certificate validation is your primary defense: even if DNS is poisoned, the attacker's server can't present a valid certificate for your domain.",
+          "Subdomain takeover occurs when a DNS record points to a deprovisioned service (e.g., a deleted Heroku app or S3 bucket). An attacker claims the resource and receives traffic intended for your domain. Prevent this by removing DNS records when decommissioning services and auditing CNAME records regularly.",
+          "Internal DNS leakage can expose infrastructure details. Authoritative nameservers should not reveal internal hostnames to external queriers. Use separate internal and external DNS views. For Kubernetes, ensure service DNS (*.svc.cluster.local) is not resolvable from the public internet."
+        ],
+        "bullets": [
+          "CAA records: restrict which CAs can issue certificates for your domain",
+          "SPF/DKIM/DMARC TXT records: email authentication, prevent spoofing",
+          "Wildcard DNS records: convenient but increase subdomain takeover risk"
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "TLS & DNS — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of TLS & DNS: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "TLS & DNS — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for TLS & DNS: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "TLS 1.3: 1-RTT handshake, forward secrecy, deprecated weak ciphers",
+    "Certificate chain: leaf → intermediate → root CA; verified by client trust store",
+    "Let's Encrypt / ACME: free automated certificate provisioning and renewal",
+    "mTLS: mutual authentication for service-to-service communication",
+    "DNS hierarchy: root → TLD → authoritative nameserver → A/AAAA record",
+    "DNS TTL: cache duration; low TTL for fast failover, high TTL for performance",
+    "Record types: A, AAAA, CNAME, MX, TXT, NS, SRV",
+    "GeoDNS / latency-based routing: return different IPs based on querier location",
+    "DNSSEC: cryptographic signing of DNS records (limited adoption)",
+    "HSTS: force HTTPS; preload list for browser-enforced security"
+  ],
+  "practices": [
+    "Automate certificate renewal with cert-manager, ACM, or ACME; alert on upcoming expiry",
+    "Terminate TLS at the load balancer/CDN; use TLS 1.3 and ECDSA certificates",
+    "Use multiple DNS providers or secondary nameservers for resilience",
+    "Lower DNS TTL to 60–300 seconds before planned migrations or failover tests",
+    "Implement HSTS with preload for public-facing domains",
+    "Audit DNS records quarterly; remove CNAMEs pointing to decommissioned services",
+    "Monitor DNS resolution time as part of your latency budget; use caching resolvers"
+  ],
+  "pitfalls": [
+    "Letting certificates expire—top cause of sudden HTTPS outages; always automate renewal",
+    "Setting DNS TTL to 86400 (24h) then wondering why failover takes a day to propagate",
+    "Relying solely on DNS for failover—TTL caching delays detection; use LB health checks",
+    "Subdomain takeover via stale CNAME records pointing to released cloud resources",
+    "Using self-signed certificates in production without a proper internal PKI trust chain",
+    "Ignoring certificate transparency alerts about unauthorized certs issued for your domain"
+  ],
+  "examples": [
+    {
+      "title": "Let's Encrypt and cert-manager on Kubernetes",
+      "description": "A Kubernetes cluster uses cert-manager with a ClusterIssuer pointing to Let's Encrypt. Ingress resources annotate tls-acme: 'true', and cert-manager automatically provisions and renews TLS certificates. Certificates renew 30 days before expiry. When a cert fails to renew (e.g., DNS challenge unreachable), cert-manager alerts via Prometheus, preventing the silent expiry that causes most TLS outages."
+    },
+    {
+      "title": "Route 53 Latency-Based Routing",
+      "description": "A global API uses Route 53 latency-based routing with health checks. Users in Europe resolve api.example.com to eu-west-1 ALB; US users get us-east-1. If eu-west-1 fails health checks, Route 53 stops returning its IP within seconds (independent of DNS TTL). Combined with a 60-second TTL, failover is fast and clients automatically route to the healthy region."
+    },
+    {
+      "title": "Spotify 2016 Dyn DNS Outage",
+      "description": "A DDoS attack on Dyn, a major DNS provider, made authoritative nameservers unreachable for Spotify, Twitter, and others. Services with DNS hosted solely at Dyn were globally unreachable despite application servers being healthy. The incident drove industry adoption of multi-provider DNS and anycast DNS architectures for critical domains."
+    }
+  ],
+  "keyTakeaways": [
+    "TLS provides encryption, integrity, and authentication—TLS 1.3 reduces handshake to 1 RTT",
+    "Automate certificate lifecycle; expired certs are a leading cause of production outages",
+    "DNS is a distributed hierarchy; resolution involves caching at multiple layers",
+    "TTL controls DNS cache duration—balance performance (high TTL) vs. failover speed (low TTL)",
+    "Use DNS for geographic routing but load balancers for fast health-checked failover",
+    "Subdomain takeover and DNS spoofing are real threats—audit records and rely on TLS validation",
+    "Terminate TLS at the edge; use mTLS for internal service-to-service authentication"
+  ],
+  "whyItMatters": "TLS and DNS are the invisible infrastructure beneath every HTTPS request. Certificate expiry causes instant global outages. DNS misconfiguration or provider failure makes healthy servers unreachable. Security audits, compliance (PCI-DSS requires TLS), global load balancing, and migration planning all require fluency in both. Interviewers ask about these because production engineers encounter TLS and DNS failures regularly.",
+  "reflectionQuestions": [
+    "Your TLS certificate expires in 48 hours and the automation pipeline is broken. What manual steps do you take, and how do you prevent recurrence?",
+    "You're migrating api.example.com from one cloud provider to another. Describe your DNS cutover strategy including TTL planning.",
+    "When would you use mTLS instead of API keys for service-to-service authentication?",
+    "How would you detect and respond to a subdomain takeover vulnerability in your DNS records?"
+  ],
+  "resources": [
+    "RFC 8446 — TLS 1.3 Specification",
+    "Let's Encrypt documentation — ACME protocol and certbot usage",
+    "OWASP TLS Cheat Sheet — cipher suite and configuration recommendations",
+    "Cloudflare Learning Center — DNS fundamentals and security",
+    "AWS Route 53 Developer Guide — routing policies and health checks"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "net-tls-dns-overview",
+      "title": "TLS & DNS overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain TLS & DNS and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on TLS & DNS; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "RFC 8446 — TLS 1.3 Specification"
+    },
+    {
+      "title": "Let's Encrypt documentation — ACME protocol and certbot usage"
+    },
+    {
+      "title": "OWASP TLS Cheat Sheet — cipher suite and configuration recommendations"
+    },
+    {
+      "title": "Cloudflare Learning Center — DNS fundamentals and security"
+    },
+    {
+      "title": "AWS Route 53 Developer Guide — routing policies and health checks"
+    }
+  ],
+  "relatedLessons": [
+    "net-bgp-anycast",
+    "net-http",
+    "net-kernel"
+  ]
+}

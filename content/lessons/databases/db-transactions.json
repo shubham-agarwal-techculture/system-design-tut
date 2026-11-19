@@ -1,0 +1,265 @@
+{
+  "id": "db-transactions",
+  "title": "Transactions & Isolation Levels",
+  "moduleId": "databases",
+  "phaseId": "foundations",
+  "durationMinutes": 42,
+  "summary": "Transactions group operations into atomic units that succeed or fail together. Isolation levels control what concurrent transactions can observe — trading consistency guarantees for performance. Understanding ACID, anomalies, MVCC, and locking strategies is essential for payment systems, inventory, and any shared mutable state.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "db-storage-engines"
+  ],
+  "tags": [
+    "databases",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "ACID: The Contract Transactions Provide",
+      "paragraphs": [
+        "Atomicity: all operations in a transaction commit or none do. If transferring money debits account A but crashes before crediting B, the database rolls back the debit. Implemented via WAL and undo logs — on failure, replay undo records to restore prior state.",
+        "Consistency: transactions take the database from one valid state to another — constraints, foreign keys, and triggers hold. Note: 'C' is partly application responsibility; the DB enforces declared constraints, not all business rules.",
+        "Isolation: concurrent transactions behave as if they ran serially (in some level of approximation). The real world runs transactions in parallel for performance — isolation levels define acceptable anomalies.",
+        "Durability: once committed, data survives crashes. WAL fsync before commit acknowledgment ensures log records reach stable storage. Replication adds another durability dimension — a commit on the leader may not yet be on followers."
+      ],
+      "bullets": [
+        "BEGIN / COMMIT / ROLLBACK: transaction boundaries",
+        "Single-statement auto-commit: each statement is its own transaction by default",
+        "Distributed transactions (2PC): atomicity across nodes — costly, avoided in modern microservices",
+        "Saga pattern: application-level compensation instead of 2PC across services"
+      ]
+    },
+    {
+      "title": "Isolation Levels and Anomalies",
+      "paragraphs": [
+        "SQL standard defines four isolation levels, from weakest to strongest: Read Uncommitted, Read Committed, Repeatable Read, Serializable. Each prevents some anomalies but not others, with increasing locking or versioning overhead.",
+        "Dirty read: transaction T2 reads data written by T1 that T1 has not committed. If T1 rolls back, T2 acted on garbage. Prevented by Read Committed and above.",
+        "Non-repeatable read: T1 reads a row, T2 updates and commits it, T1 reads again and gets a different value. Prevented by Repeatable Read and above.",
+        "Phantom read: T1 runs a range query, T2 inserts a new row matching the range and commits, T1 re-runs the query and sees new rows. Prevented by Serializable (or snapshot isolation with careful handling in PostgreSQL).",
+        "Lost update: two transactions read-modify-write the same row; one overwrites the other without seeing its change. Not fully solved by isolation level alone — needs optimistic locking (version column) or SELECT FOR UPDATE."
+      ]
+    },
+    {
+      "title": "MVCC: Multi-Version Concurrency Control",
+      "paragraphs": [
+        "MVCC avoids read-write blocking by keeping multiple versions of rows. Readers see a snapshot as of transaction start; writers create new versions without overwriting visible data. PostgreSQL and Oracle use MVCC; readers never block writers and writers rarely block readers.",
+        "PostgreSQL implements this with xmin/xmax system columns and tuple visibility rules. UPDATE creates a new row version; old version remains until VACUUM. Repeatable Read uses a snapshot taken at first statement (or transaction start in PostgreSQL) — same row read twice returns the same version.",
+        "MySQL InnoDB MVCC uses undo logs to reconstruct older row versions for Read View. Repeatable Read is the default — phantoms possible on index ranges without gap locks. Gap locks and next-key locks prevent phantoms but increase deadlock risk.",
+        "Snapshot isolation (SI) is often stronger than Read Committed but weaker than full Serializable — it prevents dirty and non-repeatable reads but historically allowed write skew (two transactions read disjoint sets, make consistent-looking updates that violate an invariant together). PostgreSQL 9.1+ Serializable uses SSI (Serializable Snapshot Isolation) to detect dangerous structures."
+      ],
+      "bullets": [
+        "Read snapshot: transaction sees consistent view frozen at start",
+        "Write creates new version; old version visible to older snapshots",
+        "VACUUM / purge: reclaim versions no longer visible to any transaction",
+        "Write skew: concurrent transactions pass row checks but violate global invariant"
+      ]
+    },
+    {
+      "title": "Pessimistic vs Optimistic Locking",
+      "paragraphs": [
+        "Pessimistic locking: lock rows before modifying (SELECT FOR UPDATE, SELECT FOR SHARE). Other transactions block until lock released. Prevents lost updates and ensures exclusive access — but reduces concurrency and risks deadlocks.",
+        "Optimistic locking: read without lock, check version at commit (UPDATE ... WHERE id = ? AND version = ?). If version changed, retry. Good for low-contention workloads — no blocking, but retries under high contention.",
+        "Application-level locks: Redis SETNX, ZooKeeper ephemeral nodes, or advisory locks (PostgreSQL pg_advisory_lock) coordinate across services when transaction boundaries span systems. These are not ACID with the database — design idempotency and timeout carefully.",
+        "In microservices, each service owns its database — cross-service 'transactions' use sagas (choreography or orchestration) with compensating actions (cancel reservation, refund payment) rather than distributed 2PC, which blocks on failure and does not scale."
+      ]
+    },
+    {
+      "title": "Transactions in System Design",
+      "paragraphs": [
+        "Payment and ledger systems demand Serializable or careful serial execution per account — double-spend and negative balance are unacceptable. Inventory systems need to prevent overselling — pessimistic lock on stock row or atomic decrement with CHECK (quantity >= 0).",
+        "Read-heavy dashboards can use Read Committed or even read replicas with lag acceptance — stale analytics is tolerable. Session state and shopping carts tolerate eventual consistency; checkout does not.",
+        "Long-running transactions are dangerous: they hold locks or old snapshots, block VACUUM (PostgreSQL xact wraparound risk), and increase deadlock probability. Keep transactions short — do validation and external API calls outside the transaction when possible.",
+        "When interviewing, state your isolation choice explicitly: 'Bank transfer: Serializable or SELECT FOR UPDATE on both accounts in consistent order to prevent deadlock.' 'Social feed like count: eventual consistency, no transaction needed.' This demonstrates intentional trade-offs."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "ACID: The Contract Transactions Provide",
+        "paragraphs": [
+          "Atomicity: all operations in a transaction commit or none do. If transferring money debits account A but crashes before crediting B, the database rolls back the debit. Implemented via WAL and undo logs — on failure, replay undo records to restore prior state.",
+          "Consistency: transactions take the database from one valid state to another — constraints, foreign keys, and triggers hold. Note: 'C' is partly application responsibility; the DB enforces declared constraints, not all business rules.",
+          "Isolation: concurrent transactions behave as if they ran serially (in some level of approximation). The real world runs transactions in parallel for performance — isolation levels define acceptable anomalies.",
+          "Durability: once committed, data survives crashes. WAL fsync before commit acknowledgment ensures log records reach stable storage. Replication adds another durability dimension — a commit on the leader may not yet be on followers."
+        ],
+        "bullets": [
+          "BEGIN / COMMIT / ROLLBACK: transaction boundaries",
+          "Single-statement auto-commit: each statement is its own transaction by default",
+          "Distributed transactions (2PC): atomicity across nodes — costly, avoided in modern microservices",
+          "Saga pattern: application-level compensation instead of 2PC across services"
+        ]
+      },
+      {
+        "title": "Isolation Levels and Anomalies",
+        "paragraphs": [
+          "SQL standard defines four isolation levels, from weakest to strongest: Read Uncommitted, Read Committed, Repeatable Read, Serializable. Each prevents some anomalies but not others, with increasing locking or versioning overhead.",
+          "Dirty read: transaction T2 reads data written by T1 that T1 has not committed. If T1 rolls back, T2 acted on garbage. Prevented by Read Committed and above.",
+          "Non-repeatable read: T1 reads a row, T2 updates and commits it, T1 reads again and gets a different value. Prevented by Repeatable Read and above.",
+          "Phantom read: T1 runs a range query, T2 inserts a new row matching the range and commits, T1 re-runs the query and sees new rows. Prevented by Serializable (or snapshot isolation with careful handling in PostgreSQL).",
+          "Lost update: two transactions read-modify-write the same row; one overwrites the other without seeing its change. Not fully solved by isolation level alone — needs optimistic locking (version column) or SELECT FOR UPDATE."
+        ]
+      },
+      {
+        "title": "MVCC: Multi-Version Concurrency Control",
+        "paragraphs": [
+          "MVCC avoids read-write blocking by keeping multiple versions of rows. Readers see a snapshot as of transaction start; writers create new versions without overwriting visible data. PostgreSQL and Oracle use MVCC; readers never block writers and writers rarely block readers.",
+          "PostgreSQL implements this with xmin/xmax system columns and tuple visibility rules. UPDATE creates a new row version; old version remains until VACUUM. Repeatable Read uses a snapshot taken at first statement (or transaction start in PostgreSQL) — same row read twice returns the same version.",
+          "MySQL InnoDB MVCC uses undo logs to reconstruct older row versions for Read View. Repeatable Read is the default — phantoms possible on index ranges without gap locks. Gap locks and next-key locks prevent phantoms but increase deadlock risk.",
+          "Snapshot isolation (SI) is often stronger than Read Committed but weaker than full Serializable — it prevents dirty and non-repeatable reads but historically allowed write skew (two transactions read disjoint sets, make consistent-looking updates that violate an invariant together). PostgreSQL 9.1+ Serializable uses SSI (Serializable Snapshot Isolation) to detect dangerous structures."
+        ],
+        "bullets": [
+          "Read snapshot: transaction sees consistent view frozen at start",
+          "Write creates new version; old version visible to older snapshots",
+          "VACUUM / purge: reclaim versions no longer visible to any transaction",
+          "Write skew: concurrent transactions pass row checks but violate global invariant"
+        ]
+      },
+      {
+        "title": "Pessimistic vs Optimistic Locking",
+        "paragraphs": [
+          "Pessimistic locking: lock rows before modifying (SELECT FOR UPDATE, SELECT FOR SHARE). Other transactions block until lock released. Prevents lost updates and ensures exclusive access — but reduces concurrency and risks deadlocks.",
+          "Optimistic locking: read without lock, check version at commit (UPDATE ... WHERE id = ? AND version = ?). If version changed, retry. Good for low-contention workloads — no blocking, but retries under high contention.",
+          "Application-level locks: Redis SETNX, ZooKeeper ephemeral nodes, or advisory locks (PostgreSQL pg_advisory_lock) coordinate across services when transaction boundaries span systems. These are not ACID with the database — design idempotency and timeout carefully.",
+          "In microservices, each service owns its database — cross-service 'transactions' use sagas (choreography or orchestration) with compensating actions (cancel reservation, refund payment) rather than distributed 2PC, which blocks on failure and does not scale."
+        ]
+      },
+      {
+        "title": "Transactions in System Design",
+        "paragraphs": [
+          "Payment and ledger systems demand Serializable or careful serial execution per account — double-spend and negative balance are unacceptable. Inventory systems need to prevent overselling — pessimistic lock on stock row or atomic decrement with CHECK (quantity >= 0).",
+          "Read-heavy dashboards can use Read Committed or even read replicas with lag acceptance — stale analytics is tolerable. Session state and shopping carts tolerate eventual consistency; checkout does not.",
+          "Long-running transactions are dangerous: they hold locks or old snapshots, block VACUUM (PostgreSQL xact wraparound risk), and increase deadlock probability. Keep transactions short — do validation and external API calls outside the transaction when possible.",
+          "When interviewing, state your isolation choice explicitly: 'Bank transfer: Serializable or SELECT FOR UPDATE on both accounts in consistent order to prevent deadlock.' 'Social feed like count: eventual consistency, no transaction needed.' This demonstrates intentional trade-offs."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Transactions & Isolation Levels — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Transactions & Isolation Levels: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Transactions & Isolation Levels — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Transactions & Isolation Levels: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "ACID: Atomicity, Consistency, Isolation, Durability",
+    "Isolation levels: Read Uncommitted → Committed → Repeatable Read → Serializable",
+    "Dirty read, non-repeatable read, phantom read, lost update",
+    "MVCC: multi-version concurrency, snapshot reads without blocking writes",
+    "SELECT FOR UPDATE: pessimistic row lock",
+    "Optimistic locking: version column check at update time",
+    "WAL and undo log: atomicity and crash recovery mechanisms",
+    "Write skew: anomaly under snapshot isolation",
+    "Saga: distributed transaction alternative with compensating actions",
+    "2PC: two-phase commit for cross-node atomicity — high latency, blocking"
+  ],
+  "practices": [
+    "Use the weakest isolation level that meets correctness requirements — do not default to Serializable everywhere",
+    "Keep transactions short — no external HTTP calls or user think-time inside BEGIN...COMMIT",
+    "Prevent lost updates with version columns or SELECT FOR UPDATE on contested rows",
+    "Acquire locks in consistent order (account ID ascending) to prevent deadlocks",
+    "Use idempotency keys for retried operations in payment and order flows",
+    "Monitor long-running transactions and lock wait times in production",
+    "Prefer sagas over 2PC for cross-service workflows; design compensating actions"
+  ],
+  "pitfalls": [
+    "Assuming READ COMMITTED prevents lost updates — it does not without explicit locking",
+    "Long transactions blocking VACUUM in PostgreSQL — leads to table bloat and txid wraparound",
+    "Serializable isolation without handling serialization failures — apps must retry on 40001",
+    "Distributed transactions (2PC) across microservices — blocks, fragile, avoid in favor of sagas",
+    "Optimistic locking under high contention — retry storms degrade performance",
+    "Reading from async replica for financial balance checks — replication lag causes wrong decisions"
+  ],
+  "examples": [
+    {
+      "title": "Bank transfer with row locks",
+      "description": "Transfer $100 from A to B: BEGIN; SELECT balance FROM accounts WHERE id IN (A,B) ORDER BY id FOR UPDATE; validate A >= 100; UPDATE accounts SET balance = balance - 100 WHERE id = A; UPDATE accounts SET balance = balance + 100 WHERE id = B; COMMIT. Lock ordering by ID prevents deadlock when two transfers cross (A→B and B→A simultaneously). Serializable isolation would also work but may retry on conflict."
+    },
+    {
+      "title": "Inventory oversell with Read Committed",
+      "description": "Two checkout requests read stock=1 concurrently under Read Committed. Both pass validation. Both decrement. stock=-1. Fix: UPDATE products SET stock = stock - 1 WHERE id = ? AND stock >= 1 RETURNING stock — atomic check-and-decrement, or SELECT FOR UPDATE before decrement. Isolation level alone is insufficient; the write must be conditional."
+    },
+    {
+      "title": "E-commerce order saga",
+      "description": "Place order spans Order Service, Payment Service, Inventory Service. Instead of 2PC: Order creates pending order → Payment charges card → Inventory reserves stock → Order confirms. On payment failure: compensating cancel order. On inventory failure: refund payment, cancel order. Each step is local ACID; global consistency is eventual with defined failure paths."
+    }
+  ],
+  "keyTakeaways": [
+    "ACID defines transaction guarantees — durability and atomicity rely on WAL",
+    "Weaker isolation = better performance but more anomalies — choose intentionally",
+    "MVCC enables concurrent reads and writes without blocking — PostgreSQL's core model",
+    "Lost updates require explicit locking or conditional writes, not just isolation level",
+    "Keep transactions short; long transactions harm VACUUM, locks, and throughput",
+    "Microservices use sagas with compensation, not distributed 2PC",
+    "Match isolation to business risk: payments strict, analytics relaxed"
+  ],
+  "whyItMatters": "Every system with shared mutable state — wallets, inventory, seat booking, idempotency keys — depends on transaction design. Bugs from wrong isolation level cause double charges, overselling, and data corruption that no amount of caching or load balancing fixes. Interviewers ask 'how do you prevent double-spend' and 'what isolation level' because these separate engineers who understand concurrency from those who treat the database as a black box.",
+  "reflectionQuestions": [
+    "Design the transaction flow for a concert ticket booking system with 10K concurrent users for 100 remaining seats.",
+    "What isolation level would you use for a financial ledger, and how would you handle serialization failures?",
+    "Explain write skew with a concrete example (e.g., on-call schedule, budget approval).",
+    "When is a saga with compensating transactions preferable to a single database transaction?"
+  ],
+  "resources": [
+    "Designing Data-Intensive Applications — Chapter 7: Transactions (Martin Kleppmann)",
+    "PostgreSQL documentation — Transaction Isolation and Explicit Locking",
+    "MySQL InnoDB locking and MVCC documentation",
+    "Microservices Patterns — Saga chapter (Chris Richardson)"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "db-transactions-overview",
+      "title": "Transactions & Isolation Levels overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Transactions & Isolation Levels and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Transactions & Isolation Levels; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Chapter 7: Transactions (Martin Kleppmann)"
+    },
+    {
+      "title": "PostgreSQL documentation — Transaction Isolation and Explicit Locking"
+    },
+    {
+      "title": "MySQL InnoDB locking and MVCC documentation"
+    },
+    {
+      "title": "Microservices Patterns — Saga chapter (Chris Richardson)"
+    }
+  ],
+  "relatedLessons": [
+    "db-cdc",
+    "db-indexes-replication",
+    "db-modeling"
+  ]
+}

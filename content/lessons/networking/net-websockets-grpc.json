@@ -1,0 +1,283 @@
+{
+  "id": "net-websockets-grpc",
+  "title": "WebSockets & gRPC",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 45,
+  "summary": "Beyond request-response HTTP lies a spectrum of communication patterns. WebSockets provide persistent, bidirectional channels ideal for real-time user experiences. gRPC offers high-performance, strongly typed RPC over HTTP/2 with Protocol Buffers. Choosing the right protocol affects latency, developer experience, and system scalability.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "net-tls-dns"
+  ],
+  "tags": [
+    "networking",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Limitations of Request-Response HTTP",
+      "paragraphs": [
+        "HTTP's request-response model is elegant for most API interactions: client asks, server answers, connection can close. But some use cases break this model. A chat application polling every second wastes bandwidth and adds up to 1 second of latency. A live stock ticker pushing thousands of updates per minute can't efficiently use repeated GET requests. Collaborative document editing needs sub-100ms bidirectional communication that polling can't provide.",
+        "Workarounds existed before modern alternatives: long polling (server holds the request open until data arrives), Server-Sent Events (SSE, server pushes over a persistent HTTP connection, unidirectional), and HTTP/2 server push (largely deprecated). Each has limitations. Long polling is resource-intensive on servers (thousands of hanging connections). SSE is unidirectional only. These limitations drove adoption of WebSockets and, for service-to-service communication, gRPC.",
+        "The protocol choice is one of the most impactful architectural decisions. It affects infrastructure (load balancers must support the protocol), scaling (connection state vs. stateless requests), client compatibility (browsers vs. backend services), and team productivity (code generation, debugging tools). Understanding when each protocol shines prevents over-engineering and costly rewrites."
+      ],
+      "bullets": [
+        "Polling: simple but wasteful; latency equals poll interval",
+        "Long polling: better latency but ties up server connections and threads",
+        "SSE: server-to-client push over HTTP; simple but unidirectional"
+      ]
+    },
+    {
+      "title": "WebSockets: Full-Duplex Communication",
+      "paragraphs": [
+        "WebSockets provide a persistent, full-duplex communication channel over a single TCP connection. The upgrade begins as a normal HTTP request (GET with Upgrade: websocket header). If the server supports it, the connection switches from HTTP to the WebSocket protocol (status 101 Switching Protocols). After upgrade, both sides can send messages at any time—no request-response pairing required. Messages are framed (text or binary) but carry no HTTP headers per message, reducing overhead.",
+        "WebSockets are ideal for: real-time chat, live notifications, collaborative editing (Google Docs), gaming, live sports scores, financial tickers, and IoT dashboards. The key characteristic is low-latency, bidirectional, event-driven communication where the server initiates messages. Browser support is universal (all modern browsers natively support WebSocket API). Libraries like Socket.IO add fallbacks and rooms/channels on top of raw WebSockets.",
+        "Scaling WebSockets is fundamentally different from scaling HTTP APIs. Each WebSocket connection is long-lived and stateful—the server must maintain the connection object, often in memory. A single server might handle 10,000–100,000 concurrent WebSocket connections depending on memory and CPU. Beyond that, you need horizontal scaling with a pub/sub backbone (Redis Pub/Sub, Kafka, or dedicated services like Ably, Pusher) to broadcast messages across server instances."
+      ],
+      "bullets": [
+        "Upgrade handshake: HTTP GET → 101 Switching Protocols → bidirectional frames",
+        "Heartbeats (ping/pong): detect dead connections; essential for NAT/firewall timeouts",
+        "Socket.IO: WebSocket with fallbacks, rooms, namespaces, and reconnection logic"
+      ]
+    },
+    {
+      "title": "Scaling WebSocket Architectures",
+      "paragraphs": [
+        "When a user connects via WebSocket, the load balancer routes them to a specific server instance. That server holds the connection. If a message needs to reach that user from another server (e.g., a friend sends a chat message processed by a different instance), you need a message bus. The pattern: Server A receives the message, publishes to Redis/Kafka, all servers (including Server B holding the recipient's connection) subscribe and forward to their connected clients.",
+        "Sticky sessions (session affinity) are commonly required at the load balancer for WebSockets—the TCP connection must persist to the same backend. Alternatively, use a shared connection registry (Redis) mapping user IDs to server instances, so any server can look up where to route a message. Connection registries add complexity but enable non-sticky load balancing and more flexible scaling.",
+        "Operational concerns: connection limits per server, memory per connection (~10–50KB), graceful shutdown (notify clients to reconnect before draining), reconnection with exponential backoff on the client, and monitoring connection count/churn. During deploys, use connection draining with client-side auto-reconnect. Cloud load balancers (ALB) support WebSocket passthrough but require L7 balancing with sticky sessions or connection registry patterns."
+      ],
+      "bullets": [
+        "Pub/sub backbone: Redis Pub/Sub, NATS, or Kafka for cross-server message delivery",
+        "Connection registry: user_id → server_instance mapping in Redis",
+        "Graceful shutdown: send close frame; clients reconnect with exponential backoff"
+      ]
+    },
+    {
+      "title": "gRPC: High-Performance RPC",
+      "paragraphs": [
+        "gRPC is a high-performance RPC framework built on HTTP/2 and Protocol Buffers (Protobuf). You define services in .proto files—strongly typed contracts with messages and RPC methods. Code generators produce client and server stubs in 10+ languages. gRPC handles serialization, wire format, streaming, deadlines, and metadata, letting teams focus on business logic instead of HTTP boilerplate.",
+        "gRPC supports four communication patterns: unary (single request, single response—like REST), server streaming (client sends one request, server streams responses—e.g., log tailing), client streaming (client streams requests, server sends one response—e.g., file upload), and bidirectional streaming (both sides stream—e.g., real-time collaboration). Streaming over HTTP/2 multiplexing is efficient—no head-of-line blocking at the application level.",
+        "Protobuf serialization is binary, compact, and fast—typically 3–10x smaller and 5–20x faster to serialize than JSON. Schema evolution is built in: add new fields with defaults, never remove or renumber existing fields. This makes gRPC ideal for high-throughput internal microservice communication where both ends control the client library. The trade-off: not browser-native (requires gRPC-Web proxy), less human-readable than JSON, and steeper learning curve."
+      ],
+      "bullets": [
+        ".proto files: language-neutral service and message definitions",
+        "Protobuf: binary serialization; requires schema; backward/forward compatible evolution",
+        "Deadlines and cancellation: built-in timeout propagation across service chains"
+      ]
+    },
+    {
+      "title": "Choosing the Right Protocol",
+      "paragraphs": [
+        "Use REST/HTTP when: building public APIs consumed by diverse clients, browser compatibility is required without proxies, team familiarity with HTTP is high, and throughput requirements are moderate. REST's ubiquity—curl, browser dev tools, Postman, every language's HTTP library—makes it the default for good reason.",
+        "Use gRPC when: communicating between internal microservices, high throughput and low latency matter, strong typing and code generation reduce bugs, streaming is needed (server or bidirectional), and both client and server are under your control. Companies like Google, Netflix, Square, and Dropbox use gRPC extensively for internal service mesh communication.",
+        "Use WebSockets when: the client is a browser or mobile app needing real-time bidirectional updates, latency below 100ms is required, the server must push events without client polling, and connection count is manageable (thousands to low millions, not billions). Combine with a pub/sub backbone for multi-server deployments. For service-to-service real-time needs, consider gRPC bidirectional streaming instead—it offers stronger contracts and better tooling than raw WebSockets."
+      ],
+      "bullets": [
+        "REST: public APIs, browser clients, moderate throughput, human-readable debugging",
+        "gRPC: internal services, high throughput, strong contracts, streaming",
+        "WebSockets: browser real-time UX, push notifications, chat, live dashboards"
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Limitations of Request-Response HTTP",
+        "paragraphs": [
+          "HTTP's request-response model is elegant for most API interactions: client asks, server answers, connection can close. But some use cases break this model. A chat application polling every second wastes bandwidth and adds up to 1 second of latency. A live stock ticker pushing thousands of updates per minute can't efficiently use repeated GET requests. Collaborative document editing needs sub-100ms bidirectional communication that polling can't provide.",
+          "Workarounds existed before modern alternatives: long polling (server holds the request open until data arrives), Server-Sent Events (SSE, server pushes over a persistent HTTP connection, unidirectional), and HTTP/2 server push (largely deprecated). Each has limitations. Long polling is resource-intensive on servers (thousands of hanging connections). SSE is unidirectional only. These limitations drove adoption of WebSockets and, for service-to-service communication, gRPC.",
+          "The protocol choice is one of the most impactful architectural decisions. It affects infrastructure (load balancers must support the protocol), scaling (connection state vs. stateless requests), client compatibility (browsers vs. backend services), and team productivity (code generation, debugging tools). Understanding when each protocol shines prevents over-engineering and costly rewrites."
+        ],
+        "bullets": [
+          "Polling: simple but wasteful; latency equals poll interval",
+          "Long polling: better latency but ties up server connections and threads",
+          "SSE: server-to-client push over HTTP; simple but unidirectional"
+        ]
+      },
+      {
+        "title": "WebSockets: Full-Duplex Communication",
+        "paragraphs": [
+          "WebSockets provide a persistent, full-duplex communication channel over a single TCP connection. The upgrade begins as a normal HTTP request (GET with Upgrade: websocket header). If the server supports it, the connection switches from HTTP to the WebSocket protocol (status 101 Switching Protocols). After upgrade, both sides can send messages at any time—no request-response pairing required. Messages are framed (text or binary) but carry no HTTP headers per message, reducing overhead.",
+          "WebSockets are ideal for: real-time chat, live notifications, collaborative editing (Google Docs), gaming, live sports scores, financial tickers, and IoT dashboards. The key characteristic is low-latency, bidirectional, event-driven communication where the server initiates messages. Browser support is universal (all modern browsers natively support WebSocket API). Libraries like Socket.IO add fallbacks and rooms/channels on top of raw WebSockets.",
+          "Scaling WebSockets is fundamentally different from scaling HTTP APIs. Each WebSocket connection is long-lived and stateful—the server must maintain the connection object, often in memory. A single server might handle 10,000–100,000 concurrent WebSocket connections depending on memory and CPU. Beyond that, you need horizontal scaling with a pub/sub backbone (Redis Pub/Sub, Kafka, or dedicated services like Ably, Pusher) to broadcast messages across server instances."
+        ],
+        "bullets": [
+          "Upgrade handshake: HTTP GET → 101 Switching Protocols → bidirectional frames",
+          "Heartbeats (ping/pong): detect dead connections; essential for NAT/firewall timeouts",
+          "Socket.IO: WebSocket with fallbacks, rooms, namespaces, and reconnection logic"
+        ]
+      },
+      {
+        "title": "Scaling WebSocket Architectures",
+        "paragraphs": [
+          "When a user connects via WebSocket, the load balancer routes them to a specific server instance. That server holds the connection. If a message needs to reach that user from another server (e.g., a friend sends a chat message processed by a different instance), you need a message bus. The pattern: Server A receives the message, publishes to Redis/Kafka, all servers (including Server B holding the recipient's connection) subscribe and forward to their connected clients.",
+          "Sticky sessions (session affinity) are commonly required at the load balancer for WebSockets—the TCP connection must persist to the same backend. Alternatively, use a shared connection registry (Redis) mapping user IDs to server instances, so any server can look up where to route a message. Connection registries add complexity but enable non-sticky load balancing and more flexible scaling.",
+          "Operational concerns: connection limits per server, memory per connection (~10–50KB), graceful shutdown (notify clients to reconnect before draining), reconnection with exponential backoff on the client, and monitoring connection count/churn. During deploys, use connection draining with client-side auto-reconnect. Cloud load balancers (ALB) support WebSocket passthrough but require L7 balancing with sticky sessions or connection registry patterns."
+        ],
+        "bullets": [
+          "Pub/sub backbone: Redis Pub/Sub, NATS, or Kafka for cross-server message delivery",
+          "Connection registry: user_id → server_instance mapping in Redis",
+          "Graceful shutdown: send close frame; clients reconnect with exponential backoff"
+        ]
+      },
+      {
+        "title": "gRPC: High-Performance RPC",
+        "paragraphs": [
+          "gRPC is a high-performance RPC framework built on HTTP/2 and Protocol Buffers (Protobuf). You define services in .proto files—strongly typed contracts with messages and RPC methods. Code generators produce client and server stubs in 10+ languages. gRPC handles serialization, wire format, streaming, deadlines, and metadata, letting teams focus on business logic instead of HTTP boilerplate.",
+          "gRPC supports four communication patterns: unary (single request, single response—like REST), server streaming (client sends one request, server streams responses—e.g., log tailing), client streaming (client streams requests, server sends one response—e.g., file upload), and bidirectional streaming (both sides stream—e.g., real-time collaboration). Streaming over HTTP/2 multiplexing is efficient—no head-of-line blocking at the application level.",
+          "Protobuf serialization is binary, compact, and fast—typically 3–10x smaller and 5–20x faster to serialize than JSON. Schema evolution is built in: add new fields with defaults, never remove or renumber existing fields. This makes gRPC ideal for high-throughput internal microservice communication where both ends control the client library. The trade-off: not browser-native (requires gRPC-Web proxy), less human-readable than JSON, and steeper learning curve."
+        ],
+        "bullets": [
+          ".proto files: language-neutral service and message definitions",
+          "Protobuf: binary serialization; requires schema; backward/forward compatible evolution",
+          "Deadlines and cancellation: built-in timeout propagation across service chains"
+        ]
+      },
+      {
+        "title": "Choosing the Right Protocol",
+        "paragraphs": [
+          "Use REST/HTTP when: building public APIs consumed by diverse clients, browser compatibility is required without proxies, team familiarity with HTTP is high, and throughput requirements are moderate. REST's ubiquity—curl, browser dev tools, Postman, every language's HTTP library—makes it the default for good reason.",
+          "Use gRPC when: communicating between internal microservices, high throughput and low latency matter, strong typing and code generation reduce bugs, streaming is needed (server or bidirectional), and both client and server are under your control. Companies like Google, Netflix, Square, and Dropbox use gRPC extensively for internal service mesh communication.",
+          "Use WebSockets when: the client is a browser or mobile app needing real-time bidirectional updates, latency below 100ms is required, the server must push events without client polling, and connection count is manageable (thousands to low millions, not billions). Combine with a pub/sub backbone for multi-server deployments. For service-to-service real-time needs, consider gRPC bidirectional streaming instead—it offers stronger contracts and better tooling than raw WebSockets."
+        ],
+        "bullets": [
+          "REST: public APIs, browser clients, moderate throughput, human-readable debugging",
+          "gRPC: internal services, high throughput, strong contracts, streaming",
+          "WebSockets: browser real-time UX, push notifications, chat, live dashboards"
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "WebSockets & gRPC — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of WebSockets & gRPC: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "WebSockets & gRPC — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for WebSockets & gRPC: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "WebSocket: persistent full-duplex channel over TCP; HTTP upgrade handshake",
+    "WebSocket scaling: pub/sub backbone (Redis, Kafka) + sticky sessions or connection registry",
+    "gRPC: RPC framework over HTTP/2 with Protocol Buffers serialization",
+    "Protobuf: binary, schema-driven serialization; backward-compatible field evolution",
+    "gRPC patterns: unary, server streaming, client streaming, bidirectional streaming",
+    "gRPC deadlines: timeout propagation across distributed call chains",
+    "gRPC-Web: browser-compatible gRPC via Envoy or proxy translation",
+    "SSE: server-sent events; unidirectional server push over HTTP",
+    "Socket.IO: WebSocket abstraction with rooms, namespaces, and fallbacks",
+    "Connection draining: graceful WebSocket shutdown during deploys with client reconnect"
+  ],
+  "practices": [
+    "Use WebSockets only when real-time bidirectional communication is genuinely needed—don't default to them",
+    "Implement heartbeat/ping-pong to detect stale connections and survive NAT timeouts",
+    "Deploy a pub/sub layer (Redis, NATS) when scaling WebSockets beyond a single server",
+    "Define gRPC services in .proto files with clear versioning; never break backward compatibility",
+    "Set deadlines on every gRPC call; propagate timeouts across service chains",
+    "Use gRPC for internal service-to-service; expose REST/HTTP at the API gateway for external clients",
+    "Monitor WebSocket connection count, message throughput, and reconnection rates as key metrics"
+  ],
+  "pitfalls": [
+    "Using WebSockets for request-response patterns where HTTP would be simpler and more cacheable",
+    "Scaling WebSockets without a pub/sub backbone—messages can't reach clients on other servers",
+    "Not implementing client-side reconnection with exponential backoff—users see permanent disconnects",
+    "Breaking Protobuf backward compatibility by renumbering or changing field types",
+    "Exposing gRPC directly to browsers without gRPC-Web proxy—browsers can't speak native gRPC",
+    "Ignoring connection limits—running out of file descriptors or memory when WebSocket count spikes"
+  ],
+  "examples": [
+    {
+      "title": "Slack Real-Time Messaging",
+      "description": "Slack uses WebSockets for real-time message delivery to browser and desktop clients. Messages flow through a gateway service that maintains WebSocket connections. When you send a message, it's processed by a backend service, published to a Kafka topic, and all gateway instances subscribed to that channel forward it to connected clients in the relevant workspace. Sticky sessions at the load balancer keep each user's WebSocket on a consistent gateway."
+    },
+    {
+      "title": "Netflix gRPC Microservices",
+      "description": "Netflix migrated internal microservice communication from REST to gRPC, achieving significant latency and bandwidth improvements. Protobuf schemas define service contracts with code generation for Java services. gRPC's streaming supports real-time data pipelines (server streaming for log aggregation). An API gateway still exposes REST to external partners and devices that can't use native gRPC."
+    },
+    {
+      "title": "Collaborative Editing with WebSockets",
+      "description": "A Figma-like design tool uses WebSockets for real-time cursor positions, shape updates, and presence indicators. Each user's edits are broadcast via a Redis Pub/Sub channel to all server instances. Operational Transform (OT) or CRDT algorithms resolve conflicts. Connection count is monitored per instance; auto-scaling adds servers when connections exceed 50,000 per instance, with clients auto-reconnecting via exponential backoff."
+    }
+  ],
+  "keyTakeaways": [
+    "WebSockets enable persistent, bidirectional, low-latency communication—ideal for real-time UX",
+    "Scaling WebSockets requires pub/sub backbones and sticky sessions or connection registries",
+    "gRPC provides high-performance, strongly typed RPC with Protobuf over HTTP/2",
+    "gRPC supports four streaming patterns; deadlines propagate timeouts across service chains",
+    "Use REST for public APIs, gRPC for internal services, WebSockets for browser real-time",
+    "Protobuf schema evolution rules: add fields, don't remove or renumber—ensures compatibility",
+    "Heartbeats, reconnection logic, and connection draining are essential WebSocket operations"
+  ],
+  "whyItMatters": "Protocol choice shapes your entire architecture. WebSockets determine how you scale stateful connections. gRPC defines your inter-service contracts and serialization format. Choosing wrong—WebSockets where HTTP suffices, or REST where gRPC would save 10x bandwidth—creates technical debt that's expensive to unwind. Interviewers frequently ask about real-time system design and microservice communication; this knowledge is directly applicable.",
+  "reflectionQuestions": [
+    "You're building a notification system for a mobile app. Would you use push notifications, WebSockets, SSE, or polling? What trade-offs drive your choice?",
+    "How would you migrate an internal REST API with 50 microservice consumers to gRPC without a big-bang rewrite?",
+    "Your WebSocket service handles 200K concurrent connections across 10 servers. A deploy rolls out. How do you avoid mass disconnects?",
+    "When does gRPC bidirectional streaming replace WebSockets for service-to-service real-time communication?"
+  ],
+  "resources": [
+    "RFC 6455 — The WebSocket Protocol",
+    "gRPC official documentation — concepts, tutorials, and best practices",
+    "Protocol Buffers documentation — language guide and style guide",
+    "Socket.IO documentation — rooms, namespaces, and scaling guides",
+    "Envoy gRPC-Web filter — exposing gRPC services to browser clients"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "net-websockets-grpc-overview",
+      "title": "WebSockets & gRPC overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain WebSockets & gRPC and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on WebSockets & gRPC; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "RFC 6455 — The WebSocket Protocol"
+    },
+    {
+      "title": "gRPC official documentation — concepts, tutorials, and best practices"
+    },
+    {
+      "title": "Protocol Buffers documentation — language guide and style guide"
+    },
+    {
+      "title": "Socket.IO documentation — rooms, namespaces, and scaling guides"
+    },
+    {
+      "title": "Envoy gRPC-Web filter — exposing gRPC services to browser clients"
+    }
+  ],
+  "relatedLessons": [
+    "net-bgp-anycast",
+    "net-http",
+    "net-kernel"
+  ]
+}

@@ -1,0 +1,261 @@
+{
+  "id": "os-io-sync",
+  "title": "I/O Models & Synchronization",
+  "moduleId": "operating-systems",
+  "phaseId": "foundations",
+  "durationMinutes": 38,
+  "summary": "I/O models determine how applications wait for network and disk operations — blocking threads, polling, or true async kernel interfaces. Synchronization primitives coordinate access to shared state across threads. Together they define how high-throughput systems like Redis, Kafka, and Nginx achieve performance without data corruption.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "operating-systems",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Blocking vs Non-Blocking I/O",
+      "paragraphs": [
+        "When a thread calls read() on a TCP socket with no data available, the default behavior is blocking: the kernel puts the thread to sleep until data arrives. Simple to program, but one thread handles one connection — scaling to 10,000 connections means 10,000 threads and 10,000 stacks.",
+        "Non-blocking I/O sets O_NONBLOCK on a file descriptor. read() returns immediately with EAGAIN/EWOULDBLOCK if no data is ready. The application must poll — loop over all sockets, try read/write on each, handle partial writes. This is the foundation of event-driven servers but pushes complexity into application code.",
+        "The select(), poll(), and epoll() (Linux) / kqueue() (BSD/macOS) syscalls let the kernel notify which FDs are ready instead of scanning all of them. epoll_wait blocks until at least one registered socket has events — combining efficiency of blocking with scalability of non-blocking. Level-triggered vs edge-triggered modes affect how carefully you must drain buffers.",
+        "io_uring (Linux 5.1+) is the modern evolution: submit I/O operations to shared ring buffers without syscalls per operation, poll completions asynchronously. It reduces syscall overhead for high-IOPS storage and network workloads — used in databases and proxies pushing millions of ops/sec."
+      ],
+      "bullets": [
+        "Blocking I/O: thread sleeps, simple code, poor connection scalability",
+        "Non-blocking + poll: scalable but O(n) scan without epoll/kqueue",
+        "epoll/kqueue: O(1) readiness notification for many FDs",
+        "io_uring: batch async I/O with reduced kernel transition cost"
+      ]
+    },
+    {
+      "title": "The Reactor Pattern and Event Loops",
+      "paragraphs": [
+        "The reactor pattern centralizes I/O demultiplexing: one thread (or a small pool) calls epoll_wait, gets a list of ready sockets, and dispatches handlers. Node.js libuv, Netty, Redis's ae event loop, and Nginx all follow this pattern. Application code registers callbacks; the loop invokes them when FDs become readable or writable.",
+        "Proactor pattern (async I/O with IOCP on Windows, io_uring with IORING_OP_READ) goes further: the kernel performs the transfer and notifies on completion — the application does not loop on partial reads. Proactor maps naturally to async/await when the runtime integrates with the kernel.",
+        "Single-threaded event loops eliminate locks in application logic — Redis processes commands sequentially in one thread, avoiding race conditions on its data structures. Throughput comes from batching, efficient data structures, and avoiding blocking syscalls. Any slow command (KEYS *, debug Lua script) blocks all clients.",
+        "Scaling beyond one core requires sharding (Redis Cluster), multiple worker processes (Nginx), or careful partitioning of the event loop (Seastar framework, one loop per core with message passing between cores)."
+      ]
+    },
+    {
+      "title": "Disk I/O and mmap",
+      "paragraphs": [
+        "Disk I/O patterns differ from network I/O. Random reads on HDDs are slow (seek time); SSDs reduce but do not eliminate penalty. Sequential writes — append-only logs — achieve maximum throughput. This is why Kafka, WALs, and LSM-tree databases favor sequential I/O.",
+        "Buffered I/O (read/write through libc) copies data user ↔ kernel ↔ page cache ↔ disk. Direct I/O (O_DIRECT) bypasses page cache for applications that manage their own caching (databases). mmap maps file pages into virtual memory — reads are page faults, writes go through page cache unless msync/msync.",
+        "fsync() and fdatasync() force dirty pages to stable storage — the durability guarantee for databases. Every fsync is a potential latency spike because it waits for disk flush. Group commit batches multiple transactions into one fsync — a classic throughput vs latency trade-off in WAL design.",
+        "When designing storage-heavy systems, ask: sequential or random? read-heavy or write-heavy? who owns the cache (app vs OS)? The answers drive choice of storage engine, filesystem (ext4 vs XFS), and whether to use direct I/O."
+      ]
+    },
+    {
+      "title": "Synchronization Primitives",
+      "paragraphs": [
+        "When threads share mutable state, primitives coordinate access. Mutex (mutual exclusion lock): only one thread holds it; others block until release. Use for protecting invariants on shared data structures. Always pair lock with unlock on all paths — prefer RAII guards (std::lock_guard, defer in Go) to avoid leaks on panic/exception.",
+        "Read-write lock (rwlock): multiple readers OR one writer. Good for read-heavy caches. Writer starvation is possible if readers continuously arrive. Condition variables pair with mutexes to wait for state changes (producer-consumer queues) — wait atomically releases lock and sleeps until signal.",
+        "Semaphores count permits — useful for limiting concurrency (connection pool of N). Spinlocks busy-wait instead of sleeping — only appropriate for very short critical sections on multi-core where context switch cost exceeds spin time. Misused spinlocks waste CPU.",
+        "Atomic operations (compare-and-swap, fetch-and-add) enable lock-free data structures for hot paths — lock-free queues, reference counting, hazard pointers. They trade complexity for avoiding mutex contention but require deep understanding of memory ordering (acquire, release, sequential consistency)."
+      ],
+      "bullets": [
+        "Mutex: exclusive access, blocks on contention",
+        "Rwlock: concurrent reads, exclusive writes",
+        "Condition variable: wait for predicate with atomic unlock/wait/signal",
+        "Atomic CAS: foundation of lock-free algorithms"
+      ]
+    },
+    {
+      "title": "Deadlocks, Livelocks, and Design Trade-offs",
+      "paragraphs": [
+        "Deadlock requires four conditions (Coffman): mutual exclusion, hold-and-wait, no preemption, circular wait. Prevention: lock ordering (always acquire A before B), try-lock with backoff, or timeouts. Detection: track wait-for graphs in debuggers. Avoid nested locks when possible.",
+        "Lock granularity matters. Coarse lock (one mutex for entire hash table) reduces complexity but serializes all operations. Fine-grained locks (per bucket) increase concurrency but risk deadlock if acquisition order varies. Lock-free structures avoid locks but are harder to verify.",
+        "False sharing: two threads modify different variables on the same cache line — CPUs invalidate each other's caches, killing scalability. Padding structures to cache line boundaries (64 bytes) fixes this in hot counters.",
+        "System design connection: Redis chose single-threaded to avoid synchronization entirely. PostgreSQL uses process-per-connection with shared buffer pool protected by locks and latches. Kafka partitions provide parallelism without shared mutable state per partition. The I/O and sync model follows from concurrency requirements."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Blocking vs Non-Blocking I/O",
+        "paragraphs": [
+          "When a thread calls read() on a TCP socket with no data available, the default behavior is blocking: the kernel puts the thread to sleep until data arrives. Simple to program, but one thread handles one connection — scaling to 10,000 connections means 10,000 threads and 10,000 stacks.",
+          "Non-blocking I/O sets O_NONBLOCK on a file descriptor. read() returns immediately with EAGAIN/EWOULDBLOCK if no data is ready. The application must poll — loop over all sockets, try read/write on each, handle partial writes. This is the foundation of event-driven servers but pushes complexity into application code.",
+          "The select(), poll(), and epoll() (Linux) / kqueue() (BSD/macOS) syscalls let the kernel notify which FDs are ready instead of scanning all of them. epoll_wait blocks until at least one registered socket has events — combining efficiency of blocking with scalability of non-blocking. Level-triggered vs edge-triggered modes affect how carefully you must drain buffers.",
+          "io_uring (Linux 5.1+) is the modern evolution: submit I/O operations to shared ring buffers without syscalls per operation, poll completions asynchronously. It reduces syscall overhead for high-IOPS storage and network workloads — used in databases and proxies pushing millions of ops/sec."
+        ],
+        "bullets": [
+          "Blocking I/O: thread sleeps, simple code, poor connection scalability",
+          "Non-blocking + poll: scalable but O(n) scan without epoll/kqueue",
+          "epoll/kqueue: O(1) readiness notification for many FDs",
+          "io_uring: batch async I/O with reduced kernel transition cost"
+        ]
+      },
+      {
+        "title": "The Reactor Pattern and Event Loops",
+        "paragraphs": [
+          "The reactor pattern centralizes I/O demultiplexing: one thread (or a small pool) calls epoll_wait, gets a list of ready sockets, and dispatches handlers. Node.js libuv, Netty, Redis's ae event loop, and Nginx all follow this pattern. Application code registers callbacks; the loop invokes them when FDs become readable or writable.",
+          "Proactor pattern (async I/O with IOCP on Windows, io_uring with IORING_OP_READ) goes further: the kernel performs the transfer and notifies on completion — the application does not loop on partial reads. Proactor maps naturally to async/await when the runtime integrates with the kernel.",
+          "Single-threaded event loops eliminate locks in application logic — Redis processes commands sequentially in one thread, avoiding race conditions on its data structures. Throughput comes from batching, efficient data structures, and avoiding blocking syscalls. Any slow command (KEYS *, debug Lua script) blocks all clients.",
+          "Scaling beyond one core requires sharding (Redis Cluster), multiple worker processes (Nginx), or careful partitioning of the event loop (Seastar framework, one loop per core with message passing between cores)."
+        ]
+      },
+      {
+        "title": "Disk I/O and mmap",
+        "paragraphs": [
+          "Disk I/O patterns differ from network I/O. Random reads on HDDs are slow (seek time); SSDs reduce but do not eliminate penalty. Sequential writes — append-only logs — achieve maximum throughput. This is why Kafka, WALs, and LSM-tree databases favor sequential I/O.",
+          "Buffered I/O (read/write through libc) copies data user ↔ kernel ↔ page cache ↔ disk. Direct I/O (O_DIRECT) bypasses page cache for applications that manage their own caching (databases). mmap maps file pages into virtual memory — reads are page faults, writes go through page cache unless msync/msync.",
+          "fsync() and fdatasync() force dirty pages to stable storage — the durability guarantee for databases. Every fsync is a potential latency spike because it waits for disk flush. Group commit batches multiple transactions into one fsync — a classic throughput vs latency trade-off in WAL design.",
+          "When designing storage-heavy systems, ask: sequential or random? read-heavy or write-heavy? who owns the cache (app vs OS)? The answers drive choice of storage engine, filesystem (ext4 vs XFS), and whether to use direct I/O."
+        ]
+      },
+      {
+        "title": "Synchronization Primitives",
+        "paragraphs": [
+          "When threads share mutable state, primitives coordinate access. Mutex (mutual exclusion lock): only one thread holds it; others block until release. Use for protecting invariants on shared data structures. Always pair lock with unlock on all paths — prefer RAII guards (std::lock_guard, defer in Go) to avoid leaks on panic/exception.",
+          "Read-write lock (rwlock): multiple readers OR one writer. Good for read-heavy caches. Writer starvation is possible if readers continuously arrive. Condition variables pair with mutexes to wait for state changes (producer-consumer queues) — wait atomically releases lock and sleeps until signal.",
+          "Semaphores count permits — useful for limiting concurrency (connection pool of N). Spinlocks busy-wait instead of sleeping — only appropriate for very short critical sections on multi-core where context switch cost exceeds spin time. Misused spinlocks waste CPU.",
+          "Atomic operations (compare-and-swap, fetch-and-add) enable lock-free data structures for hot paths — lock-free queues, reference counting, hazard pointers. They trade complexity for avoiding mutex contention but require deep understanding of memory ordering (acquire, release, sequential consistency)."
+        ],
+        "bullets": [
+          "Mutex: exclusive access, blocks on contention",
+          "Rwlock: concurrent reads, exclusive writes",
+          "Condition variable: wait for predicate with atomic unlock/wait/signal",
+          "Atomic CAS: foundation of lock-free algorithms"
+        ]
+      },
+      {
+        "title": "Deadlocks, Livelocks, and Design Trade-offs",
+        "paragraphs": [
+          "Deadlock requires four conditions (Coffman): mutual exclusion, hold-and-wait, no preemption, circular wait. Prevention: lock ordering (always acquire A before B), try-lock with backoff, or timeouts. Detection: track wait-for graphs in debuggers. Avoid nested locks when possible.",
+          "Lock granularity matters. Coarse lock (one mutex for entire hash table) reduces complexity but serializes all operations. Fine-grained locks (per bucket) increase concurrency but risk deadlock if acquisition order varies. Lock-free structures avoid locks but are harder to verify.",
+          "False sharing: two threads modify different variables on the same cache line — CPUs invalidate each other's caches, killing scalability. Padding structures to cache line boundaries (64 bytes) fixes this in hot counters.",
+          "System design connection: Redis chose single-threaded to avoid synchronization entirely. PostgreSQL uses process-per-connection with shared buffer pool protected by locks and latches. Kafka partitions provide parallelism without shared mutable state per partition. The I/O and sync model follows from concurrency requirements."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "I/O Models & Synchronization — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of I/O Models & Synchronization: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "I/O Models & Synchronization — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for I/O Models & Synchronization: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Blocking I/O: thread waits in kernel until data ready",
+    "Non-blocking I/O: returns EAGAIN; app polls or uses event notification",
+    "epoll/kqueue: scalable readiness notification for many file descriptors",
+    "io_uring: Linux async I/O ring buffers for batch operations",
+    "Reactor pattern: demultiplex I/O events to handlers in an event loop",
+    "Mutex and rwlock: exclusive vs shared access to critical sections",
+    "Condition variable: block until shared state meets a predicate",
+    "Atomic operations and memory ordering: lock-free synchronization",
+    "Deadlock: circular wait for locks — prevent via ordering or timeouts",
+    "fsync/direct I/O/mmap: disk durability and caching trade-offs"
+  ],
+  "practices": [
+    "Use epoll/kqueue-based frameworks (Netty, libuv, async runtimes) for many concurrent connections",
+    "Keep critical sections short — lock contention scales poorly",
+    "Establish global lock ordering when multiple mutexes are needed",
+    "Prefer immutability and message passing over shared mutable state",
+    "Never block the event loop thread — offload CPU work to thread pools",
+    "Use fsync strategically; batch commits where durability requirements allow",
+    "Profile with lock contention tools (perf lock, Java thread dumps) before optimizing"
+  ],
+  "pitfalls": [
+    "Calling blocking I/O inside an event loop — stalls all connections",
+    "Forgotten unlock on error paths — deadlock or resource leak",
+    "Spinlock on single-core or long critical sections — wastes CPU",
+    "Lock-free code without understanding memory ordering — subtle data races",
+    "Edge-triggered epoll without draining buffers — missed events",
+    "Assuming fsync on every write is free — destroys write throughput"
+  ],
+  "examples": [
+    {
+      "title": "Redis single-threaded event loop",
+      "description": "Redis uses ae (simple event loop) wrapping epoll/kqueue/evport. One thread reads commands from sockets, executes them atomically against in-memory structures, and writes responses. No mutexes on data paths. Pipelining and batching amortize syscall cost. Throughput hits 100K+ ops/sec because there is zero lock contention — the trade-off is no parallel command execution on one shard."
+    },
+    {
+      "title": "Nginx and the C10K problem",
+      "description": "Nginx workers run epoll-based event loops handling thousands of idle keep-alive connections with minimal memory. When a socket is readable, the worker reads the request, proxies to upstream (also non-blocking), and queues response bytes. This architecture solved the C10K problem that thread-per-connection Apache struggled with — same OS primitives, different concurrency model."
+    },
+    {
+      "title": "Kafka sequential disk I/O",
+      "description": "Kafka appends records to partition log segments sequentially and uses mmap or sendfile for zero-copy transfer to consumers. The OS page cache absorbs reads; sequential writes saturate disk bandwidth. fsync interval (log.flush.interval.messages) trades durability for throughput — unclean leader election if broker crashes before flush."
+    }
+  ],
+  "keyTakeaways": [
+    "Blocking I/O + one thread per connection does not scale; event loops + epoll do",
+    "Reactor pattern: one thread demultiplexes many FDs to callbacks",
+    "Single-threaded design eliminates sync overhead — Redis's core insight",
+    "Mutexes protect invariants; keep critical sections short and ordered to avoid deadlock",
+    "Disk performance depends on sequential vs random patterns and fsync frequency",
+    "io_uring represents the next generation of Linux async I/O for extreme throughput",
+    "Choose concurrency model (threads, events, processes) based on shared state and I/O pattern"
+  ],
+  "whyItMatters": "When you design a service handling 50K WebSocket connections, recommend Redis, or debug 'the server freezes under load,' the answer lives in I/O models and synchronization. High-throughput systems are not magic — they combine non-blocking I/O, efficient event notification, and concurrency models that minimize lock contention. Interview questions about 'how does Kafka/Redis/Nginx scale' test this knowledge directly.",
+  "reflectionQuestions": [
+    "Why does a single slow Redis command block the entire instance, and how would Redis Cluster change that?",
+    "You have a Node.js API and one endpoint calls a synchronous filesystem API. What happens under concurrent load?",
+    "Compare mutex + condition variable vs channel (Go) for a producer-consumer queue. Trade-offs?",
+    "When would io_uring beat epoll for a database storage engine, and when would it not matter?"
+  ],
+  "resources": [
+    "The Linux Programming Interface — File I/O and Signals (Michael Kerrisk)",
+    "UNIX Network Programming, Volume 1 — Nonblocking I/O (Stevens)",
+    "Redis architecture documentation — event loop and single-threaded design",
+    "Efficient IO with io-uring — Jens Axboe (kernel developer)"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "os-io-sync-overview",
+      "title": "I/O Models & Synchronization overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain I/O Models & Synchronization and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on I/O Models & Synchronization; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "The Linux Programming Interface — File I/O and Signals (Michael Kerrisk)"
+    },
+    {
+      "title": "UNIX Network Programming, Volume 1 — Nonblocking I/O (Stevens)"
+    },
+    {
+      "title": "Redis architecture documentation — event loop and single-threaded design"
+    },
+    {
+      "title": "Efficient IO with io-uring — Jens Axboe (kernel developer)"
+    }
+  ],
+  "relatedLessons": [
+    "os-memory",
+    "os-numa",
+    "os-processes-threads"
+  ]
+}

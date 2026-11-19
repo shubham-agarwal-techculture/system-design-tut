@@ -1,0 +1,97 @@
+{
+  "id": "ag-mcp",
+  "title": "MCP & Agent Protocols",
+  "moduleId": "agent-protocols",
+  "phaseId": "agentic-systems",
+  "durationMinutes": 30,
+  "summary": "MCP & Agent Protocols — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "agent-protocols",
+    "living",
+    "agentic-systems"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers MCP & Agent Protocols. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers MCP & Agent Protocols. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "MCP & Agent Protocols — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of MCP & Agent Protocols: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "MCP & Agent Protocols — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for MCP & Agent Protocols: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "MCP & Agent Protocols: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "MCP & Agent Protocols belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding MCP & Agent Protocols improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for MCP & Agent Protocols in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ag-mcp-overview",
+      "title": "MCP & Agent Protocols overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain MCP & Agent Protocols and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on MCP & Agent Protocols; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ag-sandbox"
+  ]
+}

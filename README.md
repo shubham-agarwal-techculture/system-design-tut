@@ -1,49 +1,74 @@
-# System Design Journey
+# System Design Guide
 
-A structured web app for learning system design from first principles — built for learners who want to progress daily, whether they have 5 minutes or an hour.
+A structured, AI-augmented curriculum for learning system design from first principles — classic distributed systems through LLM serving and agentic architectures.
 
 ## Features
 
-- **8-phase curriculum** — Foundations → Fundamentals → Architecture → Infrastructure → Patterns → Internals → Design Challenges → Designer Mindset
-- **Flexible study sessions** — Pick 5, 15, 30, or 60 minutes; get a personalized plan from your current progress
-- **Progress tracking** — Lesson completion, streaks, time invested (stored locally in your browser)
-- **Design challenges** — Beginner to expert system design problems with hints and checklists
-- **Reflection notes** — Capture your thoughts on each lesson
-- **Curated resources** — Books, engineering blogs, and open-source systems to study
+- **Validated content store** — lessons live under `content/` as JSON, compiled into a search index
+- **12-phase syllabus** — foundations → trading/low-latency → ML/LLM → training/inference → agentic systems
+- **Depth tiers** — Core / Deep dive / Expert on every lesson
+- **Trend Scout** — scheduled + on-demand discovery of emerging patterns (`npm run scout:*`)
+- **Live AI APIs** — tutor, explain, quiz, design review, personalized paths (optional; app works offline)
+- **Design system** — four skins (Drafting, Transit, Riso, Instrument) × light/dark × colorways
 
-## Getting started
+## Quick start
 
 ```bash
 npm install
-npm run dev
+cp .env.example .env   # optional API keys
+npm run content:index
+npm run dev            # Vite on :5173
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+In another terminal (for tutor / scout / quiz):
 
-## Build for production
+```bash
+npm run server         # API on :8787 (proxied via /api in dev)
+```
+
+## Content pipeline
+
+| Command | Purpose |
+|---------|---------|
+| `npm run content:gaps` | Diff syllabus vs content |
+| `npm run content:generate -- --module networking` | Draft missing lessons |
+| `npm run content:deepen -- --lesson <id>` | Add deepDive/expert tiers |
+| `npm run content:critique` | Review drafts |
+| `npm run content:approve -- <id>` | Publish a draft |
+| `npm run content:refresh` | Flag living lessons for update |
+| `npm run content:organize` | Recompute related/prereq edges |
+| `npm run content:validate` | Schema + graph checks |
+
+Expand stubs from the syllabus:
+
+```bash
+npx tsx --tsconfig tsconfig.scripts.json scripts/expand-curriculum.ts
+```
+
+## Trend Scout
+
+```bash
+npm run scout:fetch
+npm run scout:run
+npm run scout:now
+npm run scout:topic -- --query "speculative decoding"
+npm run scout:lesson -- --lesson ti-batching
+```
+
+Sources: `content/scout/sources.yaml`. Digests: `content/scout/digests/`. Weekly GitHub Action: `.github/workflows/content-scout.yml`.
+
+## Appearance
+
+Open **Appearance** in the app to switch skin / mode / colorway. Living style guide: `/design`. Contrast CI: `npm run design:contrast`.
+
+## Production
 
 ```bash
 npm run build
 npm run preview
+# or pm2: ecosystem.config.cjs (SPA + API)
 ```
-
-## Curriculum overview
-
-| Phase | Focus |
-|-------|-------|
-| 1. Foundations | Networking, OS, Databases |
-| 2. Fundamentals | Scalability, Storage, Caching, Messaging, Distributed Systems, APIs, Reliability, Security |
-| 3. Architecture | Monolith → Microservices, Clean Architecture, DDD |
-| 4. Infrastructure | Docker, Kubernetes, CI/CD, Observability |
-| 5. Design Patterns | Repository, Strategy, Observer, and more |
-| 6. Internal Designs | Redis, PostgreSQL, Kafka, Nginx internals |
-| 7. Design Systems | Hands-on challenges (URL shortener → distributed filesystem) |
-| 8. Designer Mindset | Requirements, capacity estimation, trade-offs, iteration loop |
 
 ## Tech stack
 
-- React 19 + TypeScript
-- Vite 6
-- Tailwind CSS 4
-- React Router 7
-- LocalStorage for progress persistence
+React 19 · TypeScript · Vite 6 · Tailwind 4 · Hono · Zod · MiniSearch · Vercel AI SDK · better-sqlite3 · Mermaid

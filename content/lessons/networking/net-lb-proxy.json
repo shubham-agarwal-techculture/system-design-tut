@@ -1,0 +1,101 @@
+{
+  "id": "net-lb-proxy",
+  "title": "Load Balancing & Reverse Proxies",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 30,
+  "summary": "Load Balancing & Reverse Proxies — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "net-kernel"
+  ],
+  "tags": [
+    "networking",
+    "evergreen",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Load Balancing & Reverse Proxies. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Load Balancing & Reverse Proxies. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Load Balancing & Reverse Proxies — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Load Balancing & Reverse Proxies: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Load Balancing & Reverse Proxies — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Load Balancing & Reverse Proxies: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Load Balancing & Reverse Proxies: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Load Balancing & Reverse Proxies belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Load Balancing & Reverse Proxies improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Load Balancing & Reverse Proxies in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "net-lb-proxy-overview",
+      "title": "Load Balancing & Reverse Proxies overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Load Balancing & Reverse Proxies and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Load Balancing & Reverse Proxies; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "net-bgp-anycast",
+    "net-http",
+    "net-kernel"
+  ]
+}

@@ -1,0 +1,226 @@
+{
+  "id": "dist-cap-consensus",
+  "title": "CAP, PACELC & Consensus",
+  "moduleId": "distributed-systems",
+  "phaseId": "fundamentals",
+  "durationMinutes": 43,
+  "summary": "Distributed systems face unavoidable trade-offs between consistency, availability, and latency. CAP and PACELC frameworks help you reason about these trade-offs consciously. Consensus algorithms like Raft keep replicas in agreement — powering everything from etcd to distributed databases.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "distributed-systems",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "The Reality of Distributed Systems",
+      "paragraphs": [
+        "When components run on multiple machines connected by a network, failures are normal — not exceptional. Networks partition, packets drop, nodes crash, clocks skew. A distributed system must continue operating (or fail gracefully) despite these failures.",
+        "The fundamental challenge is maintaining shared state across unreliable nodes. Should all replicas agree before responding (consistency)? Should the system keep serving requests even if some replicas are unreachable (availability)? You cannot maximize both during a network partition.",
+        "Understanding these trade-offs prevents you from choosing tools with wrong expectations — expecting strong consistency from an AP cache or five-nines availability from a CP coordination service during splits."
+      ]
+    },
+    {
+      "title": "CAP Theorem",
+      "paragraphs": [
+        "CAP states that a distributed data store can provide at most two of three properties: Consistency (every read receives the most recent write or an error), Availability (every request receives a non-error response), and Partition tolerance (the system operates despite network partitions between nodes).",
+        "In practice, partition tolerance is non-negotiable — networks fail. So the real choice during a partition is Consistency (CP) or Availability (AP). CP systems (etcd, ZooKeeper, traditional RDBMS with sync replication) may reject writes or reads to preserve consistency. AP systems (Cassandra, DynamoDB with eventual consistency) accept writes on both sides of a partition and reconcile later.",
+        "CAP is often misunderstood as a static label. Systems can be mostly AP with tunable consistency, or mostly CP with read replicas that serve stale data. Context and configuration matter."
+      ]
+    },
+    {
+      "title": "PACELC Extension",
+      "paragraphs": [
+        "PACELC extends CAP: if there is a Partition (P), choose between Availability (A) and Consistency (C); Else (E), choose between Latency (L) and Consistency (C). This captures the everyday trade-off even when the network is healthy.",
+        "Even without partitions, synchronous replication to all replicas adds latency. Many systems default to reading from the nearest replica (low latency, eventual consistency) and offer optional linearizable reads (high latency, strong consistency) per request.",
+        "DynamoDB is PA/EL by default (available during partition, low-latency eventually consistent reads). PostgreSQL with synchronous replication is PC/EC (consistent during partition, consistent but slower when healthy). Cassandra is PA/EL with tunable consistency per query."
+      ]
+    },
+    {
+      "title": "Consistency Models",
+      "paragraphs": [
+        "Strong consistency (linearizability): every read sees the latest write — as if one copy exists. Eventual consistency: replicas converge over time; reads may return stale data temporarily. Causal consistency: preserves cause-effect ordering without full linearizability.",
+        "Read-your-writes: a user always sees their own updates. Monotonic reads: a user never sees time go backward. These session guarantees are often sufficient and cheaper than global strong consistency.",
+        "Choose consistency per operation: financial transfers need linearizability; social media like counts tolerate eventual consistency; shopping cart reads need read-your-writes."
+      ]
+    },
+    {
+      "title": "Consensus with Raft",
+      "paragraphs": [
+        "Consensus algorithms ensure multiple nodes agree on a value or log sequence despite failures. Raft is the approachable standard: nodes are followers, one leader is elected, the leader replicates log entries to a majority quorum before committing.",
+        "Quorum (majority of nodes) ensures any two quorums overlap — at least one node has the latest committed entry. Leader election uses randomized timeouts to avoid split-brain. etcd, Consul, and CockroachDB use Raft variants.",
+        "Consensus is expensive — typically 3 or 5 nodes, limited write throughput compared to leaderless systems. Use it for coordination (service discovery, config, locks), not high-throughput data ingestion."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "The Reality of Distributed Systems",
+        "paragraphs": [
+          "When components run on multiple machines connected by a network, failures are normal — not exceptional. Networks partition, packets drop, nodes crash, clocks skew. A distributed system must continue operating (or fail gracefully) despite these failures.",
+          "The fundamental challenge is maintaining shared state across unreliable nodes. Should all replicas agree before responding (consistency)? Should the system keep serving requests even if some replicas are unreachable (availability)? You cannot maximize both during a network partition.",
+          "Understanding these trade-offs prevents you from choosing tools with wrong expectations — expecting strong consistency from an AP cache or five-nines availability from a CP coordination service during splits."
+        ]
+      },
+      {
+        "title": "CAP Theorem",
+        "paragraphs": [
+          "CAP states that a distributed data store can provide at most two of three properties: Consistency (every read receives the most recent write or an error), Availability (every request receives a non-error response), and Partition tolerance (the system operates despite network partitions between nodes).",
+          "In practice, partition tolerance is non-negotiable — networks fail. So the real choice during a partition is Consistency (CP) or Availability (AP). CP systems (etcd, ZooKeeper, traditional RDBMS with sync replication) may reject writes or reads to preserve consistency. AP systems (Cassandra, DynamoDB with eventual consistency) accept writes on both sides of a partition and reconcile later.",
+          "CAP is often misunderstood as a static label. Systems can be mostly AP with tunable consistency, or mostly CP with read replicas that serve stale data. Context and configuration matter."
+        ]
+      },
+      {
+        "title": "PACELC Extension",
+        "paragraphs": [
+          "PACELC extends CAP: if there is a Partition (P), choose between Availability (A) and Consistency (C); Else (E), choose between Latency (L) and Consistency (C). This captures the everyday trade-off even when the network is healthy.",
+          "Even without partitions, synchronous replication to all replicas adds latency. Many systems default to reading from the nearest replica (low latency, eventual consistency) and offer optional linearizable reads (high latency, strong consistency) per request.",
+          "DynamoDB is PA/EL by default (available during partition, low-latency eventually consistent reads). PostgreSQL with synchronous replication is PC/EC (consistent during partition, consistent but slower when healthy). Cassandra is PA/EL with tunable consistency per query."
+        ]
+      },
+      {
+        "title": "Consistency Models",
+        "paragraphs": [
+          "Strong consistency (linearizability): every read sees the latest write — as if one copy exists. Eventual consistency: replicas converge over time; reads may return stale data temporarily. Causal consistency: preserves cause-effect ordering without full linearizability.",
+          "Read-your-writes: a user always sees their own updates. Monotonic reads: a user never sees time go backward. These session guarantees are often sufficient and cheaper than global strong consistency.",
+          "Choose consistency per operation: financial transfers need linearizability; social media like counts tolerate eventual consistency; shopping cart reads need read-your-writes."
+        ]
+      },
+      {
+        "title": "Consensus with Raft",
+        "paragraphs": [
+          "Consensus algorithms ensure multiple nodes agree on a value or log sequence despite failures. Raft is the approachable standard: nodes are followers, one leader is elected, the leader replicates log entries to a majority quorum before committing.",
+          "Quorum (majority of nodes) ensures any two quorums overlap — at least one node has the latest committed entry. Leader election uses randomized timeouts to avoid split-brain. etcd, Consul, and CockroachDB use Raft variants.",
+          "Consensus is expensive — typically 3 or 5 nodes, limited write throughput compared to leaderless systems. Use it for coordination (service discovery, config, locks), not high-throughput data ingestion."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "CAP, PACELC & Consensus — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of CAP, PACELC & Consensus: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "CAP, PACELC & Consensus — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for CAP, PACELC & Consensus: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "CAP: Consistency, Availability, Partition tolerance — pick two during partition",
+    "PACELC: Latency vs Consistency when network is healthy",
+    "CP systems: etcd, ZooKeeper, Spanner (with TrueTime)",
+    "AP systems: Cassandra, DynamoDB (default), Riak",
+    "Linearizability vs eventual consistency",
+    "Read-your-writes and monotonic reads session guarantees",
+    "Raft consensus: leader election, log replication, quorum",
+    "Quorum: majority agreement for commit",
+    "Split-brain: two leaders during partition without quorum",
+    "Fencing tokens to prevent stale leaders from writing"
+  ],
+  "practices": [
+    "Classify each data store in your architecture as CP or AP with PACELC",
+    "Use consensus stores (etcd) only for coordination, not bulk data",
+    "Request strong consistency only on operations that require it",
+    "Run clock sync (NTP/Chrony) on all nodes — skew breaks TTL and ordering",
+    "Test partition behavior with chaos engineering (iptables, toxiproxy)",
+    "Monitor replication lag on read replicas before serving stale reads",
+    "Use fencing tokens when relying on distributed locks"
+  ],
+  "pitfalls": [
+    "Labeling a system 'CP' or 'AP' without understanding tunable consistency",
+    "Using etcd for high-throughput writes — it is a coordination store",
+    "Assuming read replicas return latest data without lag monitoring",
+    "Ignoring clock skew in TTL-based leases and lock expiration",
+    "Split-brain from misconfigured quorum sizes (even number of nodes)",
+    "Choosing strong consistency globally when only one operation needs it"
+  ],
+  "examples": [
+    {
+      "title": "Kubernetes etcd",
+      "description": "Kubernetes stores cluster state in etcd — a CP system using Raft. During a network partition, the minority partition becomes read-only. This is acceptable because cluster coordination demands consistency over availability. Application data lives elsewhere."
+    },
+    {
+      "title": "DynamoDB global tables",
+      "description": "Multi-region DynamoDB global tables replicate asynchronously — AP with eventual consistency across regions. A user updating profile in US-East may see stale data in EU-West for seconds. Product accepts this for profile reads; payment uses single-region strong consistency."
+    },
+    {
+      "title": "Bank transfer with quorum",
+      "description": "A bank uses a strongly consistent store requiring quorum writes for transfers. During partition, minority nodes reject writes — users see errors rather than double-spend. Availability is sacrificed for correctness on this critical path."
+    }
+  ],
+  "keyTakeaways": [
+    "Partition tolerance is mandatory — the real choice is consistency vs availability",
+    "PACELC captures latency vs consistency trade-offs during normal operation",
+    "Match consistency level to operation criticality — not everything needs linearizability",
+    "Raft and quorum-based consensus power coordination services like etcd",
+    "Test partition and failure scenarios — theoretical CAP choices meet reality in production",
+    "Read replicas and caches introduce staleness — monitor lag explicitly"
+  ],
+  "whyItMatters": "Every distributed database, cache, and coordination service embeds CAP/PACELC trade-offs. Misaligned expectations cause data corruption, double-spending, and split-brain incidents. System design interviews center on articulating these trade-offs for specific requirements.",
+  "reflectionQuestions": [
+    "Is Redis Cluster CP or AP during a network partition?",
+    "Why does etcd use Raft for Kubernetes instead of a simple key-value store?",
+    "When is eventual consistency unacceptable for your application?",
+    "How does PACELC apply to a read from a PostgreSQL async replica?"
+  ],
+  "resources": [
+    "Designing Data-Intensive Applications — Chapters 5, 7, 9",
+    "The Raft Consensus Algorithm — raft.github.io",
+    "Brewer's CAP theorem revisited (2012)",
+    "Daniel Abadi — PACELC theorem blog post"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "dist-cap-consensus-overview",
+      "title": "CAP, PACELC & Consensus overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain CAP, PACELC & Consensus and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on CAP, PACELC & Consensus; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Chapters 5, 7, 9"
+    },
+    {
+      "title": "The Raft Consensus Algorithm — raft.github.io"
+    },
+    {
+      "title": "Brewer's CAP theorem revisited (2012)"
+    },
+    {
+      "title": "Daniel Abadi — PACELC theorem blog post"
+    }
+  ],
+  "relatedLessons": [
+    "fund-clocks",
+    "fund-consistency-models",
+    "fund-crdts"
+  ]
+}

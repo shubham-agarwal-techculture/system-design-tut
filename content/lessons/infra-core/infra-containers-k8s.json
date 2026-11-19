@@ -1,0 +1,302 @@
+{
+  "id": "infra-containers-k8s",
+  "title": "Docker, Kubernetes & Service Mesh",
+  "moduleId": "infra-core",
+  "phaseId": "infrastructure",
+  "durationMinutes": 42,
+  "summary": "Containers standardize how applications are packaged and run. Kubernetes orchestrates containers at scale across clusters of machines. Service meshes add a dedicated infrastructure layer for service-to-service communication, security, and observability. This lesson walks through each layer — from Dockerfile best practices to Kubernetes primitives to Istio/Linkerd — and when each is worth the operational investment.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "infra-cicd-observability"
+  ],
+  "tags": [
+    "infra-core",
+    "infrastructure"
+  ],
+  "sections": [
+    {
+      "title": "Docker: Images, Containers, and the Build Pipeline",
+      "paragraphs": [
+        "A Docker image is a layered, immutable filesystem snapshot containing your application, runtime, and dependencies. A container is a running instance of an image — isolated via Linux namespaces and cgroups, sharing the host kernel but with its own process tree, network stack, and filesystem view.",
+        "Images are built from Dockerfiles. Best practices: use multi-stage builds (compile in one stage, copy only the binary to a minimal runtime image), pin base image versions, run as a non-root user, minimize layer count, and use .dockerignore to exclude unnecessary files. A Go binary in a distroless image might be 15 MB; the same app in a full Ubuntu image could be 500 MB.",
+        "Container registries (Docker Hub, ECR, GCR, Harbor) store and distribute images. Tag images with git SHA or semver, not just 'latest'. Scan images for CVEs in CI before deployment. Immutable tags ensure that what you tested is exactly what runs in production."
+      ],
+      "bullets": [
+        "Image layers: each Dockerfile instruction creates a cached layer — order matters for build speed",
+        "Multi-stage builds: separate build environment from runtime for smaller, more secure images",
+        "Container vs. VM: containers share the kernel (lighter, faster start); VMs have full OS isolation",
+        "docker-compose: local multi-container development; not for production orchestration"
+      ]
+    },
+    {
+      "title": "Kubernetes Core Concepts: Pods, Deployments, and Services",
+      "paragraphs": [
+        "Kubernetes (K8s) orchestrates containers across a cluster of nodes. The pod is the smallest deployable unit — one or more containers sharing network and storage. You rarely create pods directly; instead, you declare desired state via higher-level objects and K8s reconciles reality to match.",
+        "A Deployment manages ReplicaSets that maintain a desired number of pod replicas. Rolling updates replace pods incrementally (maxUnavailable, maxSurge control the pace). Rollbacks are one command away. StatefulSets handle stateful workloads (databases) with stable network identities and persistent volumes.",
+        "Services provide stable network endpoints for pods. ClusterIP (internal only), NodePort (exposes on each node's IP), LoadBalancer (cloud provider external IP). Ingress controllers (Nginx, Traefik, AWS ALB) route HTTP traffic to services based on host and path rules, terminating TLS at the edge."
+      ],
+      "bullets": [
+        "Pod: one or more containers sharing network namespace and volumes",
+        "Deployment: declarative rolling updates with desired replica count",
+        "Service: stable DNS name and load balancing across pod replicas",
+        "Ingress: HTTP/HTTPS routing rules to services with TLS termination",
+        "ConfigMap / Secret: inject configuration and sensitive data into pods",
+        "Namespace: logical cluster partition for environments or teams"
+      ]
+    },
+    {
+      "title": "Scaling, Scheduling, and Resource Management",
+      "paragraphs": [
+        "The Horizontal Pod Autoscaler (HPA) scales pod replicas based on CPU, memory, or custom metrics (requests per second from Prometheus). Vertical Pod Autoscaler adjusts resource requests/limits. Cluster Autoscaler adds or removes nodes when pods can't be scheduled.",
+        "Every pod declares resource requests (guaranteed minimum) and limits (maximum allowed). Without requests, the scheduler can't pack pods efficiently. Without limits, one runaway container can starve others on the same node. Set requests based on measured p95 usage; set limits at 2–3× requests.",
+        "Probes keep services healthy: liveness probes restart crashed containers, readiness probes remove unready pods from service load balancing, startup probes protect slow-starting apps from premature liveness kills. Always define probes — K8s defaults to 'always healthy' if you don't."
+      ],
+      "bullets": [
+        "HPA: scale replicas on metrics — target 70% CPU utilization is a common starting point",
+        "Resource requests/limits: requests for scheduling, limits for enforcement (OOM kill)",
+        "Liveness probe: 'is the process alive?' — failure triggers restart",
+        "Readiness probe: 'can it handle traffic?' — failure removes from service endpoints",
+        "PodDisruptionBudget: minimum available pods during voluntary disruptions (node drain, upgrades)"
+      ]
+    },
+    {
+      "title": "Service Mesh: Istio, Linkerd, and the Data Plane",
+      "paragraphs": [
+        "As microservice count grows, cross-cutting concerns — mTLS, retries, circuit breaking, traffic splitting, distributed tracing — become painful to implement in every service. A service mesh extracts these into a dedicated infrastructure layer: a sidecar proxy (Envoy in Istio, Linkerd's micro-proxy) injected alongside each pod handles all inter-service traffic.",
+        "The control plane (Istiod, Linkerd control plane) configures proxies centrally. The data plane (sidecar proxies) executes policies without application code changes. Enable mTLS between all services with a single policy. Route 5% of traffic to a canary version via VirtualService rules. Inject trace headers automatically.",
+        "Service meshes add latency (typically 1–3ms per hop) and operational complexity. They're justified at 20+ services with strict security requirements, frequent canary deployments, or multi-cluster setups. For smaller deployments, Kubernetes Services plus a well-configured ingress may suffice."
+      ],
+      "bullets": [
+        "Sidecar proxy: intercepts all inbound and outbound pod traffic",
+        "mTLS: mutual TLS authentication and encryption between every service pair",
+        "Traffic management: weighted routing, fault injection, circuit breaking via config",
+        "Observability: automatic metrics, access logs, and trace propagation",
+        "Istio: feature-rich, Envoy-based — higher resource overhead",
+        "Linkerd: lightweight Rust micro-proxy — lower latency, simpler ops"
+      ]
+    },
+    {
+      "title": "Infrastructure as Code and GitOps",
+      "paragraphs": [
+        "Manual kubectl apply doesn't scale across environments and teams. Infrastructure as Code (IaC) tools — Terraform for cloud resources, Pulumi for general-purpose IaC — declare desired infrastructure in version-controlled files. Every change is reviewed, tested, and auditable.",
+        "For Kubernetes specifically, GitOps (ArgoCD, Flux) treats Git as the single source of truth. You commit K8s manifests (or Helm charts, Kustomize overlays) to a repo; the GitOps controller continuously reconciles the cluster to match. Drift is detected and auto-corrected. Rollbacks are git revert.",
+        "Helm packages K8s resources into reusable charts with templated values. Kustomize overlays let you patch base manifests for dev/staging/prod without duplication. Choose based on team preference — both are production-proven."
+      ],
+      "bullets": [
+        "Terraform: declarative cloud infrastructure (VPCs, clusters, databases, IAM)",
+        "GitOps: Git repo drives cluster state — ArgoCD/Flux auto-sync on commit",
+        "Helm charts: parameterized, versioned K8s application packages",
+        "Kustomize: overlay-based manifest customization without templating"
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Docker: Images, Containers, and the Build Pipeline",
+        "paragraphs": [
+          "A Docker image is a layered, immutable filesystem snapshot containing your application, runtime, and dependencies. A container is a running instance of an image — isolated via Linux namespaces and cgroups, sharing the host kernel but with its own process tree, network stack, and filesystem view.",
+          "Images are built from Dockerfiles. Best practices: use multi-stage builds (compile in one stage, copy only the binary to a minimal runtime image), pin base image versions, run as a non-root user, minimize layer count, and use .dockerignore to exclude unnecessary files. A Go binary in a distroless image might be 15 MB; the same app in a full Ubuntu image could be 500 MB.",
+          "Container registries (Docker Hub, ECR, GCR, Harbor) store and distribute images. Tag images with git SHA or semver, not just 'latest'. Scan images for CVEs in CI before deployment. Immutable tags ensure that what you tested is exactly what runs in production."
+        ],
+        "bullets": [
+          "Image layers: each Dockerfile instruction creates a cached layer — order matters for build speed",
+          "Multi-stage builds: separate build environment from runtime for smaller, more secure images",
+          "Container vs. VM: containers share the kernel (lighter, faster start); VMs have full OS isolation",
+          "docker-compose: local multi-container development; not for production orchestration"
+        ]
+      },
+      {
+        "title": "Kubernetes Core Concepts: Pods, Deployments, and Services",
+        "paragraphs": [
+          "Kubernetes (K8s) orchestrates containers across a cluster of nodes. The pod is the smallest deployable unit — one or more containers sharing network and storage. You rarely create pods directly; instead, you declare desired state via higher-level objects and K8s reconciles reality to match.",
+          "A Deployment manages ReplicaSets that maintain a desired number of pod replicas. Rolling updates replace pods incrementally (maxUnavailable, maxSurge control the pace). Rollbacks are one command away. StatefulSets handle stateful workloads (databases) with stable network identities and persistent volumes.",
+          "Services provide stable network endpoints for pods. ClusterIP (internal only), NodePort (exposes on each node's IP), LoadBalancer (cloud provider external IP). Ingress controllers (Nginx, Traefik, AWS ALB) route HTTP traffic to services based on host and path rules, terminating TLS at the edge."
+        ],
+        "bullets": [
+          "Pod: one or more containers sharing network namespace and volumes",
+          "Deployment: declarative rolling updates with desired replica count",
+          "Service: stable DNS name and load balancing across pod replicas",
+          "Ingress: HTTP/HTTPS routing rules to services with TLS termination",
+          "ConfigMap / Secret: inject configuration and sensitive data into pods",
+          "Namespace: logical cluster partition for environments or teams"
+        ]
+      },
+      {
+        "title": "Scaling, Scheduling, and Resource Management",
+        "paragraphs": [
+          "The Horizontal Pod Autoscaler (HPA) scales pod replicas based on CPU, memory, or custom metrics (requests per second from Prometheus). Vertical Pod Autoscaler adjusts resource requests/limits. Cluster Autoscaler adds or removes nodes when pods can't be scheduled.",
+          "Every pod declares resource requests (guaranteed minimum) and limits (maximum allowed). Without requests, the scheduler can't pack pods efficiently. Without limits, one runaway container can starve others on the same node. Set requests based on measured p95 usage; set limits at 2–3× requests.",
+          "Probes keep services healthy: liveness probes restart crashed containers, readiness probes remove unready pods from service load balancing, startup probes protect slow-starting apps from premature liveness kills. Always define probes — K8s defaults to 'always healthy' if you don't."
+        ],
+        "bullets": [
+          "HPA: scale replicas on metrics — target 70% CPU utilization is a common starting point",
+          "Resource requests/limits: requests for scheduling, limits for enforcement (OOM kill)",
+          "Liveness probe: 'is the process alive?' — failure triggers restart",
+          "Readiness probe: 'can it handle traffic?' — failure removes from service endpoints",
+          "PodDisruptionBudget: minimum available pods during voluntary disruptions (node drain, upgrades)"
+        ]
+      },
+      {
+        "title": "Service Mesh: Istio, Linkerd, and the Data Plane",
+        "paragraphs": [
+          "As microservice count grows, cross-cutting concerns — mTLS, retries, circuit breaking, traffic splitting, distributed tracing — become painful to implement in every service. A service mesh extracts these into a dedicated infrastructure layer: a sidecar proxy (Envoy in Istio, Linkerd's micro-proxy) injected alongside each pod handles all inter-service traffic.",
+          "The control plane (Istiod, Linkerd control plane) configures proxies centrally. The data plane (sidecar proxies) executes policies without application code changes. Enable mTLS between all services with a single policy. Route 5% of traffic to a canary version via VirtualService rules. Inject trace headers automatically.",
+          "Service meshes add latency (typically 1–3ms per hop) and operational complexity. They're justified at 20+ services with strict security requirements, frequent canary deployments, or multi-cluster setups. For smaller deployments, Kubernetes Services plus a well-configured ingress may suffice."
+        ],
+        "bullets": [
+          "Sidecar proxy: intercepts all inbound and outbound pod traffic",
+          "mTLS: mutual TLS authentication and encryption between every service pair",
+          "Traffic management: weighted routing, fault injection, circuit breaking via config",
+          "Observability: automatic metrics, access logs, and trace propagation",
+          "Istio: feature-rich, Envoy-based — higher resource overhead",
+          "Linkerd: lightweight Rust micro-proxy — lower latency, simpler ops"
+        ]
+      },
+      {
+        "title": "Infrastructure as Code and GitOps",
+        "paragraphs": [
+          "Manual kubectl apply doesn't scale across environments and teams. Infrastructure as Code (IaC) tools — Terraform for cloud resources, Pulumi for general-purpose IaC — declare desired infrastructure in version-controlled files. Every change is reviewed, tested, and auditable.",
+          "For Kubernetes specifically, GitOps (ArgoCD, Flux) treats Git as the single source of truth. You commit K8s manifests (or Helm charts, Kustomize overlays) to a repo; the GitOps controller continuously reconciles the cluster to match. Drift is detected and auto-corrected. Rollbacks are git revert.",
+          "Helm packages K8s resources into reusable charts with templated values. Kustomize overlays let you patch base manifests for dev/staging/prod without duplication. Choose based on team preference — both are production-proven."
+        ],
+        "bullets": [
+          "Terraform: declarative cloud infrastructure (VPCs, clusters, databases, IAM)",
+          "GitOps: Git repo drives cluster state — ArgoCD/Flux auto-sync on commit",
+          "Helm charts: parameterized, versioned K8s application packages",
+          "Kustomize: overlay-based manifest customization without templating"
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Docker, Kubernetes & Service Mesh — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Docker, Kubernetes & Service Mesh: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Docker, Kubernetes & Service Mesh — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Docker, Kubernetes & Service Mesh: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Docker image: layered, immutable application package built from a Dockerfile",
+    "Container: running instance of an image with isolated process, network, and filesystem",
+    "Kubernetes pod: smallest deployable unit — one or more co-located containers",
+    "Deployment: manages rolling updates and replica count for stateless applications",
+    "Service: stable network endpoint with load balancing across pod replicas",
+    "Ingress: HTTP routing and TLS termination at the cluster edge",
+    "HPA: Horizontal Pod Autoscaler — scales replicas based on resource or custom metrics",
+    "Service mesh: infrastructure layer for inter-service security, routing, and observability",
+    "Sidecar proxy: injected container that handles all pod network traffic (Envoy, Linkerd)",
+    "GitOps: continuous deployment driven by Git repository as the source of truth"
+  ],
+  "practices": [
+    "Use multi-stage Docker builds with minimal base images (distroless, alpine)",
+    "Pin image tags to git SHA — never deploy untagged 'latest' to production",
+    "Declare resource requests and limits on every pod; base requests on measured usage",
+    "Configure liveness, readiness, and startup probes for every service",
+    "Use namespaces to isolate environments (dev, staging, prod) or teams",
+    "Store K8s manifests in Git and deploy via GitOps for auditable, reversible changes",
+    "Adopt a service mesh when you have 20+ services or strict mTLS requirements — not before"
+  ],
+  "pitfalls": [
+    "Running containers as root — a container escape compromises the host node",
+    "No resource limits: one memory-leaking pod OOM-kills neighbors on the same node",
+    "Missing health probes: K8s routes traffic to pods that aren't ready to serve",
+    "Using docker-compose patterns in production instead of proper orchestration",
+    "Adopting a service mesh too early — operational overhead outweighs benefits for small deployments",
+    "Storing secrets in ConfigMaps or plain Git — use Sealed Secrets, Vault, or cloud secret managers"
+  ],
+  "examples": [
+    {
+      "title": "Spotify's Kubernetes Migration",
+      "description": "Spotify migrated from bare-metal services to Kubernetes over several years, running thousands of microservices on K8s clusters. They built internal tooling (Titus) on top of K8s for developer experience, demonstrating that raw Kubernetes requires platform engineering investment to be productive at scale."
+    },
+    {
+      "title": "Lyft's Envoy and Istio",
+      "description": "Lyft created Envoy as a high-performance sidecar proxy and contributed it to the CNCF. They use Istio service mesh for mTLS, traffic shifting during deployments, and observability across hundreds of microservices — validating the service mesh pattern at large scale."
+    },
+    {
+      "title": "GitOps at Weaveworks",
+      "description": "Weaveworks pioneered GitOps with Flux: all cluster configuration lives in Git, changes are pull-request reviewed, and Flux automatically syncs approved commits to production. Rollbacks are instant git reverts — no manual kubectl required."
+    }
+  ],
+  "keyTakeaways": [
+    "Containers package applications consistently; Kubernetes orchestrates them at scale",
+    "Declare desired state in YAML — K8s reconciles reality continuously",
+    "Deployments, Services, and Ingress are the minimum K8s primitives every engineer should know",
+    "Resource requests/limits and health probes are non-negotiable for production workloads",
+    "Service meshes solve cross-cutting inter-service concerns but add complexity — adopt when justified",
+    "GitOps and IaC make infrastructure changes auditable, repeatable, and reversible",
+    "Invest in platform engineering — raw K8s is powerful but not developer-friendly out of the box"
+  ],
+  "whyItMatters": "Kubernetes is the de facto standard for container orchestration in production. Whether you operate clusters directly or deploy to managed services (EKS, GKE, AKS), understanding pods, services, scaling, and deployment strategies is essential. Service mesh and GitOps knowledge distinguishes engineers who can design production-grade platforms from those who can only write application code.",
+  "reflectionQuestions": [
+    "Walk through what happens when you kubectl apply a Deployment with 3 replicas — how does K8s achieve the desired state?",
+    "Your service has p99 latency spikes during deployments. How would a service mesh help with canary releases?",
+    "What would you put in a Dockerfile multi-stage build for a Node.js API vs. a Go microservice?",
+    "When would managed container services (ECS Fargate, Cloud Run) be a better choice than self-managed Kubernetes?"
+  ],
+  "resources": [
+    "Kubernetes Documentation (kubernetes.io)",
+    "Docker Deep Dive (Nigel Poulton)",
+    "Kubernetes Up & Running (Kelsey Hightower)",
+    "Istio documentation (istio.io)",
+    "The GitOps Manifesto (gitops.tech)"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "infra-containers-k8s-overview",
+      "title": "Docker, Kubernetes & Service Mesh overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Docker, Kubernetes & Service Mesh and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Docker, Kubernetes & Service Mesh; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Kubernetes Documentation (kubernetes.io)"
+    },
+    {
+      "title": "Docker Deep Dive (Nigel Poulton)"
+    },
+    {
+      "title": "Kubernetes Up & Running (Kelsey Hightower)"
+    },
+    {
+      "title": "Istio documentation (istio.io)"
+    },
+    {
+      "title": "The GitOps Manifesto (gitops.tech)"
+    }
+  ],
+  "relatedLessons": [
+    "infra-cicd-observability",
+    "infra-iac"
+  ]
+}

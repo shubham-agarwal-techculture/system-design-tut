@@ -1,0 +1,116 @@
+/* ═══════════════════════════════════════════════════════════════
+   RISO SKIN — Risograph print / zine aesthetic
+   Newsprint base with vivid spot-color overlays
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Light mode (Newsprint) ── */
+[data-skin="riso"],
+[data-skin="riso"][data-mode="light"] {
+  --palette-surface:        #F3EFE6;
+  --palette-surface-raised: #FAF8F3;
+  --palette-surface-sunken: #EBE6DC;
+  --palette-ink:            #1A1612;
+  --palette-ink-soft:       #302C26;
+  --palette-ink-muted:      #706860;
+  --palette-ink-subtle:     #A09890;
+  --palette-rule:           #C8C0B0;
+  --palette-rule-subtle:    #DDD8CE;
+  --palette-signal:         #FF48B0;
+  --palette-signal-hover:   #E83A9C;
+
+  /* Riso spot colors */
+  --riso-pink:              #FF48B0;
+  --riso-teal:              #00838A;
+  --riso-yellow:            #FFE800;
+  --riso-blue:              #0078BF;
+  --riso-red:               #FF665E;
+  --riso-green:             #00A95C;
+  --riso-purple:            #765BA7;
+  --riso-orange:            #FF6C2F;
+
+  --skin-font-heading:      "Bricolage Grotesque", "Impact", ui-sans-serif, sans-serif;
+  --skin-font-body:         "Literata", "Georgia", ui-serif, serif;
+  --skin-font-mono:         "Space Mono", "Courier New", ui-monospace, monospace;
+  --skin-font-label:        "Bricolage Grotesque", "Impact", ui-sans-serif, sans-serif;
+}
+
+/* ── Dark mode (Black newsprint / night print) ── */
+[data-skin="riso"][data-mode="dark"] {
+  --palette-surface:        #1A1612;
+  --palette-surface-raised: #242018;
+  --palette-surface-sunken: #100E0A;
+  --palette-ink:            #F3EFE6;
+  --palette-ink-soft:       #E0DCD0;
+  --palette-ink-muted:      #A09888;
+  --palette-ink-subtle:     #706860;
+  --palette-rule:           #302C24;
+  --palette-rule-subtle:    #221E18;
+  --palette-signal:         #FF48B0;
+  --palette-signal-hover:   #FF70C0;
+
+  /* Riso spot colors (vivid, unchanged — they pop on black) */
+  --riso-pink:              #FF48B0;
+  --riso-teal:              #00C4CE;
+  --riso-yellow:            #FFE800;
+  --riso-blue:              #2298EF;
+  --riso-red:               #FF665E;
+  --riso-green:             #00D870;
+  --riso-purple:            #9070CC;
+  --riso-orange:            #FF8C40;
+
+  --skin-font-heading:      "Bricolage Grotesque", "Impact", ui-sans-serif, sans-serif;
+  --skin-font-body:         "Literata", "Georgia", ui-serif, serif;
+  --skin-font-mono:         "Space Mono", "Courier New", ui-monospace, monospace;
+  --skin-font-label:        "Bricolage Grotesque", "Impact", ui-sans-serif, sans-serif;
+}
+
+/* ── Colorway: pink (default) ── */
+[data-skin="riso"][data-colorway="pink"],
+[data-skin="riso"]:not([data-colorway]) {
+  --palette-accent:         var(--riso-pink);
+  --palette-accent-hover:   #E83A9C;
+  --palette-accent-subtle:  rgba(255, 72, 176, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+
+/* ── Colorway: teal ── */
+[data-skin="riso"][data-colorway="teal"] {
+  --palette-accent:         var(--riso-teal);
+  --palette-accent-hover:   #006870;
+  --palette-accent-subtle:  rgba(0, 131, 138, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+[data-skin="riso"][data-mode="dark"][data-colorway="teal"] {
+  --palette-accent:         var(--riso-teal);
+  --palette-accent-hover:   #00E0EA;
+  --palette-accent-subtle:  rgba(0, 196, 206, 0.15);
+  --palette-accent-fg:      #1A1612;
+}
+
+/* ── Colorway: yellow ── */
+[data-skin="riso"][data-colorway="yellow"] {
+  --palette-accent:         #C8B400;
+  --palette-accent-hover:   #A89600;
+  --palette-accent-subtle:  rgba(200, 180, 0, 0.12);
+  --palette-accent-fg:      #1A1612;
+}
+[data-skin="riso"][data-mode="dark"][data-colorway="yellow"] {
+  --palette-accent:         var(--riso-yellow);
+  --palette-accent-hover:   #FFEE40;
+  --palette-accent-subtle:  rgba(255, 232, 0, 0.15);
+  --palette-accent-fg:      #1A1612;
+}
+
+/* ── Colorway: blue ── */
+[data-skin="riso"][data-colorway="blue"] {
+  --palette-accent:         var(--riso-blue);
+  --palette-accent-hover:   #005FA0;
+  --palette-accent-subtle:  rgba(0, 120, 191, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+[data-skin="riso"][data-mode="dark"][data-colorway="blue"] {
+  --palette-accent:         var(--riso-blue);
+  --palette-accent-hover:   #50B8FF;
+  --palette-accent-subtle:  rgba(34, 152, 239, 0.15);
+  --palette-accent-fg:      #1A1612;
+}

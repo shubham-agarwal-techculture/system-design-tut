@@ -1,0 +1,99 @@
+{
+  "id": "fund-chaos",
+  "title": "Chaos Engineering",
+  "moduleId": "reliability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "Chaos Engineering — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "reliability",
+    "living",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Chaos Engineering. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Chaos Engineering. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Chaos Engineering — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Chaos Engineering: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Chaos Engineering — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Chaos Engineering: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Chaos Engineering: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Chaos Engineering belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding Chaos Engineering improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Chaos Engineering in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-chaos-overview",
+      "title": "Chaos Engineering overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Chaos Engineering and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Chaos Engineering; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-incidents",
+    "fund-reliability",
+    "fund-slos"
+  ]
+}

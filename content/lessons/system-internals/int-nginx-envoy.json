@@ -1,0 +1,101 @@
+{
+  "id": "int-nginx-envoy",
+  "title": "Nginx & Envoy Internals",
+  "moduleId": "system-internals",
+  "phaseId": "internal-designs",
+  "durationMinutes": 30,
+  "summary": "Nginx & Envoy Internals — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "int-kafka"
+  ],
+  "tags": [
+    "system-internals",
+    "living",
+    "internal-designs"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Nginx & Envoy Internals. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Nginx & Envoy Internals. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Nginx & Envoy Internals — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Nginx & Envoy Internals: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Nginx & Envoy Internals — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Nginx & Envoy Internals: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Nginx & Envoy Internals: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Nginx & Envoy Internals belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding Nginx & Envoy Internals improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Nginx & Envoy Internals in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "int-nginx-envoy-overview",
+      "title": "Nginx & Envoy Internals overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Nginx & Envoy Internals and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Nginx & Envoy Internals; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "int-cassandra",
+    "int-clickhouse",
+    "int-etcd"
+  ]
+}

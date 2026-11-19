@@ -1,0 +1,281 @@
+{
+  "id": "arch-monolith-micro",
+  "title": "Monolith to Microservices",
+  "moduleId": "architecture-patterns",
+  "phaseId": "architecture",
+  "durationMinutes": 40,
+  "summary": "Most successful systems start as a monolith and evolve toward microservices only when organizational scale, deployment independence, or technical constraints demand it. This lesson teaches you how to recognize the right moment to split, how to decompose safely, and which complementary patterns — modular monoliths, event-driven architecture, CQRS, and event sourcing — fit each stage of growth.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "arch-hexagonal-ddd"
+  ],
+  "tags": [
+    "architecture-patterns",
+    "architecture"
+  ],
+  "sections": [
+    {
+      "title": "The Monolith Spectrum: From Big Ball of Mud to Modular Monolith",
+      "paragraphs": [
+        "A monolith is not a single architecture — it is a deployment model. At one end sits the 'big ball of mud': tangled code with no clear boundaries, where every change risks breaking unrelated features. At the other end is the modular monolith: one deployable unit with well-defined internal modules, explicit interfaces between them, and enforced dependency rules.",
+        "The modular monolith gives you most of the development speed of a single codebase — shared types, atomic refactors, simple debugging — while preserving logical boundaries that can later become service boundaries. Teams that skip this step and jump straight to microservices often recreate the monolith's coupling across network calls, but now with latency, partial failures, and distributed transactions added on top.",
+        "Before considering microservices, ask: can we enforce module boundaries in code? Can we deploy independently within the monolith using feature flags? Can we scale the entire application horizontally behind a load balancer? If yes, you may not need to split yet."
+      ],
+      "bullets": [
+        "Single deployable artifact: one build pipeline, one runtime, one database (often)",
+        "In-process calls: nanosecond latency, ACID transactions across modules",
+        "Modular monolith: package-by-feature, dependency rules (e.g., domain cannot import infrastructure)",
+        "Anti-pattern: 'distributed monolith' — many services that must deploy together"
+      ]
+    },
+    {
+      "title": "When and How to Extract Microservices",
+      "paragraphs": [
+        "Microservices earn their complexity when a bounded part of your system has genuinely different scaling, deployment, or team ownership needs. Classic signals include: one module needs 10× the CPU of everything else; one team wants daily deploys while another needs monthly stability; a component uses a different runtime (Python ML pipeline vs. Java API); or regulatory isolation requires separate audit boundaries.",
+        "The Strangler Fig pattern is the safest extraction path: build a new service alongside the monolith, route a slice of traffic to it via a proxy or feature flag, migrate data incrementally, and retire the old code path only when the new service is proven. Never attempt a 'big bang' rewrite — history shows these fail more often than they succeed.",
+        "Each extracted service should own its data. Shared databases between services recreate coupling and make independent deployment impossible. Start with read-heavy, loosely coupled domains (notifications, search indexing, reporting) before tackling core transactional paths like payments or inventory."
+      ],
+      "bullets": [
+        "Identify bounded contexts (from DDD) as candidate service boundaries",
+        "Extract along seams that already have async communication (events, queues)",
+        "Use an API gateway or BFF (Backend for Frontend) to aggregate client-facing calls",
+        "Plan for synchronous vs. asynchronous inter-service communication upfront"
+      ]
+    },
+    {
+      "title": "Event-Driven Architecture and Loose Coupling",
+      "paragraphs": [
+        "In a microservices landscape, direct HTTP calls between dozens of services create brittle dependency graphs — a failure in the recommendation service should not block checkout. Event-driven architecture decouples producers from consumers: the Order Service publishes an OrderPlaced event; Inventory, Email, Analytics, and Fraud services react independently.",
+        "Message brokers (Kafka, RabbitMQ, SNS/SQS) provide durability, replay, and fan-out. Design events as past-tense facts ('OrderPlaced', 'PaymentCaptured') rather than commands ('ProcessOrder'), so multiple consumers can react without the producer knowing who listens.",
+        "The trade-off is eventual consistency. When a user completes checkout, their order confirmation email may arrive seconds later. Your UX and business logic must tolerate this — show optimistic UI, use idempotent consumers, and design compensating transactions for failures."
+      ],
+      "bullets": [
+        "Choreography: services react to events without a central orchestrator",
+        "Orchestration: a saga coordinator sequences steps (use for complex multi-step flows)",
+        "Outbox pattern: write events to a DB table in the same transaction as business data, then publish asynchronously",
+        "Dead letter queues capture poison messages for investigation"
+      ]
+    },
+    {
+      "title": "CQRS and Event Sourcing: When Reads and Writes Diverge",
+      "paragraphs": [
+        "Command Query Responsibility Segregation (CQRS) separates the model used for writes (commands) from the model used for reads (queries). In a simple CRUD app, one model suffices. But when read patterns differ radically from write patterns — a write-heavy order system with complex analytics dashboards — separate models let you optimize each independently.",
+        "Event sourcing takes this further: instead of storing current state, you store an append-only log of state-changing events. Current state is derived by replaying events. This gives you a complete audit trail, temporal queries ('what did the account look like on March 1?'), and natural integration with event-driven systems.",
+        "These patterns add significant complexity. Use CQRS when read/write load profiles genuinely differ or when you need multiple read-optimized projections. Use event sourcing when auditability, replay, or temporal queries are core requirements — not because it sounds architecturally impressive."
+      ],
+      "bullets": [
+        "Write model: normalized, enforces invariants, handles business rules",
+        "Read model: denormalized projections optimized for specific queries (materialized views)",
+        "Projections rebuild from the event log when schemas change",
+        "Snapshots prevent replaying millions of events on every read"
+      ]
+    },
+    {
+      "title": "Serverless and the Continuum of Decomposition",
+      "paragraphs": [
+        "Serverless (FaaS) is the extreme end of decomposition: individual functions triggered by events, scaled to zero, billed per invocation. It fits spiky, stateless workloads — image processing, webhook handlers, scheduled jobs — but struggles with long-running processes, persistent connections, and cold-start-sensitive latency requirements.",
+        "Architecture is a continuum, not a binary choice. A typical mature system might run a modular monolith for core business logic, microservices for independently scaling components, serverless for event reactions, and a shared event bus tying them together. The goal is the minimum decomposition that solves your actual constraints.",
+        "Measure before splitting. If your monolith handles 500 req/s with p99 latency under 100ms and deploys weekly without conflict, microservices will slow you down. If three teams block each other on every release and one module consumes 80% of infrastructure budget, targeted extraction will pay for itself within quarters."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "The Monolith Spectrum: From Big Ball of Mud to Modular Monolith",
+        "paragraphs": [
+          "A monolith is not a single architecture — it is a deployment model. At one end sits the 'big ball of mud': tangled code with no clear boundaries, where every change risks breaking unrelated features. At the other end is the modular monolith: one deployable unit with well-defined internal modules, explicit interfaces between them, and enforced dependency rules.",
+          "The modular monolith gives you most of the development speed of a single codebase — shared types, atomic refactors, simple debugging — while preserving logical boundaries that can later become service boundaries. Teams that skip this step and jump straight to microservices often recreate the monolith's coupling across network calls, but now with latency, partial failures, and distributed transactions added on top.",
+          "Before considering microservices, ask: can we enforce module boundaries in code? Can we deploy independently within the monolith using feature flags? Can we scale the entire application horizontally behind a load balancer? If yes, you may not need to split yet."
+        ],
+        "bullets": [
+          "Single deployable artifact: one build pipeline, one runtime, one database (often)",
+          "In-process calls: nanosecond latency, ACID transactions across modules",
+          "Modular monolith: package-by-feature, dependency rules (e.g., domain cannot import infrastructure)",
+          "Anti-pattern: 'distributed monolith' — many services that must deploy together"
+        ]
+      },
+      {
+        "title": "When and How to Extract Microservices",
+        "paragraphs": [
+          "Microservices earn their complexity when a bounded part of your system has genuinely different scaling, deployment, or team ownership needs. Classic signals include: one module needs 10× the CPU of everything else; one team wants daily deploys while another needs monthly stability; a component uses a different runtime (Python ML pipeline vs. Java API); or regulatory isolation requires separate audit boundaries.",
+          "The Strangler Fig pattern is the safest extraction path: build a new service alongside the monolith, route a slice of traffic to it via a proxy or feature flag, migrate data incrementally, and retire the old code path only when the new service is proven. Never attempt a 'big bang' rewrite — history shows these fail more often than they succeed.",
+          "Each extracted service should own its data. Shared databases between services recreate coupling and make independent deployment impossible. Start with read-heavy, loosely coupled domains (notifications, search indexing, reporting) before tackling core transactional paths like payments or inventory."
+        ],
+        "bullets": [
+          "Identify bounded contexts (from DDD) as candidate service boundaries",
+          "Extract along seams that already have async communication (events, queues)",
+          "Use an API gateway or BFF (Backend for Frontend) to aggregate client-facing calls",
+          "Plan for synchronous vs. asynchronous inter-service communication upfront"
+        ]
+      },
+      {
+        "title": "Event-Driven Architecture and Loose Coupling",
+        "paragraphs": [
+          "In a microservices landscape, direct HTTP calls between dozens of services create brittle dependency graphs — a failure in the recommendation service should not block checkout. Event-driven architecture decouples producers from consumers: the Order Service publishes an OrderPlaced event; Inventory, Email, Analytics, and Fraud services react independently.",
+          "Message brokers (Kafka, RabbitMQ, SNS/SQS) provide durability, replay, and fan-out. Design events as past-tense facts ('OrderPlaced', 'PaymentCaptured') rather than commands ('ProcessOrder'), so multiple consumers can react without the producer knowing who listens.",
+          "The trade-off is eventual consistency. When a user completes checkout, their order confirmation email may arrive seconds later. Your UX and business logic must tolerate this — show optimistic UI, use idempotent consumers, and design compensating transactions for failures."
+        ],
+        "bullets": [
+          "Choreography: services react to events without a central orchestrator",
+          "Orchestration: a saga coordinator sequences steps (use for complex multi-step flows)",
+          "Outbox pattern: write events to a DB table in the same transaction as business data, then publish asynchronously",
+          "Dead letter queues capture poison messages for investigation"
+        ]
+      },
+      {
+        "title": "CQRS and Event Sourcing: When Reads and Writes Diverge",
+        "paragraphs": [
+          "Command Query Responsibility Segregation (CQRS) separates the model used for writes (commands) from the model used for reads (queries). In a simple CRUD app, one model suffices. But when read patterns differ radically from write patterns — a write-heavy order system with complex analytics dashboards — separate models let you optimize each independently.",
+          "Event sourcing takes this further: instead of storing current state, you store an append-only log of state-changing events. Current state is derived by replaying events. This gives you a complete audit trail, temporal queries ('what did the account look like on March 1?'), and natural integration with event-driven systems.",
+          "These patterns add significant complexity. Use CQRS when read/write load profiles genuinely differ or when you need multiple read-optimized projections. Use event sourcing when auditability, replay, or temporal queries are core requirements — not because it sounds architecturally impressive."
+        ],
+        "bullets": [
+          "Write model: normalized, enforces invariants, handles business rules",
+          "Read model: denormalized projections optimized for specific queries (materialized views)",
+          "Projections rebuild from the event log when schemas change",
+          "Snapshots prevent replaying millions of events on every read"
+        ]
+      },
+      {
+        "title": "Serverless and the Continuum of Decomposition",
+        "paragraphs": [
+          "Serverless (FaaS) is the extreme end of decomposition: individual functions triggered by events, scaled to zero, billed per invocation. It fits spiky, stateless workloads — image processing, webhook handlers, scheduled jobs — but struggles with long-running processes, persistent connections, and cold-start-sensitive latency requirements.",
+          "Architecture is a continuum, not a binary choice. A typical mature system might run a modular monolith for core business logic, microservices for independently scaling components, serverless for event reactions, and a shared event bus tying them together. The goal is the minimum decomposition that solves your actual constraints.",
+          "Measure before splitting. If your monolith handles 500 req/s with p99 latency under 100ms and deploys weekly without conflict, microservices will slow you down. If three teams block each other on every release and one module consumes 80% of infrastructure budget, targeted extraction will pay for itself within quarters."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Monolith to Microservices — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Monolith to Microservices: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Monolith to Microservices — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Monolith to Microservices: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Monolith: single deployable unit — simplest ops, hardest to scale teams independently",
+    "Modular monolith: enforced internal boundaries without network overhead",
+    "Microservices: independently deployable, scalable, and failure-isolated services",
+    "Bounded context: a DDD boundary where a domain model is consistent and autonomous",
+    "Strangler Fig pattern: incrementally replace monolith functionality with new services",
+    "Event-driven architecture: services communicate via asynchronous domain events",
+    "Saga pattern: coordinate distributed transactions via compensating actions",
+    "CQRS: separate read and write models optimized for different access patterns",
+    "Event sourcing: store state changes as an immutable append-only event log",
+    "Serverless (FaaS): event-triggered functions with automatic scaling and pay-per-use billing"
+  ],
+  "practices": [
+    "Start with a modular monolith; enforce package boundaries and dependency rules from day one",
+    "Extract services along existing bounded contexts, not along technical layers (don't split 'the database service')",
+    "Each microservice owns its data store — no shared databases between services",
+    "Publish domain events as past-tense facts; keep event schemas backward-compatible",
+    "Use the Strangler Fig pattern for migration — never big-bang rewrite",
+    "Design for failure: timeouts, retries with jitter, circuit breakers on every synchronous call",
+    "Measure team velocity, deployment frequency, and infrastructure cost before and after splitting"
+  ],
+  "pitfalls": [
+    "Premature microservices: splitting before team size or scaling needs justify the operational overhead",
+    "Distributed monolith: services so coupled they must deploy together, but now with network latency",
+    "Shared database anti-pattern: multiple services writing to the same tables breaks independent deployment",
+    "Chatty services: chains of synchronous HTTP calls that multiply latency and failure rates",
+    "Ignoring eventual consistency: assuming distributed systems behave like a single ACID database",
+    "Over-engineering with event sourcing when simple CRUD and audit logs would suffice"
+  ],
+  "examples": [
+    {
+      "title": "Shopify's Modular Monolith",
+      "description": "Shopify runs one of the largest Ruby on Rails monoliths in production, serving millions of merchants. They invest heavily in modular boundaries (component-based architecture) and horizontal scaling rather than premature service extraction. Their lesson: monoliths scale further than most teams assume when modularized well."
+    },
+    {
+      "title": "Netflix's Microservices Evolution",
+      "description": "Netflix migrated from a monolithic DVD rental app to 700+ microservices on AWS. Each service owns its data, communicates via REST and async events, and deploys independently — thousands of times per day. They extracted services when scaling, fault isolation, and team autonomy demands exceeded what the monolith could support."
+    },
+    {
+      "title": "Uber's Domain-Oriented Microservices",
+      "description": "Uber decomposed around business domains (Rider, Driver, Eats, Freight) rather than technical layers. Each domain team owns services end-to-end. Cross-domain communication uses gRPC for synchronous calls and Kafka for async events, with explicit schema registries to prevent breaking changes."
+    }
+  ],
+  "keyTakeaways": [
+    "Monoliths are a valid and often optimal choice for early-stage and mid-size systems",
+    "Modular monoliths preserve simplicity while preparing clean extraction boundaries",
+    "Split services when scaling, deployment, or team autonomy needs exceed monolith capacity",
+    "Event-driven architecture decouples services but introduces eventual consistency",
+    "CQRS and event sourcing are powerful but should be applied to specific problems, not by default",
+    "The Strangler Fig pattern is the safest path from monolith to microservices",
+    "Architecture is a continuum — mix monolith, microservices, and serverless where each fits best"
+  ],
+  "whyItMatters": "Architecture style is one of the highest-impact and hardest-to-reverse decisions in system design. Premature microservices drain velocity with operational complexity; a neglected monolith becomes unmaintainable. Understanding the full spectrum — and the signals for when to move — lets you choose consciously and evolve gracefully as your system and organization grow.",
+  "reflectionQuestions": [
+    "What signals in your current (or a hypothetical) project would indicate it's time to extract a microservice?",
+    "Draw the dependency graph of services in a system you know. Where are the synchronous chains that would cause cascading failures?",
+    "For an e-commerce checkout flow, which steps could be eventual (async) and which must be synchronous? Why?",
+    "When would you choose event sourcing over a traditional database with an audit log table?"
+  ],
+  "resources": [
+    "Building Microservices (Sam Newman)",
+    "Monolith to Microservices (Sam Newman)",
+    "Designing Data-Intensive Applications — Chapters 11-12 (Martin Kleppmann)",
+    "microservices.io patterns catalog (Chris Richardson)",
+    "Shopify Engineering: Deconstructing the Monolith"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "arch-monolith-micro-overview",
+      "title": "Monolith to Microservices overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Monolith to Microservices and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Monolith to Microservices; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Building Microservices (Sam Newman)"
+    },
+    {
+      "title": "Monolith to Microservices (Sam Newman)"
+    },
+    {
+      "title": "Designing Data-Intensive Applications — Chapters 11-12 (Martin Kleppmann)"
+    },
+    {
+      "title": "microservices.io patterns catalog (Chris Richardson)"
+    },
+    {
+      "title": "Shopify Engineering: Deconstructing the Monolith"
+    }
+  ],
+  "relatedLessons": [
+    "arch-clean-ddd",
+    "arch-event-cqrs",
+    "arch-hexagonal-ddd"
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "id": "net-tcp-udp",
+  "title": "TCP, UDP & the Transport Layer",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 30,
+  "summary": "TCP, UDP & the Transport Layer — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "net-tcp-ip"
+  ],
+  "tags": [
+    "networking",
+    "evergreen",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers TCP, UDP & the Transport Layer. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers TCP, UDP & the Transport Layer. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "TCP, UDP & the Transport Layer — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of TCP, UDP & the Transport Layer: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "TCP, UDP & the Transport Layer — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for TCP, UDP & the Transport Layer: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "TCP, UDP & the Transport Layer: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "TCP, UDP & the Transport Layer belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding TCP, UDP & the Transport Layer improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for TCP, UDP & the Transport Layer in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "net-tcp-udp-overview",
+      "title": "TCP, UDP & the Transport Layer overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain TCP, UDP & the Transport Layer and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on TCP, UDP & the Transport Layer; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "net-bgp-anycast",
+    "net-http",
+    "net-kernel"
+  ]
+}

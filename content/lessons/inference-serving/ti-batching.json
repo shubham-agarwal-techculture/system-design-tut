@@ -1,0 +1,101 @@
+{
+  "id": "ti-batching",
+  "title": "Continuous Batching & Paged Attention",
+  "moduleId": "inference-serving",
+  "phaseId": "training-inference",
+  "durationMinutes": 30,
+  "summary": "Continuous batching keeps GPUs busy by admitting new requests as others finish tokens. Paged attention makes the KV memory layout practical at high concurrency.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "inference-serving",
+    "living",
+    "training-inference"
+  ],
+  "sections": [
+    {
+      "title": "From static to continuous batching",
+      "paragraphs": [
+        "Static batching waits for an entire batch to finish before admitting new work — short requests pad behind long ones. Continuous (iteration-level) batching schedules at each decode step, so finished sequences free slots immediately.",
+        "The scheduler must account for KV memory, fairness, and latency SLOs. Without memory awareness, admitting too many sequences causes OOM; without fairness, long generations starve short interactive requests."
+      ]
+    },
+    {
+      "title": "Paged attention",
+      "paragraphs": [
+        "Paged attention stores KV in non-contiguous blocks tracked by a block table, similar to OS virtual memory. This cuts waste from reserving max-context contiguous buffers per sequence and enables sharing blocks for identical prefixes."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "From static to continuous batching",
+        "paragraphs": [
+          "Static batching waits for an entire batch to finish before admitting new work — short requests pad behind long ones. Continuous (iteration-level) batching schedules at each decode step, so finished sequences free slots immediately.",
+          "The scheduler must account for KV memory, fairness, and latency SLOs. Without memory awareness, admitting too many sequences causes OOM; without fairness, long generations starve short interactive requests."
+        ]
+      },
+      {
+        "title": "Paged attention",
+        "paragraphs": [
+          "Paged attention stores KV in non-contiguous blocks tracked by a block table, similar to OS virtual memory. This cuts waste from reserving max-context contiguous buffers per sequence and enables sharing blocks for identical prefixes."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Continuous Batching & Paged Attention — Deep Dive",
+        "paragraphs": [
+          "Operational detail for Continuous Batching & Paged Attention: metrics to watch, capacity knobs, and failure injection ideas."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Continuous Batching & Paged Attention — Expert Notes",
+        "paragraphs": [
+          "Edge cases and multi-tenant considerations for Continuous Batching & Paged Attention."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Continuous batching schedules per decode step",
+    "KV block tables enable paging and sharing"
+  ],
+  "practices": [
+    "Expose memory utilization as an autoscaling signal",
+    "Separate SLO classes (interactive vs batch) in the scheduler"
+  ],
+  "pitfalls": [
+    "Autoscaling on CPU/GPU util alone while KV is the bottleneck"
+  ],
+  "examples": [
+    {
+      "title": "Production pattern",
+      "description": "Teams operating continuous batching & paged attention treat measurement and budgets as part of the design, not an afterthought."
+    }
+  ],
+  "keyTakeaways": [
+    "Serving efficiency is a scheduling + memory-layout problem"
+  ],
+  "whyItMatters": "Throughput and cost-per-token at scale depend more on batching and KV layout than on raw model FLOPs.",
+  "reflectionQuestions": [
+    "What signals would you use to autoscale an inference pool?"
+  ],
+  "numbersToKnow": [],
+  "diagrams": [],
+  "caseStudies": [],
+  "interviewQuestions": [],
+  "exercises": [],
+  "sources": [],
+  "relatedLessons": [
+    "ti-fleet",
+    "ti-spec-quant"
+  ]
+}

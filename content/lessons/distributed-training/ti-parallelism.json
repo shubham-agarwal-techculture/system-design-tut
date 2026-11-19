@@ -1,0 +1,100 @@
+{
+  "id": "ti-parallelism",
+  "title": "Data, Tensor, Pipeline & MoE Parallelism",
+  "moduleId": "distributed-training",
+  "phaseId": "training-inference",
+  "durationMinutes": 30,
+  "summary": "Data, Tensor, Pipeline & MoE Parallelism — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "ti-collectives"
+  ],
+  "tags": [
+    "distributed-training",
+    "living",
+    "training-inference"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Data, Tensor, Pipeline & MoE Parallelism. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Data, Tensor, Pipeline & MoE Parallelism. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Data, Tensor, Pipeline & MoE Parallelism — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Data, Tensor, Pipeline & MoE Parallelism: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Data, Tensor, Pipeline & MoE Parallelism — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Data, Tensor, Pipeline & MoE Parallelism: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Data, Tensor, Pipeline & MoE Parallelism: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Data, Tensor, Pipeline & MoE Parallelism belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding Data, Tensor, Pipeline & MoE Parallelism improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Data, Tensor, Pipeline & MoE Parallelism in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ti-parallelism-overview",
+      "title": "Data, Tensor, Pipeline & MoE Parallelism overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Data, Tensor, Pipeline & MoE Parallelism and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Data, Tensor, Pipeline & MoE Parallelism; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ti-collectives",
+    "ti-zero-fsdp"
+  ]
+}

@@ -14,5 +14,20 @@ module.exports = {
         NODE_ENV: "production",
       },
     },
+    {
+      name: "system-design-guide-api",
+      cwd: __dirname,
+      script: "node_modules/tsx/dist/cli.mjs",
+      args: "--tsconfig tsconfig.scripts.json server/index.ts",
+      instances: 1,
+      exec_mode: "fork",
+      watch: false,
+      autorestart: true,
+      max_memory_restart: "500M",
+      env: {
+        NODE_ENV: "production",
+        PORT: 8787,
+      },
+    },
   ],
 };

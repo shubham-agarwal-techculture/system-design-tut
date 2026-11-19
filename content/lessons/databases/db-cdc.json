@@ -1,0 +1,99 @@
+{
+  "id": "db-cdc",
+  "title": "Change Data Capture",
+  "moduleId": "databases",
+  "phaseId": "foundations",
+  "durationMinutes": 30,
+  "summary": "Change Data Capture — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "databases",
+    "living",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Change Data Capture. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Change Data Capture. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Change Data Capture — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Change Data Capture: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Change Data Capture — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Change Data Capture: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Change Data Capture: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Change Data Capture belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding Change Data Capture improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Change Data Capture in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "db-cdc-overview",
+      "title": "Change Data Capture overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Change Data Capture and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Change Data Capture; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "db-indexes-replication",
+    "db-modeling",
+    "db-replication-sharding"
+  ]
+}

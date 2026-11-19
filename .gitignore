@@ -70,6 +70,12 @@ web_modules/
 .env.*
 !.env.example
 
+# Local runtime DBs / scout cache
+data/
+content/scout/scout.sqlite
+content/reviews/
+*.sqlite
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

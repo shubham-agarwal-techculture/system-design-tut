@@ -1,0 +1,101 @@
+{
+  "id": "net-realtime",
+  "title": "WebSockets & gRPC",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 30,
+  "summary": "WebSockets & gRPC — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "net-quic"
+  ],
+  "tags": [
+    "networking",
+    "evergreen",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers WebSockets & gRPC. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers WebSockets & gRPC. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "WebSockets & gRPC — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of WebSockets & gRPC: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "WebSockets & gRPC — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for WebSockets & gRPC: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "WebSockets & gRPC: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "WebSockets & gRPC belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding WebSockets & gRPC improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for WebSockets & gRPC in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "net-realtime-overview",
+      "title": "WebSockets & gRPC overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain WebSockets & gRPC and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on WebSockets & gRPC; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "net-bgp-anycast",
+    "net-http",
+    "net-kernel"
+  ]
+}

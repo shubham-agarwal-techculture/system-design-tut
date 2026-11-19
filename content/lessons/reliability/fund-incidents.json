@@ -1,0 +1,101 @@
+{
+  "id": "fund-incidents",
+  "title": "Incident Response",
+  "moduleId": "reliability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "Incident Response — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-chaos"
+  ],
+  "tags": [
+    "reliability",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Incident Response. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Incident Response. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Incident Response — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Incident Response: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Incident Response — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Incident Response: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Incident Response: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Incident Response belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Incident Response improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Incident Response in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-incidents-overview",
+      "title": "Incident Response overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Incident Response and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Incident Response; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-chaos",
+    "fund-reliability",
+    "fund-slos"
+  ]
+}

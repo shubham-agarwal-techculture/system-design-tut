@@ -1,0 +1,97 @@
+{
+  "id": "ti-gateway",
+  "title": "LLM Gateways & Guardrails",
+  "moduleId": "llm-ops",
+  "phaseId": "training-inference",
+  "durationMinutes": 30,
+  "summary": "LLM Gateways & Guardrails — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "llm-ops",
+    "living",
+    "training-inference"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers LLM Gateways & Guardrails. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers LLM Gateways & Guardrails. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "LLM Gateways & Guardrails — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of LLM Gateways & Guardrails: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "LLM Gateways & Guardrails — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for LLM Gateways & Guardrails: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "LLM Gateways & Guardrails: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "LLM Gateways & Guardrails belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding LLM Gateways & Guardrails improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for LLM Gateways & Guardrails in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ti-gateway-overview",
+      "title": "LLM Gateways & Guardrails overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain LLM Gateways & Guardrails and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on LLM Gateways & Guardrails; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ti-model-ops"
+  ]
+}

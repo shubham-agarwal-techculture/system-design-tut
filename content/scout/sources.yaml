@@ -1,0 +1,51 @@
+version: "1.0.0"
+rss:
+  - { id: netflix, name: Netflix Tech Blog, url: "https://netflixtechblog.com/feed" }
+  - { id: uber, name: Uber Engineering, url: "https://www.uber.com/blog/engineering/rss/" }
+  - { id: cloudflare, name: Cloudflare Blog, url: "https://blog.cloudflare.com/rss/" }
+  - { id: stripe, name: Stripe Engineering, url: "https://stripe.com/blog/feed.rss" }
+  - { id: openai, name: OpenAI Blog, url: "https://openai.com/blog/rss.xml" }
+  - { id: anthropic, name: Anthropic News, url: "https://www.anthropic.com/news/rss.xml" }
+  - { id: huggingface, name: Hugging Face Blog, url: "https://huggingface.co/blog/feed.xml" }
+  - { id: aws-arch, name: AWS Architecture Blog, url: "https://aws.amazon.com/blogs/architecture/feed/" }
+  - { id: databricks, name: Databricks Blog, url: "https://www.databricks.com/feed" }
+arxiv:
+  categories: ["cs.DC", "cs.LG", "cs.DB", "cs.NI", "cs.OS"]
+  maxPerCategory: 25
+github_releases:
+  - { id: vllm, repo: "vllm-project/vllm" }
+  - { id: sglang, repo: "sgl-project/sglang" }
+  - { id: ray, repo: "ray-project/ray" }
+  - { id: kafka, repo: "apache/kafka" }
+  - { id: postgres, repo: "postgres/postgres" }
+  - { id: kubernetes, repo: "kubernetes/kubernetes" }
+  - { id: clickhouse, repo: "ClickHouse/ClickHouse" }
+  - { id: envoy, repo: "envoyproxy/envoy" }
+conferences:
+  - { id: osdi, name: OSDI, url: "https://www.usenix.org/conferences/osdi" }
+  - { id: sosp, name: SOSP, url: "https://sosp.org/" }
+  - { id: nsdi, name: NSDI, url: "https://www.usenix.org/conferences/nsdi" }
+  - { id: mlsys, name: MLSys, url: "https://mlsys.org/" }
+  - { id: infoq, name: InfoQ, url: "https://feed.infoq.com/" }
+hackernews:
+  enabled: true
+  keywords:
+    - "distributed"
+    - "kubernetes"
+    - "kafka"
+    - "postgres"
+    - "llm"
+    - "inference"
+    - "vllm"
+    - "raft"
+    - "consistency"
+web_search:
+  enabled: true
+  queries:
+    - "new LLM serving technique"
+    - "distributed systems design pattern"
+    - "database internals"
+thresholds:
+  watchlist: 0.45
+  draft: 0.7
+  refresh: 0.6

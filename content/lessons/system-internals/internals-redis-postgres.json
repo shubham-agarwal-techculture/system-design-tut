@@ -1,0 +1,291 @@
+{
+  "id": "internals-redis-postgres",
+  "title": "Redis & PostgreSQL Internals",
+  "moduleId": "system-internals",
+  "phaseId": "internal-designs",
+  "durationMinutes": 42,
+  "summary": "Redis and PostgreSQL sit at opposite ends of the data store spectrum — in-memory structures vs. durable relational pages — yet both appear together in nearly every production stack. Understanding their internal architectures explains why Redis is fast (single-threaded event loop, O(1) structures) and why Postgres queries behave as they do (MVCC, buffer pool, WAL, query planner).",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "internals-kafka-nginx"
+  ],
+  "tags": [
+    "system-internals",
+    "internal-designs"
+  ],
+  "sections": [
+    {
+      "title": "Redis: In-Memory Data Structures and Single-Threaded Execution",
+      "paragraphs": [
+        "Redis is primarily an in-memory key-value store with rich data structures: strings, lists, sets, sorted sets, hashes, streams, and more. Each type is implemented with optimized internal encodings — a small hash might use a ziplist (compact contiguous memory) and automatically upgrade to a hash table as it grows.",
+        "The core Redis server process is single-threaded for command execution. One event loop (epoll/kqueue) handles thousands of client connections; commands are processed sequentially, eliminating lock contention on data structures. This design is why Redis achieves sub-millisecond latency — no mutex overhead on the hot path.",
+        "Persistence is optional and configurable. RDB snapshots fork a child process (copy-on-write) to dump memory to disk periodically. AOF (Append-Only File) logs every write command and replays on restart — fsync policy (always, everysec, no) trades durability for throughput. Most production setups use both: RDB for fast restarts, AOF for minimal data loss.",
+        "Eviction policies (allkeys-lru, volatile-ttl, etc.) kick in when maxmemory is reached. Redis is not a cache by default — without maxmemory and eviction, it grows until OOM. Treat explicit TTLs and memory limits as mandatory operational configuration, not optional tuning."
+      ],
+      "bullets": [
+        "Single-threaded command execution — no locks on data structures",
+        "Encodings upgrade automatically (ziplist → hashtable, intset → set)",
+        "RDB: point-in-time snapshot; AOF: command replay log",
+        "Streams: log-like structure with consumer groups (Kafka-lite)"
+      ]
+    },
+    {
+      "title": "Redis: Replication, Cluster, and Common Pitfalls",
+      "paragraphs": [
+        "Primary-replica replication is asynchronous by default. Replicas connect to the primary, receive a full sync (RDB transfer) or partial resync (backlog buffer), then stream incremental commands. Read-your-writes is not guaranteed on replicas — a write to primary may not appear on replica for milliseconds, causing stale reads if you route reads to replicas blindly.",
+        "Redis Cluster shards data across 16,384 hash slots. Each master owns a slot range; replicas failover via gossip and majority quorum. MOVED and ASK redirects tell clients the correct node. Cluster mode adds operational complexity — multi-key transactions only work within the same hash slot (use hash tags {user:123}.profile and {user:123}.sessions).",
+        "Lua scripts and MULTI/EXEC provide atomicity on a single node. There is no cross-slot distributed transaction in cluster mode. For distributed locks, Redlock is controversial — understand clock skew and fencing tokens before trusting Redis locks for financial correctness.",
+        "Memory fragmentation, big keys, and hot keys are production killers. A single 100 MB hash key blocks the event loop during deletion. MONITOR and KEYS commands block production — use SCAN instead. Pipeline batches commands to amortize round-trip latency without changing atomicity semantics."
+      ],
+      "bullets": [
+        "Async replication → possible stale reads on replicas",
+        "Hash slots: 16384 slots partitioned across cluster masters",
+        "Hash tags {id} force related keys to same slot for multi-key ops",
+        "Pipeline: batch commands; Transaction (MULTI/EXEC): atomic batch on one node"
+      ]
+    },
+    {
+      "title": "PostgreSQL: Pages, Buffer Pool, and MVCC",
+      "paragraphs": [
+        "PostgreSQL stores data in 8 KB pages (blocks) organized in tables and indexes (B-tree default). The shared buffer pool caches hot pages in memory — identical in concept to an OS page cache but managed by Postgres. A sequential scan reads pages from buffer or disk; repeated access benefits from cache warmth.",
+        "MVCC (Multi-Version Concurrency Control) lets readers never block writers and writers never block readers. Each row has xmin (inserting transaction) and xmax (deleting/updating transaction) system columns. UPDATE creates a new row version; the old version becomes dead tuple until vacuum reclaims space.",
+        "Vacuum (autovacuum) is not optional housekeeping — it prevents transaction ID wraparound, reclaims dead tuple space, and updates visibility map bits for index-only scans. Bloat from long-running transactions holding old snapshots is a top Postgres performance incident: a forgotten open transaction blocks vacuum from cleaning millions of dead rows.",
+        "Indexes are separate B-tree structures pointing to heap tuples. A query may index scan + heap fetch (random I/O) or bitmap index scan for moderate selectivity. Covering indexes (INCLUDE columns) enable index-only scans when visibility map confirms tuples are visible — a major optimization for read-heavy workloads."
+      ],
+      "bullets": [
+        "8 KB pages in shared_buffers — Postgres-managed cache",
+        "MVCC: row versions with xmin/xmax; UPDATE = insert new + mark old dead",
+        "VACUUM reclaims dead tuples; autovacuum must keep pace with write rate",
+        "B-tree index: default for equality and range; GIN/GiST for full-text, JSON, geo"
+      ]
+    },
+    {
+      "title": "PostgreSQL: WAL, Checkpoints, and the Query Planner",
+      "paragraphs": [
+        "Every change goes to the Write-Ahead Log (WAL) before data pages are flushed to disk. WAL is sequential append — fast on SSD and HDD. On crash recovery, Postgres replays WAL to bring data files to a consistent state. WAL also feeds logical replication and physical streaming replicas.",
+        "Checkpoints flush dirty buffer pool pages to data files and create a recovery starting point. Too frequent checkpoints increase I/O; too infrequent checkpoints lengthen crash recovery and increase WAL size. tuning checkpoint_completion_target spreads flush I/O to avoid latency spikes.",
+        "The query planner estimates cost using statistics (ANALYZE). It chooses nested loop (small inner), hash join (equi-joins, large tables), or merge join (pre-sorted inputs). Bad plans from stale statistics — a column went from uniform to skewed — cause catastrophic seq scans on billion-row tables. EXPLAIN (ANALYZE, BUFFERS) is your primary diagnostic tool.",
+        "Connection model matters: Postgres uses one process per connection. Thousands of idle connections consume memory and hurt performance — use PgBouncer (transaction or session pooling) in front of the database. Long transactions hold locks and prevent vacuum — set statement_timeout and idle_in_transaction_session_timeout."
+      ],
+      "bullets": [
+        "WAL: durability and replication source; sequential writes",
+        "Checkpoints: periodic flush of dirty pages to data files",
+        "Planner: cost-based; depends on pg_statistic from ANALYZE",
+        "PgBouncer: pool connections — essential at high client counts"
+      ]
+    },
+    {
+      "title": "Using Redis and Postgres Together",
+      "paragraphs": [
+        "The canonical pattern: Postgres is the source of truth; Redis is cache, session store, rate limiter, or pub/sub layer. Cache-aside: read Redis first, on miss query Postgres, populate Redis with TTL. Invalidate on write (delete cache key) rather than update-in-place to avoid race conditions.",
+        "Write-through and write-behind are alternatives when consistency requirements differ. Sessions and rate limits tolerate loss on Redis failure — rebuild from login or reset counters. Financial balances belong in Postgres with ACID guarantees; never rely on Redis alone for authoritative ledger state.",
+        "Hot key mitigation in Redis: local in-process cache (Caffeine) in front of Redis, read replicas for read-heavy keys, or application-level sharding of a hot counter into multiple keys summed at read time. In Postgres: partition large tables, partial indexes for active subsets, and read replicas for analytics (with lag awareness).",
+        "Understanding internals lets you tune intentionally: Redis maxmemory-policy and key design; Postgres shared_buffers (~25% RAM), effective_cache_size, work_mem for sorts, and index strategy matched to query patterns. Blind defaults work until scale proves otherwise."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Redis: In-Memory Data Structures and Single-Threaded Execution",
+        "paragraphs": [
+          "Redis is primarily an in-memory key-value store with rich data structures: strings, lists, sets, sorted sets, hashes, streams, and more. Each type is implemented with optimized internal encodings — a small hash might use a ziplist (compact contiguous memory) and automatically upgrade to a hash table as it grows.",
+          "The core Redis server process is single-threaded for command execution. One event loop (epoll/kqueue) handles thousands of client connections; commands are processed sequentially, eliminating lock contention on data structures. This design is why Redis achieves sub-millisecond latency — no mutex overhead on the hot path.",
+          "Persistence is optional and configurable. RDB snapshots fork a child process (copy-on-write) to dump memory to disk periodically. AOF (Append-Only File) logs every write command and replays on restart — fsync policy (always, everysec, no) trades durability for throughput. Most production setups use both: RDB for fast restarts, AOF for minimal data loss.",
+          "Eviction policies (allkeys-lru, volatile-ttl, etc.) kick in when maxmemory is reached. Redis is not a cache by default — without maxmemory and eviction, it grows until OOM. Treat explicit TTLs and memory limits as mandatory operational configuration, not optional tuning."
+        ],
+        "bullets": [
+          "Single-threaded command execution — no locks on data structures",
+          "Encodings upgrade automatically (ziplist → hashtable, intset → set)",
+          "RDB: point-in-time snapshot; AOF: command replay log",
+          "Streams: log-like structure with consumer groups (Kafka-lite)"
+        ]
+      },
+      {
+        "title": "Redis: Replication, Cluster, and Common Pitfalls",
+        "paragraphs": [
+          "Primary-replica replication is asynchronous by default. Replicas connect to the primary, receive a full sync (RDB transfer) or partial resync (backlog buffer), then stream incremental commands. Read-your-writes is not guaranteed on replicas — a write to primary may not appear on replica for milliseconds, causing stale reads if you route reads to replicas blindly.",
+          "Redis Cluster shards data across 16,384 hash slots. Each master owns a slot range; replicas failover via gossip and majority quorum. MOVED and ASK redirects tell clients the correct node. Cluster mode adds operational complexity — multi-key transactions only work within the same hash slot (use hash tags {user:123}.profile and {user:123}.sessions).",
+          "Lua scripts and MULTI/EXEC provide atomicity on a single node. There is no cross-slot distributed transaction in cluster mode. For distributed locks, Redlock is controversial — understand clock skew and fencing tokens before trusting Redis locks for financial correctness.",
+          "Memory fragmentation, big keys, and hot keys are production killers. A single 100 MB hash key blocks the event loop during deletion. MONITOR and KEYS commands block production — use SCAN instead. Pipeline batches commands to amortize round-trip latency without changing atomicity semantics."
+        ],
+        "bullets": [
+          "Async replication → possible stale reads on replicas",
+          "Hash slots: 16384 slots partitioned across cluster masters",
+          "Hash tags {id} force related keys to same slot for multi-key ops",
+          "Pipeline: batch commands; Transaction (MULTI/EXEC): atomic batch on one node"
+        ]
+      },
+      {
+        "title": "PostgreSQL: Pages, Buffer Pool, and MVCC",
+        "paragraphs": [
+          "PostgreSQL stores data in 8 KB pages (blocks) organized in tables and indexes (B-tree default). The shared buffer pool caches hot pages in memory — identical in concept to an OS page cache but managed by Postgres. A sequential scan reads pages from buffer or disk; repeated access benefits from cache warmth.",
+          "MVCC (Multi-Version Concurrency Control) lets readers never block writers and writers never block readers. Each row has xmin (inserting transaction) and xmax (deleting/updating transaction) system columns. UPDATE creates a new row version; the old version becomes dead tuple until vacuum reclaims space.",
+          "Vacuum (autovacuum) is not optional housekeeping — it prevents transaction ID wraparound, reclaims dead tuple space, and updates visibility map bits for index-only scans. Bloat from long-running transactions holding old snapshots is a top Postgres performance incident: a forgotten open transaction blocks vacuum from cleaning millions of dead rows.",
+          "Indexes are separate B-tree structures pointing to heap tuples. A query may index scan + heap fetch (random I/O) or bitmap index scan for moderate selectivity. Covering indexes (INCLUDE columns) enable index-only scans when visibility map confirms tuples are visible — a major optimization for read-heavy workloads."
+        ],
+        "bullets": [
+          "8 KB pages in shared_buffers — Postgres-managed cache",
+          "MVCC: row versions with xmin/xmax; UPDATE = insert new + mark old dead",
+          "VACUUM reclaims dead tuples; autovacuum must keep pace with write rate",
+          "B-tree index: default for equality and range; GIN/GiST for full-text, JSON, geo"
+        ]
+      },
+      {
+        "title": "PostgreSQL: WAL, Checkpoints, and the Query Planner",
+        "paragraphs": [
+          "Every change goes to the Write-Ahead Log (WAL) before data pages are flushed to disk. WAL is sequential append — fast on SSD and HDD. On crash recovery, Postgres replays WAL to bring data files to a consistent state. WAL also feeds logical replication and physical streaming replicas.",
+          "Checkpoints flush dirty buffer pool pages to data files and create a recovery starting point. Too frequent checkpoints increase I/O; too infrequent checkpoints lengthen crash recovery and increase WAL size. tuning checkpoint_completion_target spreads flush I/O to avoid latency spikes.",
+          "The query planner estimates cost using statistics (ANALYZE). It chooses nested loop (small inner), hash join (equi-joins, large tables), or merge join (pre-sorted inputs). Bad plans from stale statistics — a column went from uniform to skewed — cause catastrophic seq scans on billion-row tables. EXPLAIN (ANALYZE, BUFFERS) is your primary diagnostic tool.",
+          "Connection model matters: Postgres uses one process per connection. Thousands of idle connections consume memory and hurt performance — use PgBouncer (transaction or session pooling) in front of the database. Long transactions hold locks and prevent vacuum — set statement_timeout and idle_in_transaction_session_timeout."
+        ],
+        "bullets": [
+          "WAL: durability and replication source; sequential writes",
+          "Checkpoints: periodic flush of dirty pages to data files",
+          "Planner: cost-based; depends on pg_statistic from ANALYZE",
+          "PgBouncer: pool connections — essential at high client counts"
+        ]
+      },
+      {
+        "title": "Using Redis and Postgres Together",
+        "paragraphs": [
+          "The canonical pattern: Postgres is the source of truth; Redis is cache, session store, rate limiter, or pub/sub layer. Cache-aside: read Redis first, on miss query Postgres, populate Redis with TTL. Invalidate on write (delete cache key) rather than update-in-place to avoid race conditions.",
+          "Write-through and write-behind are alternatives when consistency requirements differ. Sessions and rate limits tolerate loss on Redis failure — rebuild from login or reset counters. Financial balances belong in Postgres with ACID guarantees; never rely on Redis alone for authoritative ledger state.",
+          "Hot key mitigation in Redis: local in-process cache (Caffeine) in front of Redis, read replicas for read-heavy keys, or application-level sharding of a hot counter into multiple keys summed at read time. In Postgres: partition large tables, partial indexes for active subsets, and read replicas for analytics (with lag awareness).",
+          "Understanding internals lets you tune intentionally: Redis maxmemory-policy and key design; Postgres shared_buffers (~25% RAM), effective_cache_size, work_mem for sorts, and index strategy matched to query patterns. Blind defaults work until scale proves otherwise."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Redis & PostgreSQL Internals — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Redis & PostgreSQL Internals: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Redis & PostgreSQL Internals — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Redis & PostgreSQL Internals: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Redis single-threaded event loop: no lock contention, sequential command execution",
+    "Redis encodings: ziplist, intset, skiplist — adaptive internal representations",
+    "RDB vs AOF persistence: snapshot vs command log; fsync durability trade-offs",
+    "Redis Cluster: 16384 hash slots, hash tags, MOVED redirects",
+    "Postgres MVCC: row versions, xmin/xmax, readers don't block writers",
+    "VACUUM / autovacuum: dead tuple reclamation, XID wraparound prevention",
+    "WAL: write-ahead logging for durability and replication",
+    "Query planner: cost-based joins and scans driven by ANALYZE statistics",
+    "Buffer pool (shared_buffers): Postgres page cache in memory",
+    "Cache-aside pattern: Postgres as source of truth, Redis as ephemeral acceleration"
+  ],
+  "practices": [
+    "Set Redis maxmemory and an eviction policy; always use TTLs on cache keys",
+    "Use SCAN not KEYS; pipeline batch commands to reduce round-trip latency",
+    "Route critical reads to Postgres primary when replica lag is unacceptable",
+    "Monitor Postgres dead tuples, autovacuum lag, and long-running transactions",
+    "Run EXPLAIN ANALYZE on slow queries; keep statistics fresh with ANALYZE after bulk loads",
+    "Use PgBouncer when connection count exceeds a few hundred",
+    "Invalidate cache on write (delete key) rather than update cache synchronously"
+  ],
+  "pitfalls": [
+    "Treating Redis as durable primary storage without AOF fsync=always — data loss on crash",
+    "Reading from Redis replicas immediately after write to primary — stale data",
+    "Big keys and hot keys blocking Redis single thread — shard or local-cache mitigations",
+    "Neglecting Postgres vacuum — table bloat, XID wraparound emergencies",
+    "One process per connection at 5000 app instances — connection exhaustion without pooling",
+    "Missing indexes or stale stats causing seq scans on large tables under production load"
+  ],
+  "examples": [
+    {
+      "title": "Session store in Redis, orders in Postgres",
+      "description": "User sessions (TTL 24h, JSON blob) live in Redis for fast lookup on every request. Order placement writes to Postgres in a transaction, then deletes the user's cart cache key in Redis. Session loss on Redis restart forces re-login — acceptable. Order loss would not be — Postgres WAL ensures durability."
+    },
+    {
+      "title": "Postgres bloat from a long transaction",
+      "description": "A BI tool opens a read transaction at 9 AM and holds it until 5 PM. Autovacuum cannot reclaim dead tuples from millions of updates that day. Table bloat grows 40%; queries slow from seq scans and heap fetches. Fix: idle_in_transaction_session_timeout + read replica for analytics queries."
+    },
+    {
+      "title": "Cache stampede on popular product page",
+      "description": "A flash sale product key expires simultaneously across 10,000 clients. All miss cache, hammer Postgres, and repopulate Redis at once. Mitigation: probabilistic early expiration, request coalescing (single-flight lock in Redis), or pre-warming cache before sale start."
+    }
+  ],
+  "keyTakeaways": [
+    "Redis speed comes from in-memory structures and single-threaded execution — avoid blocking operations and big keys",
+    "Postgres durability and concurrency rest on MVCC, WAL, and vacuum — operational discipline required",
+    "Use Redis for ephemeral acceleration; Postgres for authoritative, transactional state",
+    "Replication in both systems is asynchronous — design for replica lag and stale reads",
+    "Postgres query performance depends on indexes, statistics, and connection pooling",
+    "Cache-aside with TTL and invalidation-on-write is the safest default caching pattern",
+    "EXPLAIN ANALYZE and Redis SLOWLOG are essential production diagnostics"
+  ],
+  "whyItMatters": "Redis and PostgreSQL appear in almost every backend architecture interview and production stack. Knowing their internals — not just their APIs — lets you explain latency spikes, design cache strategies that do not corrupt data, tune Postgres before incidents, and make credible storage choices under load.",
+  "reflectionQuestions": [
+    "For a read-heavy profile page (user info + recent posts), what would you cache in Redis and what stays in Postgres? What TTL and invalidation strategy?",
+    "What happens in Postgres when two transactions UPDATE the same row concurrently? Walk through MVCC step by step.",
+    "Your Redis latency p99 jumped from 1ms to 50ms. What internal Redis factors would you investigate?",
+    "When would you choose Redis Streams over Kafka for event delivery?"
+  ],
+  "resources": [
+    "Redis documentation — memory optimization, persistence, cluster spec",
+    "PostgreSQL Internals (Hans-Jürgen Schönig) or 'The Internals of PostgreSQL'",
+    "Designing Data-Intensive Applications — Chapters 3, 5, 6 (Martin Kleppmann)",
+    "Use The Index, Luke — SQL indexing and tuning (Markus Winand)",
+    "pgMustard / explain.dalibo.com — EXPLAIN visualization"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "internals-redis-postgres-overview",
+      "title": "Redis & PostgreSQL Internals overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Redis & PostgreSQL Internals and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Redis & PostgreSQL Internals; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Redis documentation — memory optimization, persistence, cluster spec"
+    },
+    {
+      "title": "PostgreSQL Internals (Hans-Jürgen Schönig) or 'The Internals of PostgreSQL'"
+    },
+    {
+      "title": "Designing Data-Intensive Applications — Chapters 3, 5, 6 (Martin Kleppmann)"
+    },
+    {
+      "title": "Use The Index, Luke — SQL indexing and tuning (Markus Winand)"
+    },
+    {
+      "title": "pgMustard / explain.dalibo.com — EXPLAIN visualization"
+    }
+  ],
+  "relatedLessons": [
+    "int-cassandra",
+    "int-clickhouse",
+    "int-etcd"
+  ]
+}

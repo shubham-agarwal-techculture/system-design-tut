@@ -1,0 +1,87 @@
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS — Semantic CSS variables mapped from skin palettes
+   These are the tokens consumed by components and utilities.
+   Import AFTER the palette files so palette vars are defined.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Default / fallback tokens (Drafting light) ── */
+:root {
+  /* Core palette bridge — set by each palette file via data-skin */
+  --color-surface:        var(--palette-surface,        #EDEAE2);
+  --color-surface-raised: var(--palette-surface-raised, #F5F2EC);
+  --color-surface-sunken: var(--palette-surface-sunken, #E2DED5);
+
+  --color-ink:            var(--palette-ink,            #23241F);
+  --color-ink-soft:       var(--palette-ink-soft,       #3B3C35);
+  --color-ink-muted:      var(--palette-ink-muted,      #6B6C63);
+  --color-ink-subtle:     var(--palette-ink-subtle,     #9B9C93);
+
+  --color-rule:           var(--palette-rule,           #B9B4A6);
+  --color-rule-subtle:    var(--palette-rule-subtle,    #D1CEC5);
+
+  --color-signal:         var(--palette-signal,         #D9431E);
+  --color-signal-hover:   var(--palette-signal-hover,   #C03518);
+
+  --color-accent:         var(--palette-accent,         #D9431E);
+  --color-accent-hover:   var(--palette-accent-hover,   #C03518);
+  --color-accent-subtle:  var(--palette-accent-subtle,  rgba(217, 67, 30, 0.12));
+  --color-accent-fg:      var(--palette-accent-fg,      #FFFFFF);
+
+  /* Typography */
+  --font-heading:         var(--skin-font-heading, "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif);
+  --font-body:            var(--skin-font-body,    "Source Serif 4", "Georgia", ui-serif, serif);
+  --font-mono:            var(--skin-font-mono,    "IBM Plex Mono", "Courier New", ui-monospace, monospace);
+  --font-label:           var(--skin-font-label,   "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif);
+
+  /* Spacing scale (8px base) */
+  --space-1:  0.25rem;   /* 4px  */
+  --space-2:  0.5rem;    /* 8px  */
+  --space-3:  0.75rem;   /* 12px */
+  --space-4:  1rem;      /* 16px */
+  --space-5:  1.25rem;   /* 20px */
+  --space-6:  1.5rem;    /* 24px */
+  --space-8:  2rem;      /* 32px */
+  --space-10: 2.5rem;    /* 40px */
+  --space-12: 3rem;      /* 48px */
+  --space-16: 4rem;      /* 64px */
+
+  /* Radii */
+  --radius-sm:   0.25rem;   /* 4px  */
+  --radius-md:   0.5rem;    /* 8px  */
+  --radius-lg:   0.75rem;   /* 12px */
+  --radius-xl:   1rem;      /* 16px */
+  --radius-pill: 9999px;
+
+  /* Shadows */
+  --shadow-soft:   0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-card:   0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--color-rule-subtle);
+  --shadow-lifted: 0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.06);
+
+  /* Transitions */
+  --transition-fast:   100ms ease;
+  --transition-base:   150ms ease;
+  --transition-slow:   300ms ease;
+
+  /* Z-index stack */
+  --z-base:    0;
+  --z-raised:  10;
+  --z-overlay: 100;
+  --z-modal:   200;
+  --z-toast:   300;
+}
+
+/* ── Instrument dark needs stronger shadows ── */
+[data-skin="instrument"]:not([data-mode="light"]),
+[data-skin="instrument"][data-mode="dark"] {
+  --shadow-soft:   0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-card:   0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--color-rule);
+  --shadow-lifted: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Dark-mode scrollbar overrides ── */
+[data-mode="dark"] {
+  color-scheme: dark;
+}
+[data-mode="light"] {
+  color-scheme: light;
+}

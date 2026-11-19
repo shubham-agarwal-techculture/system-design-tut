@@ -1,0 +1,101 @@
+{
+  "id": "fund-vertical-horizontal",
+  "title": "Vertical vs Horizontal Scaling",
+  "moduleId": "scalability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "Vertical vs Horizontal Scaling — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-stateless"
+  ],
+  "tags": [
+    "scalability",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Vertical vs Horizontal Scaling. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Vertical vs Horizontal Scaling. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Vertical vs Horizontal Scaling — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Vertical vs Horizontal Scaling: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Vertical vs Horizontal Scaling — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Vertical vs Horizontal Scaling: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Vertical vs Horizontal Scaling: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Vertical vs Horizontal Scaling belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Vertical vs Horizontal Scaling improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Vertical vs Horizontal Scaling in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-vertical-horizontal-overview",
+      "title": "Vertical vs Horizontal Scaling overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Vertical vs Horizontal Scaling and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Vertical vs Horizontal Scaling; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-estimation",
+    "fund-stateless",
+    "scale-state-management"
+  ]
+}

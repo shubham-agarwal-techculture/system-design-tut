@@ -1,0 +1,228 @@
+{
+  "id": "reliability-patterns",
+  "title": "Retries, Circuit Breakers & Backpressure",
+  "moduleId": "reliability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 40,
+  "summary": "Production systems fail constantly — networks blip, dependencies slow down, disks fill up. Reliability patterns prevent small failures from cascading into outages. Retries recover transient errors, circuit breakers stop calling broken services, bulkheads isolate blast radius, and backpressure prevents overload.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-slos"
+  ],
+  "tags": [
+    "reliability",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Designing for Failure",
+      "paragraphs": [
+        "Every dependency will fail eventually: databases, payment gateways, third-party APIs, DNS, the network itself. Reliability engineering assumes failure is normal and designs systems to degrade gracefully rather than collapse entirely.",
+        "The goal is not zero failures — it is bounded impact, fast recovery, and predictable degradation. Users may see slower responses or reduced features, but the core service stays available. SLOs (Service Level Objectives) define acceptable failure budgets.",
+        "Reliability patterns are implemented in application code, client libraries (gRPC retries), service meshes (Istio circuit breaking), and infrastructure (load shedder, rate limiters). Consistency across services matters — one service without timeouts can hang an entire call chain."
+      ]
+    },
+    {
+      "title": "Retries, Timeouts, and Jitter",
+      "paragraphs": [
+        "Retries recover from transient failures: network timeouts, 503 responses, connection resets. Always combine retries with timeouts — a retry without a timeout can wait forever. Set deadlines per request and per call chain.",
+        "Exponential backoff increases delay between retries (1s, 2s, 4s, 8s) to give failing services time to recover. Jitter adds randomness to prevent synchronized retry storms — without jitter, thousands of clients retry simultaneously and re-overwhelm the recovering service.",
+        "Retry only idempotent operations unless using idempotency keys. POST /charge without an idempotency key must not blind retry — you may double-charge. GET, PUT with idempotency keys, and DELETE are safer retry candidates."
+      ]
+    },
+    {
+      "title": "Circuit Breakers",
+      "paragraphs": [
+        "A circuit breaker wraps calls to a dependency and tracks failure rates. Closed (normal): calls pass through. Open (tripped): calls fail fast without hitting the dependency — return fallback or error immediately. Half-open: allow a probe request to test recovery.",
+        "Circuit breakers prevent cascading failures. When the payment service is down, the order service stops hammering it, returns a graceful error, and preserves threads and connection pools for healthy paths.",
+        "Netflix Hystrix popularized this pattern; today Resilience4j, Polly, and service meshes provide implementations. Configure failure thresholds, reset timeouts, and fallbacks per dependency."
+      ]
+    },
+    {
+      "title": "Bulkheads, Rate Limiting, and Load Shedding",
+      "paragraphs": [
+        "Bulkheads isolate resources — separate thread pools or connection pools per dependency so one slow service cannot exhaust all threads. Named after ship compartments that contain flooding.",
+        "Rate limiting protects services from overload: token bucket and sliding window algorithms cap requests per client or globally. Return 429 Too Many Requests with Retry-After header. Rate limit at the edge (API gateway) and at critical internal services.",
+        "Load shedding drops requests when the system is overloaded — prefer rejecting new work over failing all in-flight requests. Prioritize critical paths (checkout) over background jobs (recommendations)."
+      ]
+    },
+    {
+      "title": "Backpressure",
+      "paragraphs": [
+        "Backpressure signals upstream producers to slow down when downstream consumers cannot keep pace. Without backpressure, buffers grow unbounded until memory exhaustion — the slow consumer problem.",
+        "Reactive streams (Project Reactor, RxJava), gRPC flow control, and Kafka consumer pause/resume implement backpressure. TCP itself applies backpressure via window sizes.",
+        "In queue-based systems, monitor queue depth and scale consumers or throttle producers when depth exceeds thresholds. Unbounded queues are a reliability anti-pattern."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Designing for Failure",
+        "paragraphs": [
+          "Every dependency will fail eventually: databases, payment gateways, third-party APIs, DNS, the network itself. Reliability engineering assumes failure is normal and designs systems to degrade gracefully rather than collapse entirely.",
+          "The goal is not zero failures — it is bounded impact, fast recovery, and predictable degradation. Users may see slower responses or reduced features, but the core service stays available. SLOs (Service Level Objectives) define acceptable failure budgets.",
+          "Reliability patterns are implemented in application code, client libraries (gRPC retries), service meshes (Istio circuit breaking), and infrastructure (load shedder, rate limiters). Consistency across services matters — one service without timeouts can hang an entire call chain."
+        ]
+      },
+      {
+        "title": "Retries, Timeouts, and Jitter",
+        "paragraphs": [
+          "Retries recover from transient failures: network timeouts, 503 responses, connection resets. Always combine retries with timeouts — a retry without a timeout can wait forever. Set deadlines per request and per call chain.",
+          "Exponential backoff increases delay between retries (1s, 2s, 4s, 8s) to give failing services time to recover. Jitter adds randomness to prevent synchronized retry storms — without jitter, thousands of clients retry simultaneously and re-overwhelm the recovering service.",
+          "Retry only idempotent operations unless using idempotency keys. POST /charge without an idempotency key must not blind retry — you may double-charge. GET, PUT with idempotency keys, and DELETE are safer retry candidates."
+        ]
+      },
+      {
+        "title": "Circuit Breakers",
+        "paragraphs": [
+          "A circuit breaker wraps calls to a dependency and tracks failure rates. Closed (normal): calls pass through. Open (tripped): calls fail fast without hitting the dependency — return fallback or error immediately. Half-open: allow a probe request to test recovery.",
+          "Circuit breakers prevent cascading failures. When the payment service is down, the order service stops hammering it, returns a graceful error, and preserves threads and connection pools for healthy paths.",
+          "Netflix Hystrix popularized this pattern; today Resilience4j, Polly, and service meshes provide implementations. Configure failure thresholds, reset timeouts, and fallbacks per dependency."
+        ]
+      },
+      {
+        "title": "Bulkheads, Rate Limiting, and Load Shedding",
+        "paragraphs": [
+          "Bulkheads isolate resources — separate thread pools or connection pools per dependency so one slow service cannot exhaust all threads. Named after ship compartments that contain flooding.",
+          "Rate limiting protects services from overload: token bucket and sliding window algorithms cap requests per client or globally. Return 429 Too Many Requests with Retry-After header. Rate limit at the edge (API gateway) and at critical internal services.",
+          "Load shedding drops requests when the system is overloaded — prefer rejecting new work over failing all in-flight requests. Prioritize critical paths (checkout) over background jobs (recommendations)."
+        ]
+      },
+      {
+        "title": "Backpressure",
+        "paragraphs": [
+          "Backpressure signals upstream producers to slow down when downstream consumers cannot keep pace. Without backpressure, buffers grow unbounded until memory exhaustion — the slow consumer problem.",
+          "Reactive streams (Project Reactor, RxJava), gRPC flow control, and Kafka consumer pause/resume implement backpressure. TCP itself applies backpressure via window sizes.",
+          "In queue-based systems, monitor queue depth and scale consumers or throttle producers when depth exceeds thresholds. Unbounded queues are a reliability anti-pattern."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Retries, Circuit Breakers & Backpressure — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Retries, Circuit Breakers & Backpressure: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Retries, Circuit Breakers & Backpressure — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Retries, Circuit Breakers & Backpressure: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Exponential backoff with jitter for retries",
+    "Timeouts and deadlines on every outbound call",
+    "Circuit breaker states: closed, open, half-open",
+    "Bulkheads: isolated resource pools per dependency",
+    "Rate limiting: token bucket, sliding window, leaky bucket",
+    "Load shedding: drop low-priority work under pressure",
+    "Backpressure: slow producers when consumers lag",
+    "Idempotency keys for safe retries on mutations",
+    "Fallback responses and graceful degradation",
+    "Cascading failure and failure domain isolation"
+  ],
+  "practices": [
+    "Set timeouts on every HTTP, gRPC, and database call — no exceptions",
+    "Use retry with exponential backoff + jitter; cap max attempts",
+    "Implement circuit breakers on all external dependencies",
+    "Use idempotency keys for payment, order, and booking operations",
+    "Rate limit public APIs and expensive internal endpoints",
+    "Monitor error rates, latency p99, and circuit breaker state per dependency",
+    "Load test failure scenarios — kill dependencies and observe cascade behavior"
+  ],
+  "pitfalls": [
+    "Retrying without jitter during an outage — amplifies the failure",
+    "Unbounded retries on non-idempotent POST requests",
+    "No timeout — one hung dependency blocks all worker threads",
+    "Circuit breaker thresholds too sensitive — flapping open/closed",
+    "Unbounded queues masking consumer failure until OOM",
+    "Fallback that returns stale or incorrect data without user indication"
+  ],
+  "examples": [
+    {
+      "title": "Payment service circuit breaker",
+      "description": "Order service wraps payment API calls in a circuit breaker. After 5 failures in 10 seconds, circuit opens — orders queue for later payment retry and users see 'payment processing.' Half-open after 30 seconds probes one request. Success closes circuit; failure reopens."
+    },
+    {
+      "title": "Retry storm without jitter",
+      "description": "A DNS blip causes 500 errors. Ten thousand clients retry simultaneously every second with fixed 1s backoff. The recovering service is immediately overwhelmed again. Adding full jitter spreads retries over a window, allowing recovery."
+    },
+    {
+      "title": "Kafka backpressure",
+      "description": "A consumer processing messages slower than production rate accumulates lag. Consumer pauses partition fetching when internal buffer is full — applying backpressure to the broker. Alert fires on lag > 100K; autoscaler adds consumer instances."
+    }
+  ],
+  "keyTakeaways": [
+    "Assume every dependency fails — design for graceful degradation",
+    "Retries need backoff, jitter, timeouts, and idempotency",
+    "Circuit breakers fail fast and prevent cascade overload",
+    "Bulkheads and rate limits contain blast radius",
+    "Backpressure prevents unbounded buffering and OOM",
+    "Test failure modes — reliability patterns must be verified under chaos"
+  ],
+  "whyItMatters": "Major outages at cloud providers and financial institutions often trace to missing timeouts, retry storms, or absent circuit breakers — not exotic bugs. These patterns are the difference between a blip and a multi-hour incident. They appear in every system design discussion about production readiness.",
+  "reflectionQuestions": [
+    "What happens if retries do not use jitter during a widespread outage?",
+    "How does a circuit breaker differ from a simple timeout?",
+    "When should you not retry a failed request?",
+    "How would you implement backpressure in a synchronous REST API?"
+  ],
+  "resources": [
+    "Release It! — Michael Nygard (stability patterns)",
+    "Google SRE Book — Addressing Cascading Failures",
+    "Netflix Hystrix wiki (archived) and Resilience4j docs",
+    "AWS Architecture Blog — Exponential Backoff and Jitter"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "reliability-patterns-overview",
+      "title": "Retries, Circuit Breakers & Backpressure overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Retries, Circuit Breakers & Backpressure and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Retries, Circuit Breakers & Backpressure; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Release It! — Michael Nygard (stability patterns)"
+    },
+    {
+      "title": "Google SRE Book — Addressing Cascading Failures"
+    },
+    {
+      "title": "Netflix Hystrix wiki (archived) and Resilience4j docs"
+    },
+    {
+      "title": "AWS Architecture Blog — Exponential Backoff and Jitter"
+    }
+  ],
+  "relatedLessons": [
+    "fund-chaos",
+    "fund-incidents",
+    "fund-reliability"
+  ]
+}

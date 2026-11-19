@@ -1,0 +1,101 @@
+{
+  "id": "os-memory",
+  "title": "Virtual Memory & mmap",
+  "moduleId": "operating-systems",
+  "phaseId": "foundations",
+  "durationMinutes": 30,
+  "summary": "Virtual Memory & mmap — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "os-io-sync"
+  ],
+  "tags": [
+    "operating-systems",
+    "evergreen",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Virtual Memory & mmap. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Virtual Memory & mmap. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Virtual Memory & mmap — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Virtual Memory & mmap: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Virtual Memory & mmap — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Virtual Memory & mmap: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Virtual Memory & mmap: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Virtual Memory & mmap belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Virtual Memory & mmap improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Virtual Memory & mmap in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "os-memory-overview",
+      "title": "Virtual Memory & mmap overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Virtual Memory & mmap and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Virtual Memory & mmap; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "os-io-sync",
+    "os-numa",
+    "os-processes-threads"
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "id": "ag-vector-internals",
+  "title": "Vector DB Internals (HNSW, IVF, PQ)",
+  "moduleId": "rag-systems",
+  "phaseId": "agentic-systems",
+  "durationMinutes": 30,
+  "summary": "Vector DB Internals (HNSW, IVF, PQ) — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "ag-rag-core"
+  ],
+  "tags": [
+    "rag-systems",
+    "evergreen",
+    "agentic-systems"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Vector DB Internals (HNSW, IVF, PQ). Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Vector DB Internals (HNSW, IVF, PQ). Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Vector DB Internals (HNSW, IVF, PQ) — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Vector DB Internals (HNSW, IVF, PQ): internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Vector DB Internals (HNSW, IVF, PQ) — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Vector DB Internals (HNSW, IVF, PQ): multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Vector DB Internals (HNSW, IVF, PQ): core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Vector DB Internals (HNSW, IVF, PQ) belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Vector DB Internals (HNSW, IVF, PQ) improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Vector DB Internals (HNSW, IVF, PQ) in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ag-vector-internals-overview",
+      "title": "Vector DB Internals (HNSW, IVF, PQ) overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Vector DB Internals (HNSW, IVF, PQ) and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Vector DB Internals (HNSW, IVF, PQ); list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ag-graphrag",
+    "ag-rag-core"
+  ]
+}

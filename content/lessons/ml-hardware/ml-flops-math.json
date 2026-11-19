@@ -1,0 +1,97 @@
+{
+  "id": "ml-flops-math",
+  "title": "FLOPs & Memory Math",
+  "moduleId": "ml-hardware",
+  "phaseId": "ml-foundations",
+  "durationMinutes": 30,
+  "summary": "FLOPs & Memory Math — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "ml-hardware",
+    "evergreen",
+    "ml-foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers FLOPs & Memory Math. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers FLOPs & Memory Math. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "FLOPs & Memory Math — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of FLOPs & Memory Math: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "FLOPs & Memory Math — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for FLOPs & Memory Math: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "FLOPs & Memory Math: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "FLOPs & Memory Math belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding FLOPs & Memory Math improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for FLOPs & Memory Math in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ml-flops-math-overview",
+      "title": "FLOPs & Memory Math overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain FLOPs & Memory Math and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on FLOPs & Memory Math; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ml-gpu-memory"
+  ]
+}

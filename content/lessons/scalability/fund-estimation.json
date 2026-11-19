@@ -1,0 +1,99 @@
+{
+  "id": "fund-estimation",
+  "title": "Back-of-Envelope Estimation",
+  "moduleId": "scalability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "Back-of-Envelope Estimation — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "scalability",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Back-of-Envelope Estimation. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Back-of-Envelope Estimation. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Back-of-Envelope Estimation — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Back-of-Envelope Estimation: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Back-of-Envelope Estimation — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Back-of-Envelope Estimation: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Back-of-Envelope Estimation: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Back-of-Envelope Estimation belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Back-of-Envelope Estimation improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Back-of-Envelope Estimation in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-estimation-overview",
+      "title": "Back-of-Envelope Estimation overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Back-of-Envelope Estimation and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Back-of-Envelope Estimation; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-stateless",
+    "fund-vertical-horizontal",
+    "scale-state-management"
+  ]
+}

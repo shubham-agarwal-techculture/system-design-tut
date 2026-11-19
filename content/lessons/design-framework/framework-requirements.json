@@ -1,0 +1,279 @@
+{
+  "id": "framework-requirements",
+  "title": "Requirements & Capacity Estimation",
+  "moduleId": "design-framework",
+  "phaseId": "designer-mindset",
+  "durationMinutes": 40,
+  "summary": "Every system design begins before boxes and arrows: clarify requirements, define success metrics, and estimate scale. This lesson teaches a structured approach to functional vs non-functional requirements, back-of-the-envelope capacity math, and the assumptions you must state explicitly so your architecture stands up to scrutiny in interviews and design reviews.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "framework-iteration"
+  ],
+  "tags": [
+    "design-framework",
+    "designer-mindset"
+  ],
+  "sections": [
+    {
+      "title": "Functional vs Non-Functional Requirements",
+      "paragraphs": [
+        "Functional requirements describe what the system does: users can post tweets, search products, transfer money. Non-functional requirements (NFRs) describe how well: latency under 200ms p99, 99.99% availability, GDPR compliance, support 10M DAU. Architecture is driven as much by NFRs as by features — a chat app and a batch analytics pipeline share 'store messages' but diverge radically on latency and consistency.",
+        "Explicitly categorize requirements into must-have (MVP), should-have (near-term), and could-have (future). In a 45-minute interview, scope to must-haves plus one differentiating NFR. Ask clarifying questions: Who are the users? Read vs write ratio? Geographic distribution? Durability expectations if a datacenter fails?",
+        "Constraints narrow the solution space: budget, team size, existing tech stack, regulatory environment, time to market. A startup with three engineers should not design Google-scale sharding on day one. Document constraints as actively as requirements — they explain why you chose a monolith over 50 microservices.",
+        "Success metrics translate NFRs into measurable targets: p50/p95/p99 latency, error rate, throughput (QPS), availability (nines), data durability (RPO/RTO), cost per request. Without numbers, 'fast' and 'scalable' are meaningless and impossible to validate after build."
+      ],
+      "bullets": [
+        "Functional: features and behaviors",
+        "Non-functional: latency, availability, consistency, durability, compliance",
+        "MoSCoW prioritization: Must, Should, Could, Won't (this session)",
+        "RPO/RTO: acceptable data loss and recovery time on failure"
+      ]
+    },
+    {
+      "title": "Back-of-the-Envelope Estimation",
+      "paragraphs": [
+        "Capacity estimation grounds architecture in physics and economics. Start with daily active users (DAU), actions per user per day, and peak-to-average ratio (often 2–3×, higher for events like New Year's Eve). Convert to peak QPS: if 100M DAU each post 2 times/day, writes = 200M/day ≈ 2,300 avg QPS; at 3× peak ≈ 7,000 write QPS.",
+        "Know handy constants: 1 day ≈ 86,400 seconds (~100K for quick math); 1 million seconds ≈ 11.5 days; 1 GB = 10^9 bytes (or 2^30 for memory — state which). SSD random read ~100 μs; sequential ~1 GB/s; datacenter round trip ~0.5 ms same region, ~150 ms cross-continent; memory ~100 ns access.",
+        "Storage estimation: average object size × objects retained × replication factor. 500 bytes per tweet × 500M tweets/day × 365 days × 3 replicas ≈ 274 TB/year before compression. Does it fit one Postgres instance? No — partition, archive, or object storage.",
+        "Bandwidth: average response size × QPS. 10 KB response × 100K QPS = 1 GB/s egress — significant cost and CDN requirement. Estimation reveals bottlenecks early: a 1 KB write triggering 50 KB of fan-out read is a architectural red flag at scale."
+      ],
+      "bullets": [
+        "Peak QPS = (DAU × actions/day × peak factor) / 86400",
+        "Storage = object_size × volume × retention × replication",
+        "Bandwidth = response_size × read_QPS (+ upload for writes)",
+        "Memory cache: working set size — what fraction of data is hot?"
+      ]
+    },
+    {
+      "title": "Capacity Planning for Compute, Storage, and Cache",
+      "paragraphs": [
+        "Compute: a single modern server handles ~1–10K simple HTTP req/s depending on work. 100K read QPS / 5K per server ≈ 20 app servers + load balancer overhead. CPU-bound workloads (video encode, ML inference) scale differently — profile per core throughput.",
+        "Database sizing: Postgres comfortable ~5–10K simple reads/s or ~1–2K writes/s on tuned hardware before sharding. Redis ~100K ops/s per node for simple commands. Disk IOPS limits random write throughput — WAL and index updates matter. Don't assume linear scale; measure knee points.",
+        "Cache hit ratio dramatically reduces backend load. If 90% of reads hit CDN/Redis, 100K read QPS becomes 10K database QPS — the difference between one cluster and ten. Estimate working set: if 20% of users are active daily and each accesses 50 keys, that's DAU × 0.2 × 50 hot keys (with skew — 80/20 rule applies).",
+        "State assumptions explicitly: 'assuming 100M DAU, 10:1 read/write, 500 byte records, 5 year retention, 99.9% availability.' Reviewers and future you can revisit when assumptions change. Wrong assumptions are fine; unstated ones cause production surprises."
+      ]
+    },
+    {
+      "title": "API Design and Data Model Implications",
+      "paragraphs": [
+        "Requirements drive API shape. Read-heavy feeds favor cursor pagination and precomputed timelines. Write-heavy logs favor append-only ingestion and async processing. Search requirements imply inverted indexes (Elasticsearch) beyond primary storage.",
+        "Entity relationships emerge from use cases: User posts Tweet, User follows User, Tweet has Likes. Identify access patterns before schema: 'get timeline for user' (read fan-out), 'get likes for tweet' (counter or aggregate), 'search tweets by keyword' (secondary index). Each pattern maps to storage and cache choices.",
+        "Consistency requirements per operation: liking a post can be eventually consistent (count off by one briefly); bank transfer cannot. Classify operations into strong consistency, read-your-writes, or eventual — this directly determines database choice, cache invalidation, and sync vs async boundaries.",
+        "Multi-tenancy, permissions, and audit requirements add columns, row-level security, or separate schemas. Compliance (HIPAA, PCI) may mandate encryption at rest, network isolation, and retention policies — non-negotiable constraints that affect every layer."
+      ],
+      "bullets": [
+        "Access patterns first: how data is read/written drives schema and indexes",
+        "Pagination: offset (small datasets) vs cursor (infinite feeds)",
+        "Consistency tier per operation — not one global setting",
+        "Audit trail: append-only event log vs mutable rows with history tables"
+      ]
+    },
+    {
+      "title": "Documenting and Presenting Estimates",
+      "paragraphs": [
+        "In interviews, spend 5–10 minutes on requirements and estimation before drawing architecture. Verbalize math aloud; round aggressively; sanity-check orders of magnitude. Interviewers care about structured thinking, not exact digits.",
+        "A one-page capacity summary for design reviews includes: traffic (peak QPS read/write), storage (GB/TB per year), bandwidth, cache working set, and growth assumptions (2× per year?). Tie each number to a component: '7K write QPS → Kafka 20 partitions, 3 brokers; 100K read QPS → CDN + 10 Redis nodes + 5 read replicas.'",
+        "Identify the first bottleneck: usually single-database writes, hot partition, or egress cost. Propose mitigation in the design: sharding key, read replicas, CDN, async pipeline. Estimation without bottleneck analysis is arithmetic, not engineering.",
+        "Re-estimate after MVP launch with real metrics. Capacity planning is continuous — load tests validate assumptions; production traffic reveals skew and long-tail behavior estimates miss."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Functional vs Non-Functional Requirements",
+        "paragraphs": [
+          "Functional requirements describe what the system does: users can post tweets, search products, transfer money. Non-functional requirements (NFRs) describe how well: latency under 200ms p99, 99.99% availability, GDPR compliance, support 10M DAU. Architecture is driven as much by NFRs as by features — a chat app and a batch analytics pipeline share 'store messages' but diverge radically on latency and consistency.",
+          "Explicitly categorize requirements into must-have (MVP), should-have (near-term), and could-have (future). In a 45-minute interview, scope to must-haves plus one differentiating NFR. Ask clarifying questions: Who are the users? Read vs write ratio? Geographic distribution? Durability expectations if a datacenter fails?",
+          "Constraints narrow the solution space: budget, team size, existing tech stack, regulatory environment, time to market. A startup with three engineers should not design Google-scale sharding on day one. Document constraints as actively as requirements — they explain why you chose a monolith over 50 microservices.",
+          "Success metrics translate NFRs into measurable targets: p50/p95/p99 latency, error rate, throughput (QPS), availability (nines), data durability (RPO/RTO), cost per request. Without numbers, 'fast' and 'scalable' are meaningless and impossible to validate after build."
+        ],
+        "bullets": [
+          "Functional: features and behaviors",
+          "Non-functional: latency, availability, consistency, durability, compliance",
+          "MoSCoW prioritization: Must, Should, Could, Won't (this session)",
+          "RPO/RTO: acceptable data loss and recovery time on failure"
+        ]
+      },
+      {
+        "title": "Back-of-the-Envelope Estimation",
+        "paragraphs": [
+          "Capacity estimation grounds architecture in physics and economics. Start with daily active users (DAU), actions per user per day, and peak-to-average ratio (often 2–3×, higher for events like New Year's Eve). Convert to peak QPS: if 100M DAU each post 2 times/day, writes = 200M/day ≈ 2,300 avg QPS; at 3× peak ≈ 7,000 write QPS.",
+          "Know handy constants: 1 day ≈ 86,400 seconds (~100K for quick math); 1 million seconds ≈ 11.5 days; 1 GB = 10^9 bytes (or 2^30 for memory — state which). SSD random read ~100 μs; sequential ~1 GB/s; datacenter round trip ~0.5 ms same region, ~150 ms cross-continent; memory ~100 ns access.",
+          "Storage estimation: average object size × objects retained × replication factor. 500 bytes per tweet × 500M tweets/day × 365 days × 3 replicas ≈ 274 TB/year before compression. Does it fit one Postgres instance? No — partition, archive, or object storage.",
+          "Bandwidth: average response size × QPS. 10 KB response × 100K QPS = 1 GB/s egress — significant cost and CDN requirement. Estimation reveals bottlenecks early: a 1 KB write triggering 50 KB of fan-out read is a architectural red flag at scale."
+        ],
+        "bullets": [
+          "Peak QPS = (DAU × actions/day × peak factor) / 86400",
+          "Storage = object_size × volume × retention × replication",
+          "Bandwidth = response_size × read_QPS (+ upload for writes)",
+          "Memory cache: working set size — what fraction of data is hot?"
+        ]
+      },
+      {
+        "title": "Capacity Planning for Compute, Storage, and Cache",
+        "paragraphs": [
+          "Compute: a single modern server handles ~1–10K simple HTTP req/s depending on work. 100K read QPS / 5K per server ≈ 20 app servers + load balancer overhead. CPU-bound workloads (video encode, ML inference) scale differently — profile per core throughput.",
+          "Database sizing: Postgres comfortable ~5–10K simple reads/s or ~1–2K writes/s on tuned hardware before sharding. Redis ~100K ops/s per node for simple commands. Disk IOPS limits random write throughput — WAL and index updates matter. Don't assume linear scale; measure knee points.",
+          "Cache hit ratio dramatically reduces backend load. If 90% of reads hit CDN/Redis, 100K read QPS becomes 10K database QPS — the difference between one cluster and ten. Estimate working set: if 20% of users are active daily and each accesses 50 keys, that's DAU × 0.2 × 50 hot keys (with skew — 80/20 rule applies).",
+          "State assumptions explicitly: 'assuming 100M DAU, 10:1 read/write, 500 byte records, 5 year retention, 99.9% availability.' Reviewers and future you can revisit when assumptions change. Wrong assumptions are fine; unstated ones cause production surprises."
+        ]
+      },
+      {
+        "title": "API Design and Data Model Implications",
+        "paragraphs": [
+          "Requirements drive API shape. Read-heavy feeds favor cursor pagination and precomputed timelines. Write-heavy logs favor append-only ingestion and async processing. Search requirements imply inverted indexes (Elasticsearch) beyond primary storage.",
+          "Entity relationships emerge from use cases: User posts Tweet, User follows User, Tweet has Likes. Identify access patterns before schema: 'get timeline for user' (read fan-out), 'get likes for tweet' (counter or aggregate), 'search tweets by keyword' (secondary index). Each pattern maps to storage and cache choices.",
+          "Consistency requirements per operation: liking a post can be eventually consistent (count off by one briefly); bank transfer cannot. Classify operations into strong consistency, read-your-writes, or eventual — this directly determines database choice, cache invalidation, and sync vs async boundaries.",
+          "Multi-tenancy, permissions, and audit requirements add columns, row-level security, or separate schemas. Compliance (HIPAA, PCI) may mandate encryption at rest, network isolation, and retention policies — non-negotiable constraints that affect every layer."
+        ],
+        "bullets": [
+          "Access patterns first: how data is read/written drives schema and indexes",
+          "Pagination: offset (small datasets) vs cursor (infinite feeds)",
+          "Consistency tier per operation — not one global setting",
+          "Audit trail: append-only event log vs mutable rows with history tables"
+        ]
+      },
+      {
+        "title": "Documenting and Presenting Estimates",
+        "paragraphs": [
+          "In interviews, spend 5–10 minutes on requirements and estimation before drawing architecture. Verbalize math aloud; round aggressively; sanity-check orders of magnitude. Interviewers care about structured thinking, not exact digits.",
+          "A one-page capacity summary for design reviews includes: traffic (peak QPS read/write), storage (GB/TB per year), bandwidth, cache working set, and growth assumptions (2× per year?). Tie each number to a component: '7K write QPS → Kafka 20 partitions, 3 brokers; 100K read QPS → CDN + 10 Redis nodes + 5 read replicas.'",
+          "Identify the first bottleneck: usually single-database writes, hot partition, or egress cost. Propose mitigation in the design: sharding key, read replicas, CDN, async pipeline. Estimation without bottleneck analysis is arithmetic, not engineering.",
+          "Re-estimate after MVP launch with real metrics. Capacity planning is continuous — load tests validate assumptions; production traffic reveals skew and long-tail behavior estimates miss."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Requirements & Capacity Estimation — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Requirements & Capacity Estimation: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Requirements & Capacity Estimation — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Requirements & Capacity Estimation: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Functional vs non-functional requirements (NFRs)",
+    "Peak QPS: DAU × actions/day × peak factor / 86400",
+    "Read/write ratio: drives cache, replica, and CDN strategy",
+    "Working set: fraction of data actively accessed — cache sizing input",
+    "RPO/RTO: recovery point/time objectives for disaster planning",
+    "Availability nines: 99.9% = 8.7 hours downtime/year",
+    "Replication factor: storage and write amplification multiplier",
+    "Access patterns: query shapes that determine schema and indexes",
+    "Consistency tiers: strong vs eventual per operation, not globally",
+    "Back-of-envelope: orders-of-magnitude sanity check before detailed design"
+  ],
+  "practices": [
+    "Ask clarifying questions before designing — scope, users, read/write mix, latency targets",
+    "State all assumptions explicitly; round numbers to one significant figure",
+    "Compute peak QPS, storage/year, and bandwidth before drawing components",
+    "Classify each operation's consistency and durability requirements",
+    "Identify the first bottleneck and design mitigation for it",
+    "Use MoSCoW to prevent scope creep in time-boxed design sessions",
+    "Revisit estimates with load test results after implementation"
+  ],
+  "pitfalls": [
+    "Skipping requirements and jumping to microservices diagram — misses NFR-driven choices",
+    "Using average QPS instead of peak — systems fail at peak",
+    "Ignoring fan-out: one write triggering N reads multiplies load invisibly",
+    "Forgetting replication and index overhead in storage math",
+    "Treating estimation as precise — false precision hides uncertain assumptions",
+    "One global consistency model — over-provisions sync where eventual suffices"
+  ],
+  "examples": [
+    {
+      "title": "Twitter-like timeline (interview classic)",
+      "description": "300M DAU, 200M tweet/day, 5:1 read/write for timeline fetches. Write QPS ≈ 2,300 avg, 7K peak. Timeline read: 300M DAU × 20 views/day = 6B reads/day ≈ 70K avg, 200K peak. Storage: 280 bytes/tweet × 200M/day × 365 × 3 replicas ≈ 60 TB/year. Conclusion: write path is easy; fan-out read path drives cache (Redis timelines) and CDN for media."
+    },
+    {
+      "title": "URL shortener capacity",
+      "description": "100:1 read/write ratio, 100M new URLs/month, 10B redirects/month. Write ≈ 40/s avg; read ≈ 4,000/s avg, 12K peak. Storage: 500 bytes/URL × 1.2B URLs/year ≈ 600 GB/year — fits one DB with sharding by hash. Cache: 20% URLs get 80% traffic — Redis working set ~120M keys × 100 bytes ≈ 12 GB. Bottleneck: read QPS → Redis + CDN redirect at edge."
+    },
+    {
+      "title": "Video upload platform",
+      "description": "1M uploads/day, average 500 MB file. Ingress bandwidth: 1M × 500 MB / 86400 ≈ 5.8 GB/s peak ~15 GB/s. Storage: 500 TB/day raw — object storage (S3), not database. Transcoding: async worker pool; 10 min video × 5 renditions = compute-bound pipeline. Requirements drive async upload → queue → workers architecture."
+    }
+  ],
+  "keyTakeaways": [
+    "Requirements and NFRs precede architecture — clarify before you draw",
+    "Back-of-envelope math reveals bottlenecks at orders-of-magnitude level",
+    "Peak QPS, not average, determines provisioning and failure behavior",
+    "Read/write ratio and fan-out dominate caching and replication strategy",
+    "State assumptions explicitly so designs can be validated and revised",
+    "Consistency and durability requirements vary per operation — classify each",
+    "Capacity planning is iterative — validate with load tests and production metrics"
+  ],
+  "whyItMatters": "Interviewers and principal engineers expect you to anchor architecture in numbers. Systems that skip estimation over-provision expensively or under-provision catastrophically. Structured requirements and capacity math turn vague 'build a social network' prompts into defensible designs with explicit trade-offs.",
+  "reflectionQuestions": [
+    "Estimate peak QPS and storage for a note-taking app with 10M DAU, 5 notes created/user/week, 20 reads/user/day. What is the first bottleneck?",
+    "Which operations in a ride-sharing app need strong consistency vs eventual? List five and justify each.",
+    "Your estimate assumed 10:1 read/write but production shows 2:1. Which architecture components are now over- or under-provisioned?",
+    "How do RPO and RTO differ for a messaging app vs a payment ledger?"
+  ],
+  "resources": [
+    "Grokking the System Design Interview — estimation frameworks",
+    "System Design Interview Vol 1 & 2 (Alex Xu)",
+    "Google SRE Book — Ch. 26 (Capacity Planning)",
+    "High Scalability blog — real-world architecture postmortems",
+    "Latency numbers every programmer should know (Jeff Dean)"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "framework-requirements-overview",
+      "title": "Requirements & Capacity Estimation overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Requirements & Capacity Estimation and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Requirements & Capacity Estimation; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Grokking the System Design Interview — estimation frameworks"
+    },
+    {
+      "title": "System Design Interview Vol 1 & 2 (Alex Xu)"
+    },
+    {
+      "title": "Google SRE Book — Ch. 26 (Capacity Planning)"
+    },
+    {
+      "title": "High Scalability blog — real-world architecture postmortems"
+    },
+    {
+      "title": "Latency numbers every programmer should know (Jeff Dean)"
+    }
+  ],
+  "relatedLessons": [
+    "framework-architecture",
+    "framework-iteration",
+    "mind-apis-data"
+  ]
+}

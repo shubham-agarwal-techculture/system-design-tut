@@ -1,0 +1,99 @@
+{
+  "id": "net-bgp-anycast",
+  "title": "BGP & Anycast",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 30,
+  "summary": "BGP & Anycast — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "networking",
+    "evergreen",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers BGP & Anycast. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers BGP & Anycast. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "BGP & Anycast — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of BGP & Anycast: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "BGP & Anycast — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for BGP & Anycast: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "BGP & Anycast: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "BGP & Anycast belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding BGP & Anycast improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for BGP & Anycast in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "net-bgp-anycast-overview",
+      "title": "BGP & Anycast overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain BGP & Anycast and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on BGP & Anycast; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "net-http",
+    "net-kernel",
+    "net-lb-proxy"
+  ]
+}

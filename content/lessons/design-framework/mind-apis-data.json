@@ -1,0 +1,101 @@
+{
+  "id": "mind-apis-data",
+  "title": "APIs, Data Models & High-Level Architecture",
+  "moduleId": "design-framework",
+  "phaseId": "designer-mindset",
+  "durationMinutes": 30,
+  "summary": "APIs, Data Models & High-Level Architecture — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "framework-requirements"
+  ],
+  "tags": [
+    "design-framework",
+    "evergreen",
+    "designer-mindset"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers APIs, Data Models & High-Level Architecture. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers APIs, Data Models & High-Level Architecture. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "APIs, Data Models & High-Level Architecture — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of APIs, Data Models & High-Level Architecture: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "APIs, Data Models & High-Level Architecture — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for APIs, Data Models & High-Level Architecture: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "APIs, Data Models & High-Level Architecture: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "APIs, Data Models & High-Level Architecture belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding APIs, Data Models & High-Level Architecture improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for APIs, Data Models & High-Level Architecture in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "mind-apis-data-overview",
+      "title": "APIs, Data Models & High-Level Architecture overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain APIs, Data Models & High-Level Architecture and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on APIs, Data Models & High-Level Architecture; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "framework-architecture",
+    "framework-iteration",
+    "framework-requirements"
+  ]
+}

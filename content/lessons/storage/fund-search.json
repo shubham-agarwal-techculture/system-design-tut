@@ -1,0 +1,101 @@
+{
+  "id": "fund-search",
+  "title": "Search & Inverted Indexes",
+  "moduleId": "storage",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "Search & Inverted Indexes — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-olap"
+  ],
+  "tags": [
+    "storage",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Search & Inverted Indexes. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Search & Inverted Indexes. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Search & Inverted Indexes — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Search & Inverted Indexes: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Search & Inverted Indexes — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Search & Inverted Indexes: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Search & Inverted Indexes: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Search & Inverted Indexes belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Search & Inverted Indexes improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Search & Inverted Indexes in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-search-overview",
+      "title": "Search & Inverted Indexes overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Search & Inverted Indexes and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Search & Inverted Indexes; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-olap",
+    "fund-storage-types",
+    "fund-vector-db"
+  ]
+}

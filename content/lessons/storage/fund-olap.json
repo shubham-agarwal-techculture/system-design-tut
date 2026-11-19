@@ -1,0 +1,99 @@
+{
+  "id": "fund-olap",
+  "title": "OLAP & Columnar Storage",
+  "moduleId": "storage",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "OLAP & Columnar Storage — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "storage",
+    "living",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers OLAP & Columnar Storage. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers OLAP & Columnar Storage. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "OLAP & Columnar Storage — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of OLAP & Columnar Storage: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "OLAP & Columnar Storage — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for OLAP & Columnar Storage: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "OLAP & Columnar Storage: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "OLAP & Columnar Storage belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding OLAP & Columnar Storage improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for OLAP & Columnar Storage in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-olap-overview",
+      "title": "OLAP & Columnar Storage overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain OLAP & Columnar Storage and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on OLAP & Columnar Storage; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-search",
+    "fund-storage-types",
+    "fund-vector-db"
+  ]
+}

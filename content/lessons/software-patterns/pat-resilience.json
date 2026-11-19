@@ -1,0 +1,101 @@
+{
+  "id": "pat-resilience",
+  "title": "Resilience Patterns",
+  "moduleId": "software-patterns",
+  "phaseId": "design-patterns",
+  "durationMinutes": 30,
+  "summary": "Resilience Patterns — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "pat-core-patterns"
+  ],
+  "tags": [
+    "software-patterns",
+    "evergreen",
+    "design-patterns"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Resilience Patterns. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Resilience Patterns. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Resilience Patterns — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Resilience Patterns: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Resilience Patterns — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Resilience Patterns: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Resilience Patterns: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Resilience Patterns belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Resilience Patterns improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Resilience Patterns in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "pat-resilience-overview",
+      "title": "Resilience Patterns overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Resilience Patterns and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Resilience Patterns; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "pat-concurrency",
+    "pat-core-patterns",
+    "patterns-core"
+  ]
+}

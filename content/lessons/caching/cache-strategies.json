@@ -1,0 +1,219 @@
+{
+  "id": "cache-strategies",
+  "title": "Caching Strategies & Layers",
+  "moduleId": "caching",
+  "phaseId": "fundamentals",
+  "durationMinutes": 40,
+  "summary": "Caching trades freshness for speed at every layer of the stack — browser, CDN, reverse proxy, application, and database. The right strategy depends on read/write ratios, consistency tolerance, and failure modes. Poor cache design causes stale data bugs, thundering herds, and memory exhaustion.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "caching",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Why and Where to Cache",
+      "paragraphs": [
+        "Caching stores copies of expensive-to-compute or expensive-to-fetch data closer to the consumer. A database query taking 50 ms might be served from Redis in 1 ms or from a browser cache in 0 ms. At scale, caching is not optional — it is how systems survive.",
+        "Caches exist at multiple layers. Browser caches use HTTP headers (Cache-Control, ETag). CDNs cache static assets and cacheable API responses at edge PoPs globally. Reverse proxies (Nginx, Varnish) cache upstream responses. Application caches (Redis, Memcached) hold hot keys in memory. Database buffer pools cache pages internally.",
+        "Each layer has different TTL semantics, invalidation mechanisms, and consistency guarantees. A coherent caching strategy defines what is cached where, how long it lives, and how it is invalidated when source data changes."
+      ]
+    },
+    {
+      "title": "Cache-Aside, Write-Through, and Write-Back",
+      "paragraphs": [
+        "Cache-aside (lazy loading): the application checks the cache first. On miss, it loads from the database, populates the cache, and returns. On write, the application updates the database and deletes or updates the cache entry. This is the most common pattern — simple and flexible.",
+        "Write-through: every write goes to cache and database synchronously. Reads always hit warm cache. Consistency is strong between cache and DB, but writes are slower. Used when read-heavy workloads demand guaranteed cache freshness.",
+        "Write-back (write-behind): writes go to cache first; cache asynchronously flushes to the database. Maximizes write throughput but risks data loss if the cache fails before flush. Suitable for write-heavy, eventually-durable workloads like buffering analytics events."
+      ],
+      "bullets": [
+        "Cache-aside: app manages cache; best general-purpose pattern",
+        "Write-through: synchronous DB + cache write; strong consistency",
+        "Write-back: async flush; high write throughput, durability risk"
+      ]
+    },
+    {
+      "title": "Invalidation and the Thundering Herd",
+      "paragraphs": [
+        "Cache invalidation is notoriously difficult. Time-based expiry (TTL) is simple but serves stale data until expiry. Event-driven invalidation (pub/sub, message queues) is precise but requires wiring every write path to emit invalidation events.",
+        "The thundering herd (cache stampede) occurs when a popular key expires and thousands of concurrent requests miss the cache simultaneously, each hitting the database. Mitigations include probabilistic early expiration, request coalescing (single-flight pattern), and mutex locks per key.",
+        "Versioned cache keys (e.g., product:123:v5) allow atomic invalidation by bumping a version counter instead of deleting keys. Negative caching stores 'not found' results to protect against repeated lookups for missing entities."
+      ]
+    },
+    {
+      "title": "Distributed Caching with Redis",
+      "paragraphs": [
+        "Redis and Memcached provide shared, in-memory caches accessible to all application instances. Redis adds persistence options, rich data structures, pub/sub, and Lua scripting for atomic operations.",
+        "Size caches appropriately: too small causes constant eviction and low hit rates; too large wastes memory and money. Monitor hit rate, eviction rate, memory usage, and latency p99. Target 90%+ hit rates for well-chosen keys.",
+        "Redis Cluster and client-side consistent hashing distribute keys across shards. Hot keys — a single key receiving disproportionate traffic — require replication, local caching, or key splitting strategies."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Why and Where to Cache",
+        "paragraphs": [
+          "Caching stores copies of expensive-to-compute or expensive-to-fetch data closer to the consumer. A database query taking 50 ms might be served from Redis in 1 ms or from a browser cache in 0 ms. At scale, caching is not optional — it is how systems survive.",
+          "Caches exist at multiple layers. Browser caches use HTTP headers (Cache-Control, ETag). CDNs cache static assets and cacheable API responses at edge PoPs globally. Reverse proxies (Nginx, Varnish) cache upstream responses. Application caches (Redis, Memcached) hold hot keys in memory. Database buffer pools cache pages internally.",
+          "Each layer has different TTL semantics, invalidation mechanisms, and consistency guarantees. A coherent caching strategy defines what is cached where, how long it lives, and how it is invalidated when source data changes."
+        ]
+      },
+      {
+        "title": "Cache-Aside, Write-Through, and Write-Back",
+        "paragraphs": [
+          "Cache-aside (lazy loading): the application checks the cache first. On miss, it loads from the database, populates the cache, and returns. On write, the application updates the database and deletes or updates the cache entry. This is the most common pattern — simple and flexible.",
+          "Write-through: every write goes to cache and database synchronously. Reads always hit warm cache. Consistency is strong between cache and DB, but writes are slower. Used when read-heavy workloads demand guaranteed cache freshness.",
+          "Write-back (write-behind): writes go to cache first; cache asynchronously flushes to the database. Maximizes write throughput but risks data loss if the cache fails before flush. Suitable for write-heavy, eventually-durable workloads like buffering analytics events."
+        ],
+        "bullets": [
+          "Cache-aside: app manages cache; best general-purpose pattern",
+          "Write-through: synchronous DB + cache write; strong consistency",
+          "Write-back: async flush; high write throughput, durability risk"
+        ]
+      },
+      {
+        "title": "Invalidation and the Thundering Herd",
+        "paragraphs": [
+          "Cache invalidation is notoriously difficult. Time-based expiry (TTL) is simple but serves stale data until expiry. Event-driven invalidation (pub/sub, message queues) is precise but requires wiring every write path to emit invalidation events.",
+          "The thundering herd (cache stampede) occurs when a popular key expires and thousands of concurrent requests miss the cache simultaneously, each hitting the database. Mitigations include probabilistic early expiration, request coalescing (single-flight pattern), and mutex locks per key.",
+          "Versioned cache keys (e.g., product:123:v5) allow atomic invalidation by bumping a version counter instead of deleting keys. Negative caching stores 'not found' results to protect against repeated lookups for missing entities."
+        ]
+      },
+      {
+        "title": "Distributed Caching with Redis",
+        "paragraphs": [
+          "Redis and Memcached provide shared, in-memory caches accessible to all application instances. Redis adds persistence options, rich data structures, pub/sub, and Lua scripting for atomic operations.",
+          "Size caches appropriately: too small causes constant eviction and low hit rates; too large wastes memory and money. Monitor hit rate, eviction rate, memory usage, and latency p99. Target 90%+ hit rates for well-chosen keys.",
+          "Redis Cluster and client-side consistent hashing distribute keys across shards. Hot keys — a single key receiving disproportionate traffic — require replication, local caching, or key splitting strategies."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Caching Strategies & Layers — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Caching Strategies & Layers: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Caching Strategies & Layers — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Caching Strategies & Layers: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Cache hit vs miss and hit rate as primary metric",
+    "Cache-aside, write-through, write-back patterns",
+    "TTL-based vs event-driven invalidation",
+    "Thundering herd and single-flight deduplication",
+    "CDN edge caching and Cache-Control headers",
+    "ETag and conditional requests for bandwidth savings",
+    "Negative caching for absent keys",
+    "Redis data structures: strings, hashes, sorted sets",
+    "Hot key problem in distributed caches",
+    "Cache penetration, breakdown, and avalanche scenarios"
+  ],
+  "practices": [
+    "Set TTLs on every cache entry — unbounded caches grow until they crash",
+    "Use single-flight or locking to prevent thundering herds on hot keys",
+    "Cache at the highest layer possible (CDN before Redis before DB)",
+    "Monitor hit rate, eviction rate, and memory; alert on sudden drops",
+    "Invalidate or version keys on write — do not rely on TTL alone for critical data",
+    "Size Redis with headroom for peak traffic and avoid maxmemory-policy allkeys-lru without understanding evictions",
+    "Test cache failure modes: what happens when Redis is entirely unavailable?"
+  ],
+  "pitfalls": [
+    "Caching without TTL and running out of memory",
+    "Invalidating cache after DB write fails — serving stale data indefinitely",
+    "Caching large objects that evict the entire working set",
+    "Ignoring cache consistency during database failover",
+    "Using the same TTL for rapidly changing and static data",
+    "Caching personalized data at CDN layer without Vary headers"
+  ],
+  "examples": [
+    {
+      "title": "Product catalog with CDN + Redis",
+      "description": "Product images and static JSON are CDN-cached with 24-hour TTL. Product details are cache-aside in Redis with 5-minute TTL and event invalidation on price updates. Search results are not cached — they change too frequently and are user-specific."
+    },
+    {
+      "title": "Leaderboard with write-back",
+      "description": "Game scores write to Redis sorted sets immediately for real-time leaderboard display. A background job flushes aggregated scores to PostgreSQL every 30 seconds. Acceptable data loss window: 30 seconds of scores if Redis fails — mitigated by Redis persistence (AOF)."
+    },
+    {
+      "title": "Preventing thundering herd on flash sale",
+      "description": "A popular product key uses single-flight: on cache miss, one request fetches from DB while others wait on the same promise. Combined with probabilistic early refresh (refresh at 90% of TTL), the DB never sees a spike of 10,000 concurrent queries."
+    }
+  ],
+  "keyTakeaways": [
+    "Cache at every layer — browser, CDN, app, database buffer pool",
+    "Cache-aside is the default; write-through when read consistency is critical",
+    "Invalidation is harder than population — design it with every write path",
+    "Guard against thundering herds with single-flight and early expiration",
+    "Monitor hit rates and plan for cache cluster failures",
+    "Not everything should be cached — skip highly volatile or personalized data"
+  ],
+  "whyItMatters": "A well-designed cache reduces database load by 10–100× and cuts user-facing latency dramatically. A poorly designed cache causes subtle stale-data bugs that are hard to reproduce and catastrophic overload events when caches fail open. Caching appears in virtually every system design interview and every production performance investigation.",
+  "reflectionQuestions": [
+    "What happens during a cache stampede when a popular key expires?",
+    "When is write-through preferable to cache-aside?",
+    "How would you cache user-specific data without serving one user's data to another?",
+    "What is your fallback when the entire Redis cluster is down?"
+  ],
+  "resources": [
+    "Designing Data-Intensive Applications — Chapter 3 (Caching)",
+    "Redis documentation — Memory optimization and eviction policies",
+    "AWS CloudFront — Caching behavior and invalidation",
+    "Facebook — Scaling Memcache at Facebook (paper)"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "cache-strategies-overview",
+      "title": "Caching Strategies & Layers overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Caching Strategies & Layers and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Caching Strategies & Layers; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Chapter 3 (Caching)"
+    },
+    {
+      "title": "Redis documentation — Memory optimization and eviction policies"
+    },
+    {
+      "title": "AWS CloudFront — Caching behavior and invalidation"
+    },
+    {
+      "title": "Facebook — Scaling Memcache at Facebook (paper)"
+    }
+  ],
+  "relatedLessons": [
+    "fund-caching",
+    "fund-cdn"
+  ]
+}

@@ -1,0 +1,223 @@
+{
+  "id": "msg-queues-pubsub",
+  "title": "Queues, Pub/Sub & Event Streaming",
+  "moduleId": "messaging",
+  "phaseId": "fundamentals",
+  "durationMinutes": 41,
+  "summary": "Messaging decouples producers from consumers in time and space, enabling async processing, resilience, and event-driven architectures. Point-to-point queues, pub/sub fan-out, and durable event logs each solve different problems — with distinct delivery guarantees that your application must handle explicitly.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-stream-processing"
+  ],
+  "tags": [
+    "messaging",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Why Messaging Matters",
+      "paragraphs": [
+        "Synchronous request-response ties the caller's fate to the callee's availability and latency. If the email service is slow, the signup API waits — or times out. Messaging introduces a buffer: the producer publishes a message and continues; the consumer processes it when ready.",
+        "Messaging enables load leveling (spiky traffic absorbed by a queue), service decoupling (producers do not know consumers), geographic distribution, and reliable retry without blocking users. Event-driven architectures treat state changes as facts that multiple services react to independently.",
+        "The cost is complexity: delivery semantics, ordering guarantees, poison messages, schema evolution, and observability across async boundaries are harder than synchronous calls."
+      ]
+    },
+    {
+      "title": "Point-to-Point Queues",
+      "paragraphs": [
+        "A message queue delivers each message to exactly one consumer (competing consumers model). RabbitMQ, Amazon SQS, and Azure Service Bus implement this pattern. Ideal for task distribution: image processing, email sending, order fulfillment.",
+        "Queues provide natural load balancing — add more workers to drain faster. Messages persist until acknowledged (at-least-once) or until processed (with visibility timeouts in SQS). Dead Letter Queues (DLQ) capture messages that fail after max retries for manual inspection.",
+        "Ordering is generally per-queue, not global. FIFO queues (SQS FIFO) guarantee order within a message group at the cost of throughput. Design consumers to be idempotent because redelivery happens."
+      ]
+    },
+    {
+      "title": "Pub/Sub and Fan-Out",
+      "paragraphs": [
+        "Publish/subscribe delivers one message to many subscribers. Google Pub/Sub, Amazon SNS, and Redis pub/sub fan out events to multiple interested services. A 'OrderPlaced' event might trigger inventory, shipping, analytics, and notification services simultaneously.",
+        "Pub/sub decouples event producers from the set of consumers — new subscribers can be added without changing the publisher. Message brokers handle subscription management and delivery retries per subscriber.",
+        "Ephemeral pub/sub (Redis) drops messages if no subscriber is listening. Durable pub/sub (Kafka, Google Pub/Sub) persists messages for later consumption — critical for reliability."
+      ]
+    },
+    {
+      "title": "Event Streaming with Kafka",
+      "paragraphs": [
+        "Event streaming platforms (Apache Kafka, Apache Pulsar, Amazon Kinesis) store messages in an append-only, partitioned log. Consumers track their offset and can replay history — enabling event sourcing, audit trails, and reprocessing after bug fixes.",
+        "Kafka partitions provide ordering within a partition and parallel consumption across partitions. Partition key choice (e.g., user_id) ensures related events stay ordered. Retention is time- or size-based, not consumption-based — multiple consumer groups read independently.",
+        "Kafka suits high-throughput event pipelines: click streams, CDC, log aggregation, and microservice choreography. Operational complexity is higher than SQS — you manage brokers, partitions, and consumer lag."
+      ]
+    },
+    {
+      "title": "Delivery Semantics and Idempotency",
+      "paragraphs": [
+        "At-most-once: messages may be lost but never duplicated — fire and forget. At-least-once: messages are redelivered on failure — duplicates possible, consumers must be idempotent. Exactly-once: the holy grail — achieved in practice via idempotent consumers plus transactional outbox or Kafka transactions, not by the broker alone.",
+        "Design every consumer to handle duplicate messages: idempotency keys, upsert operations, or deduplication tables. Retry policies use exponential backoff with jitter to avoid synchronized retry storms.",
+        "Poison messages — permanently failing payloads — must route to DLQ after N attempts. Alert on DLQ depth. Never infinite retry loops that block queue processing."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Why Messaging Matters",
+        "paragraphs": [
+          "Synchronous request-response ties the caller's fate to the callee's availability and latency. If the email service is slow, the signup API waits — or times out. Messaging introduces a buffer: the producer publishes a message and continues; the consumer processes it when ready.",
+          "Messaging enables load leveling (spiky traffic absorbed by a queue), service decoupling (producers do not know consumers), geographic distribution, and reliable retry without blocking users. Event-driven architectures treat state changes as facts that multiple services react to independently.",
+          "The cost is complexity: delivery semantics, ordering guarantees, poison messages, schema evolution, and observability across async boundaries are harder than synchronous calls."
+        ]
+      },
+      {
+        "title": "Point-to-Point Queues",
+        "paragraphs": [
+          "A message queue delivers each message to exactly one consumer (competing consumers model). RabbitMQ, Amazon SQS, and Azure Service Bus implement this pattern. Ideal for task distribution: image processing, email sending, order fulfillment.",
+          "Queues provide natural load balancing — add more workers to drain faster. Messages persist until acknowledged (at-least-once) or until processed (with visibility timeouts in SQS). Dead Letter Queues (DLQ) capture messages that fail after max retries for manual inspection.",
+          "Ordering is generally per-queue, not global. FIFO queues (SQS FIFO) guarantee order within a message group at the cost of throughput. Design consumers to be idempotent because redelivery happens."
+        ]
+      },
+      {
+        "title": "Pub/Sub and Fan-Out",
+        "paragraphs": [
+          "Publish/subscribe delivers one message to many subscribers. Google Pub/Sub, Amazon SNS, and Redis pub/sub fan out events to multiple interested services. A 'OrderPlaced' event might trigger inventory, shipping, analytics, and notification services simultaneously.",
+          "Pub/sub decouples event producers from the set of consumers — new subscribers can be added without changing the publisher. Message brokers handle subscription management and delivery retries per subscriber.",
+          "Ephemeral pub/sub (Redis) drops messages if no subscriber is listening. Durable pub/sub (Kafka, Google Pub/Sub) persists messages for later consumption — critical for reliability."
+        ]
+      },
+      {
+        "title": "Event Streaming with Kafka",
+        "paragraphs": [
+          "Event streaming platforms (Apache Kafka, Apache Pulsar, Amazon Kinesis) store messages in an append-only, partitioned log. Consumers track their offset and can replay history — enabling event sourcing, audit trails, and reprocessing after bug fixes.",
+          "Kafka partitions provide ordering within a partition and parallel consumption across partitions. Partition key choice (e.g., user_id) ensures related events stay ordered. Retention is time- or size-based, not consumption-based — multiple consumer groups read independently.",
+          "Kafka suits high-throughput event pipelines: click streams, CDC, log aggregation, and microservice choreography. Operational complexity is higher than SQS — you manage brokers, partitions, and consumer lag."
+        ]
+      },
+      {
+        "title": "Delivery Semantics and Idempotency",
+        "paragraphs": [
+          "At-most-once: messages may be lost but never duplicated — fire and forget. At-least-once: messages are redelivered on failure — duplicates possible, consumers must be idempotent. Exactly-once: the holy grail — achieved in practice via idempotent consumers plus transactional outbox or Kafka transactions, not by the broker alone.",
+          "Design every consumer to handle duplicate messages: idempotency keys, upsert operations, or deduplication tables. Retry policies use exponential backoff with jitter to avoid synchronized retry storms.",
+          "Poison messages — permanently failing payloads — must route to DLQ after N attempts. Alert on DLQ depth. Never infinite retry loops that block queue processing."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Queues, Pub/Sub & Event Streaming — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Queues, Pub/Sub & Event Streaming: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Queues, Pub/Sub & Event Streaming — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Queues, Pub/Sub & Event Streaming: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Point-to-point queue: one consumer per message",
+    "Pub/sub fan-out: one message, many subscribers",
+    "Event streaming: durable append-only log with replay",
+    "Dead Letter Queue (DLQ) for failed messages",
+    "At-least-once, at-most-once, exactly-once semantics",
+    "Consumer idempotency for safe redelivery",
+    "Kafka partitions and consumer groups",
+    "Visibility timeout and acknowledgment models",
+    "Exponential backoff with jitter for retries",
+    "Transactional outbox pattern for reliable publishing"
+  ],
+  "practices": [
+    "Make all message handlers idempotent — assume duplicates will arrive",
+    "Configure DLQs and alert when messages land in them",
+    "Use exponential backoff with jitter on retries",
+    "Choose partition keys that distribute load evenly",
+    "Monitor consumer lag — growing lag signals processing bottlenecks",
+    "Version event schemas and support backward-compatible evolution",
+    "Use the outbox pattern to atomically write DB state and publish events"
+  ],
+  "pitfalls": [
+    "Assuming exactly-once delivery without idempotent consumers",
+    "No DLQ — poison messages block the entire queue indefinitely",
+    "Hot partitions in Kafka from poor partition key choice",
+    "Synchronous chains disguised as async — blocking on message publish",
+    "Unbounded queues that mask consumer failures until disk fills",
+    "Ignoring message ordering requirements when scaling consumers"
+  ],
+  "examples": [
+    {
+      "title": "Order processing pipeline",
+      "description": "Checkout API writes order to PostgreSQL and an outbox row in one transaction. An outbox relay publishes OrderCreated to Kafka. Inventory, shipping, and email services consume from separate consumer groups — each processes independently with idempotent handlers keyed by order_id."
+    },
+    {
+      "title": "Image thumbnail generation",
+      "description": "Upload triggers an SQS message with S3 object key. Auto-scaling worker fleet pulls messages, generates thumbnails, writes back to S3. Failed messages retry 3 times with backoff, then move to DLQ for manual review."
+    }
+  ],
+  "keyTakeaways": [
+    "Messaging decouples services in time — embrace async for non-critical paths",
+    "Queues for task distribution; pub/sub for event fan-out; Kafka for durable streams",
+    "At-least-once is the practical default — design idempotent consumers",
+    "DLQs and consumer lag monitoring are non-negotiable operational requirements",
+    "Partition key design determines Kafka ordering and load distribution",
+    "The outbox pattern bridges reliable DB writes with event publishing"
+  ],
+  "whyItMatters": "Event-driven architecture is the backbone of modern microservices, data pipelines, and real-time analytics. Misunderstanding delivery guarantees causes duplicate charges, lost orders, and stuck pipelines. Every senior engineer must articulate when to queue, when to stream, and how to handle failure.",
+  "reflectionQuestions": [
+    "When would you choose Kafka over RabbitMQ or SQS?",
+    "How do you handle a message that always fails processing?",
+    "What makes exactly-once delivery difficult in distributed systems?",
+    "How does the outbox pattern prevent lost events during DB failures?"
+  ],
+  "resources": [
+    "Designing Data-Intensive Applications — Chapter 11 (Stream Processing)",
+    "Apache Kafka documentation — Introduction and design",
+    "Microservices.io — Transactional outbox pattern",
+    "Amazon SQS Developer Guide — FIFO queues and DLQ"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "msg-queues-pubsub-overview",
+      "title": "Queues, Pub/Sub & Event Streaming overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Queues, Pub/Sub & Event Streaming and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Queues, Pub/Sub & Event Streaming; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Chapter 11 (Stream Processing)"
+    },
+    {
+      "title": "Apache Kafka documentation — Introduction and design"
+    },
+    {
+      "title": "Microservices.io — Transactional outbox pattern"
+    },
+    {
+      "title": "Amazon SQS Developer Guide — FIFO queues and DLQ"
+    }
+  ],
+  "relatedLessons": [
+    "fund-messaging",
+    "fund-stream-processing"
+  ]
+}

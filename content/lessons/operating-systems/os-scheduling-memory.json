@@ -1,0 +1,263 @@
+{
+  "id": "os-scheduling-memory",
+  "title": "Scheduling & Virtual Memory",
+  "moduleId": "operating-systems",
+  "phaseId": "foundations",
+  "durationMinutes": 42,
+  "summary": "The OS scheduler decides which process runs on each CPU core and for how long. Virtual memory gives every process the illusion of a large, private address space while the kernel maps virtual pages to physical RAM — or to disk when memory is scarce. Together, scheduling and memory management explain latency spikes, OOM kills, and why databases hate swapping.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "os-processes-threads"
+  ],
+  "tags": [
+    "operating-systems",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "How the CPU Scheduler Works",
+      "paragraphs": [
+        "On a multicore machine, multiple processes and threads compete for CPU time. The scheduler's job is to pick the next runnable task for each core, balancing responsiveness (interactive apps feel snappy), throughput (batch jobs finish quickly), and fairness (no task starves indefinitely).",
+        "Modern Linux uses CFS (Completely Fair Scheduler) for most tasks. CFS models an ideal processor that divides CPU equally among runnable tasks and tracks virtual runtime (vruntime) — how long each task has actually run. The task with the lowest vruntime runs next. Nice values (-20 to 19) bias share without strict priority inversion.",
+        "Real-time schedulers (SCHED_FIFO, SCHED_RR) exist for latency-critical workloads — audio processing, industrial control — but misuse can starve normal processes. Kubernetes CPU requests and limits translate loosely to CFS shares and throttling via cgroup cpu.cfs_quota_us.",
+        "Preemption means the kernel can interrupt a running task before it voluntarily yields — on timer tick, or when a higher-priority task becomes runnable. Cooperative multitasking (early Windows, green threads without preemption) fails when one task loops forever; preemptive scheduling is why runaway code can still be killed."
+      ],
+      "bullets": [
+        "Runnable state: ready to run, sitting in the run queue",
+        "Blocked/waiting: sleeping until I/O, lock, or timer completes",
+        "Time slice: maximum continuous CPU before preemption (typically 4–100 ms range)",
+        "Load average: exponentially decaying average of runnable + uninterruptible tasks"
+      ]
+    },
+    {
+      "title": "Scheduling Policies and Latency",
+      "paragraphs": [
+        "Different workloads need different scheduling behavior. Batch analytics wants maximum throughput — keep the CPU busy, minimize context switches. Interactive web services want low tail latency — a request should not wait behind a long-running background job.",
+        "Priority inversion occurs when a low-priority task holds a lock a high-priority task needs, while a medium-priority task preempts the low one — delaying everyone. Priority inheritance mutexes (Linux PI-futex) temporarily boost the lock holder's priority to fix this; it matters in real-time and embedded systems.",
+        "CPU affinity (pinning a process to specific cores) improves cache warmth — data stays in L1/L2 cache longer. NUMA (Non-Uniform Memory Access) adds another dimension: memory attached to a distant socket is slower, so schedulers try to run tasks on the node where their memory was allocated.",
+        "For system design, scheduling appears as CPU throttling in containers (your pod gets 500m = 50% of one core), noisy neighbor problems in multi-tenant clouds, and why colocating latency-sensitive and batch workloads on the same nodes requires isolation (separate node pools, dedicated cores, or QoS classes in Kubernetes)."
+      ]
+    },
+    {
+      "title": "Virtual Memory Fundamentals",
+      "paragraphs": [
+        "Physical RAM is finite and fragmented. Virtual memory decouples the address space a program sees from physical frames in RAM. Each process has its own virtual address space (typically 48–64 bits on modern 64-bit systems, though only a portion is usable). The MMU (Memory Management Unit) translates virtual addresses to physical on every memory access via page tables.",
+        "Memory is divided into fixed-size pages (usually 4 KB on x86; 2 MB and 1 GB huge pages exist for TLB efficiency). The page table is a multi-level tree — on x86-64, four levels — storing mappings from virtual page number to physical frame number, plus permission bits (read, write, execute, user/supervisor).",
+        "When a process accesses a virtual address with no valid mapping, the CPU traps to the kernel. A soft page fault loads the page from disk (or allocates a zero page for first touch). A hard fault on a hot path destroys performance. TLB (Translation Lookaside Buffer) caches recent translations; TLB misses add latency.",
+        "Virtual memory also enables security: processes cannot read each other's memory because page tables enforce boundaries. The kernel maps the same physical pages into multiple address spaces for shared memory (IPC) or copy-on-write after fork."
+      ],
+      "bullets": [
+        "Page fault: trap when virtual page is not in physical RAM",
+        "Demand paging: pages loaded only when first accessed",
+        "Huge pages: reduce TLB pressure for large contiguous allocations (DB buffer pools)",
+        "ASLR: randomize base addresses to make exploits harder"
+      ]
+    },
+    {
+      "title": "Paging, Swapping, and Memory Pressure",
+      "paragraphs": [
+        "When physical memory fills, the kernel must reclaim pages. The page replacement algorithm (approximated LRU with active/inactive lists in Linux) chooses victims to evict. Clean pages (unchanged since load, e.g., code segments) can be dropped and re-read from disk. Dirty pages must be written to backing store first.",
+        "Swap space (partition or file on disk) extends effective memory. When a process has not touched a page recently, the kernel may swap it out — freeing the physical frame for someone else. If the process accesses it again, a major page fault reads it back from swap — orders of magnitude slower than RAM.",
+        "Swapping is catastrophic for databases and latency-sensitive services. A single random disk read takes milliseconds; RAM access takes nanoseconds. PostgreSQL, Redis, and JVM heaps assume data stays resident. If your database swaps, p99 latency explodes and throughput collapses — often misdiagnosed as 'need more indexes' when the fix is more RAM or fewer competing processes.",
+        "The OOM (Out-Of-Memory) killer is Linux's last resort when reclaim fails. It scores processes by memory usage, child processes, oom_score_adj, and kills the chosen victim with SIGKILL. In containers, the cgroup OOM killer fires first — terminating the container process that exceeded its limit."
+      ]
+    },
+    {
+      "title": "Memory from Application to Hardware",
+      "paragraphs": [
+        "Application-level memory management interacts with virtual memory in subtle ways. malloc/new request virtual address space; physical pages are often committed on first write (lazy allocation). Freeing memory returns virtual pages to the allocator but may not immediately return physical frames to the OS — glibc malloc hoards arenas; Go returns memory slowly to the OS.",
+        "Memory-mapped files (mmap) map disk files directly into the address space. Reads become page faults loading data from disk; the kernel's page cache serves hot regions from RAM. Databases and search engines use mmap for index files; the OS handles caching, but you lose explicit control over eviction.",
+        "Garbage collectors create memory pressure patterns: allocation bursts, periodic STW (stop-the-world) pauses for marking, and heap growth. JVM -Xmx, Go GOGC, and .NET GC settings determine how much virtual memory the runtime holds. Container limits must account for heap + stack + metaspace + native memory + page cache share.",
+        "When sizing infrastructure, work backwards: estimate working set size (data actively touched), add headroom for spikes and OS page cache, set container limits above working set but below node capacity, and monitor major page faults and swap usage as leading indicators of trouble."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "How the CPU Scheduler Works",
+        "paragraphs": [
+          "On a multicore machine, multiple processes and threads compete for CPU time. The scheduler's job is to pick the next runnable task for each core, balancing responsiveness (interactive apps feel snappy), throughput (batch jobs finish quickly), and fairness (no task starves indefinitely).",
+          "Modern Linux uses CFS (Completely Fair Scheduler) for most tasks. CFS models an ideal processor that divides CPU equally among runnable tasks and tracks virtual runtime (vruntime) — how long each task has actually run. The task with the lowest vruntime runs next. Nice values (-20 to 19) bias share without strict priority inversion.",
+          "Real-time schedulers (SCHED_FIFO, SCHED_RR) exist for latency-critical workloads — audio processing, industrial control — but misuse can starve normal processes. Kubernetes CPU requests and limits translate loosely to CFS shares and throttling via cgroup cpu.cfs_quota_us.",
+          "Preemption means the kernel can interrupt a running task before it voluntarily yields — on timer tick, or when a higher-priority task becomes runnable. Cooperative multitasking (early Windows, green threads without preemption) fails when one task loops forever; preemptive scheduling is why runaway code can still be killed."
+        ],
+        "bullets": [
+          "Runnable state: ready to run, sitting in the run queue",
+          "Blocked/waiting: sleeping until I/O, lock, or timer completes",
+          "Time slice: maximum continuous CPU before preemption (typically 4–100 ms range)",
+          "Load average: exponentially decaying average of runnable + uninterruptible tasks"
+        ]
+      },
+      {
+        "title": "Scheduling Policies and Latency",
+        "paragraphs": [
+          "Different workloads need different scheduling behavior. Batch analytics wants maximum throughput — keep the CPU busy, minimize context switches. Interactive web services want low tail latency — a request should not wait behind a long-running background job.",
+          "Priority inversion occurs when a low-priority task holds a lock a high-priority task needs, while a medium-priority task preempts the low one — delaying everyone. Priority inheritance mutexes (Linux PI-futex) temporarily boost the lock holder's priority to fix this; it matters in real-time and embedded systems.",
+          "CPU affinity (pinning a process to specific cores) improves cache warmth — data stays in L1/L2 cache longer. NUMA (Non-Uniform Memory Access) adds another dimension: memory attached to a distant socket is slower, so schedulers try to run tasks on the node where their memory was allocated.",
+          "For system design, scheduling appears as CPU throttling in containers (your pod gets 500m = 50% of one core), noisy neighbor problems in multi-tenant clouds, and why colocating latency-sensitive and batch workloads on the same nodes requires isolation (separate node pools, dedicated cores, or QoS classes in Kubernetes)."
+        ]
+      },
+      {
+        "title": "Virtual Memory Fundamentals",
+        "paragraphs": [
+          "Physical RAM is finite and fragmented. Virtual memory decouples the address space a program sees from physical frames in RAM. Each process has its own virtual address space (typically 48–64 bits on modern 64-bit systems, though only a portion is usable). The MMU (Memory Management Unit) translates virtual addresses to physical on every memory access via page tables.",
+          "Memory is divided into fixed-size pages (usually 4 KB on x86; 2 MB and 1 GB huge pages exist for TLB efficiency). The page table is a multi-level tree — on x86-64, four levels — storing mappings from virtual page number to physical frame number, plus permission bits (read, write, execute, user/supervisor).",
+          "When a process accesses a virtual address with no valid mapping, the CPU traps to the kernel. A soft page fault loads the page from disk (or allocates a zero page for first touch). A hard fault on a hot path destroys performance. TLB (Translation Lookaside Buffer) caches recent translations; TLB misses add latency.",
+          "Virtual memory also enables security: processes cannot read each other's memory because page tables enforce boundaries. The kernel maps the same physical pages into multiple address spaces for shared memory (IPC) or copy-on-write after fork."
+        ],
+        "bullets": [
+          "Page fault: trap when virtual page is not in physical RAM",
+          "Demand paging: pages loaded only when first accessed",
+          "Huge pages: reduce TLB pressure for large contiguous allocations (DB buffer pools)",
+          "ASLR: randomize base addresses to make exploits harder"
+        ]
+      },
+      {
+        "title": "Paging, Swapping, and Memory Pressure",
+        "paragraphs": [
+          "When physical memory fills, the kernel must reclaim pages. The page replacement algorithm (approximated LRU with active/inactive lists in Linux) chooses victims to evict. Clean pages (unchanged since load, e.g., code segments) can be dropped and re-read from disk. Dirty pages must be written to backing store first.",
+          "Swap space (partition or file on disk) extends effective memory. When a process has not touched a page recently, the kernel may swap it out — freeing the physical frame for someone else. If the process accesses it again, a major page fault reads it back from swap — orders of magnitude slower than RAM.",
+          "Swapping is catastrophic for databases and latency-sensitive services. A single random disk read takes milliseconds; RAM access takes nanoseconds. PostgreSQL, Redis, and JVM heaps assume data stays resident. If your database swaps, p99 latency explodes and throughput collapses — often misdiagnosed as 'need more indexes' when the fix is more RAM or fewer competing processes.",
+          "The OOM (Out-Of-Memory) killer is Linux's last resort when reclaim fails. It scores processes by memory usage, child processes, oom_score_adj, and kills the chosen victim with SIGKILL. In containers, the cgroup OOM killer fires first — terminating the container process that exceeded its limit."
+        ]
+      },
+      {
+        "title": "Memory from Application to Hardware",
+        "paragraphs": [
+          "Application-level memory management interacts with virtual memory in subtle ways. malloc/new request virtual address space; physical pages are often committed on first write (lazy allocation). Freeing memory returns virtual pages to the allocator but may not immediately return physical frames to the OS — glibc malloc hoards arenas; Go returns memory slowly to the OS.",
+          "Memory-mapped files (mmap) map disk files directly into the address space. Reads become page faults loading data from disk; the kernel's page cache serves hot regions from RAM. Databases and search engines use mmap for index files; the OS handles caching, but you lose explicit control over eviction.",
+          "Garbage collectors create memory pressure patterns: allocation bursts, periodic STW (stop-the-world) pauses for marking, and heap growth. JVM -Xmx, Go GOGC, and .NET GC settings determine how much virtual memory the runtime holds. Container limits must account for heap + stack + metaspace + native memory + page cache share.",
+          "When sizing infrastructure, work backwards: estimate working set size (data actively touched), add headroom for spikes and OS page cache, set container limits above working set but below node capacity, and monitor major page faults and swap usage as leading indicators of trouble."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Scheduling & Virtual Memory — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Scheduling & Virtual Memory: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Scheduling & Virtual Memory — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Scheduling & Virtual Memory: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Preemptive scheduling: OS interrupts tasks via timer and priority",
+    "CFS (Completely Fair Scheduler): Linux default, vruntime-based fairness",
+    "Nice value and cgroup CPU quota: influence CPU share in containers",
+    "Virtual address space vs physical RAM: MMU translation via page tables",
+    "Page fault: soft (demand alloc) vs major (disk I/O required)",
+    "TLB: cache for virtual-to-physical translations",
+    "Swap: evict cold pages to disk, major fault on re-access",
+    "OOM killer: reclaims memory by terminating processes",
+    "Copy-on-write: fork shares pages until write",
+    "Working set: pages actively used — keep this in RAM for performance"
+  ],
+  "practices": [
+    "Monitor major page faults and swap usage — non-zero swap on a database node is a red flag",
+    "Set Kubernetes memory requests to expected working set; limits high enough to avoid OOM during spikes but low enough to prevent node exhaustion",
+    "Use huge pages for large, long-lived allocations (database buffer pools) to reduce TLB misses",
+    "Separate latency-sensitive and batch workloads onto different nodes or QoS tiers",
+    "Profile GC and allocator behavior under load — virtual memory freed != physical memory returned",
+    "Size RAM as working set + 20–30% headroom; never run memory-heavy services without limits",
+    "Understand NUMA topology on bare metal — pin memory and CPU for HPC and large in-memory stores"
+  ],
+  "pitfalls": [
+    "Assuming free memory is wasted memory — Linux uses spare RAM for page cache, which speeds reads",
+    "Setting JVM heap close to container limit without accounting for off-heap, threads, and metaspace",
+    "Ignoring load average > core count sustained — indicates runnable queue backlog",
+    "Running swap enabled on database or cache servers — masks memory pressure until catastrophic latency",
+    "Overcommitting node memory (sum of pod limits >> node RAM) — guarantees OOM under pressure",
+    "Confusing virtual size (VSZ) with resident set (RSS) when debugging memory leaks"
+  ],
+  "examples": [
+    {
+      "title": "PostgreSQL and shared_buffers",
+      "description": "PostgreSQL allocates shared_buffers (often 25% of RAM) as a buffer pool for page caching. The OS page cache holds additional copies of recently read data. If the machine swaps, both pools compete for scarce RAM and query latency spikes on buffer cache misses that become disk reads. Production tuning starts with ensuring shared_buffers + OS headroom fits in physical memory with swap disabled or minimized."
+    },
+    {
+      "title": "Kubernetes CPU throttling",
+      "description": "A pod with cpu.limit=500m and a Java app doing GC or compilation bursts gets throttled by CFS quota — the process runs only half of each 100ms period. p99 latency rises even though average CPU looks low. The fix is raising limits, requesting guaranteed QoS, or using dedicated nodes — all scheduling and cgroup decisions, not application bugs."
+    },
+    {
+      "title": "Major page fault in a cold start",
+      "description": "A serverless function or freshly restarted service maps a large binary and touches many code pages on first requests. Each cold page causes a soft fault loading from disk. Warm instances keep pages resident. This is why 'cold start latency' is a memory and paging phenomenon as much as initialization logic — and why provisioned concurrency or keeping instances warm helps."
+    }
+  ],
+  "keyTakeaways": [
+    "The scheduler balances fairness, throughput, and latency via preemptive time slicing",
+    "Virtual memory isolates processes and enables demand paging, but page faults cost time",
+    "Swapping moves cold pages to disk — fine for idle desktops, deadly for databases",
+    "OOM killer and cgroup limits are safety valves when physical memory is exhausted",
+    "Working set size drives RAM provisioning — measure RSS and page fault rates, not just heap settings",
+    "Container CPU/memory limits are OS scheduling and cgroup mechanisms — understand them when tuning",
+    "TLB and huge pages matter at scale for in-memory and database workloads"
+  ],
+  "whyItMatters": "Capacity planning, container sizing, database tuning, and latency debugging all require understanding what happens when RAM runs out and how the CPU chooses what runs next. 'We need more CPUs' is often wrong — the runnable queue is empty but threads block on I/O. 'We need an index' is sometimes wrong — the working set exceeded RAM and the system swapped. Scheduling and virtual memory are the lens for these diagnoses.",
+  "reflectionQuestions": [
+    "Your PostgreSQL node's swap usage is 2 GB and query p99 jumped 10×. Walk through what the kernel is doing and your remediation steps.",
+    "A pod is OOMKilled repeatedly with a 1 GB limit. The app owner says 'the heap is only 512 MB.' What else consumes memory in a JVM or Node process?",
+    "How would you isolate a batch ETL job from a payment API on the same Kubernetes cluster?",
+    "Explain why load average of 8 on a 4-core machine indicates a problem even if CPU utilization shows 50%."
+  ],
+  "resources": [
+    "Operating Systems: Three Easy Pieces — Scheduling and Memory (Arpaci-Dusseau)",
+    "Linux Kernel Development — Scheduler and memory management chapters (Robert Love)",
+    "Brendan Gregg: Linux performance observability tools (CPU, memory, page faults)",
+    "Google SRE Book — Chapter on capacity planning"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "os-scheduling-memory-overview",
+      "title": "Scheduling & Virtual Memory overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Scheduling & Virtual Memory and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Scheduling & Virtual Memory; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Operating Systems: Three Easy Pieces — Scheduling and Memory (Arpaci-Dusseau)"
+    },
+    {
+      "title": "Linux Kernel Development — Scheduler and memory management chapters (Robert Love)"
+    },
+    {
+      "title": "Brendan Gregg: Linux performance observability tools (CPU, memory, page faults)"
+    },
+    {
+      "title": "Google SRE Book — Chapter on capacity planning"
+    }
+  ],
+  "relatedLessons": [
+    "os-io-sync",
+    "os-memory",
+    "os-numa"
+  ]
+}

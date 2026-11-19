@@ -1,0 +1,291 @@
+{
+  "id": "framework-iteration",
+  "title": "The Design → Build → Measure Loop",
+  "moduleId": "design-framework",
+  "phaseId": "designer-mindset",
+  "durationMinutes": 35,
+  "summary": "System design does not end at deployment. The best architects treat design as a continuous loop: hypothesize, build minimally, measure against SLOs, learn, and iterate. This lesson connects design frameworks to operational reality — load testing, observability, postmortems, and evolutionary architecture that adapts as requirements and traffic change.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "framework-architecture"
+  ],
+  "tags": [
+    "design-framework",
+    "designer-mindset"
+  ],
+  "sections": [
+    {
+      "title": "From Design Doc to MVP",
+      "paragraphs": [
+        "A design document captures intent: requirements, architecture diagram, data model, failure modes, and open questions. It is a proposal, not a contract. The MVP implements must-have functional requirements at modest scale with explicit non-goals — 'no multi-region, no full-text search, single AZ database with nightly backups.'",
+        "Build the simplest architecture that validates the core hypothesis: do users want this feature? Can we meet latency targets at 1K QPS? Premature optimization wastes weeks; missing critical path design (wrong data model, unshardable schema) wastes months. Focus MVP engineering on reversible decisions and hard-to-change foundations (data model, API contracts).",
+        "Feature flags decouple deployment from release — ship code dark, enable for 1% of users, measure, expand. Strangler patterns apply within monoliths: new code path behind flag, old path default, migrate traffic incrementally. Design docs should specify flag strategy and rollback plan for risky changes.",
+        "Define 'done' for MVP with measurable criteria: p99 < 300ms at 500 QPS load test, error rate < 0.1%, core user journey E2E tests pass. Without exit criteria, MVP scope creeps indefinitely."
+      ],
+      "bullets": [
+        "Design doc: requirements, diagram, schema, risks, open questions",
+        "MVP: must-haves only; explicit non-goals documented",
+        "Reversible vs irreversible decisions — invest design time accordingly",
+        "Feature flags: deploy != release; enable gradual rollout"
+      ]
+    },
+    {
+      "title": "Measuring What Matters: SLIs, SLOs, and Error Budgets",
+      "paragraphs": [
+        "SLI (Service Level Indicator) is a measured metric: request latency, availability, throughput, correctness. SLO (Service Level Objective) is a target: 99.9% of requests complete in < 200ms over 30 days. SLAs are contractual SLOs with penalties — internal teams use SLOs without legal binding.",
+        "Error budget = 100% - SLO. At 99.9% availability, you have 0.1% budget (~43 minutes downtime/month). Budget exhausted → freeze features, focus on reliability. Budget healthy → take more deployment risk. This framework aligns product velocity with reliability mathematically.",
+        "Choose SLIs users feel: availability (successful responses / total), latency (p99 of server-side duration), freshness (age of data in async pipeline). Avoid vanity metrics (CPU average) as primary SLOs — correlate to user experience.",
+        "Instrument from day one: structured logs, metrics (Prometheus/Datadog), distributed tracing (OpenTelemetry). Design docs should list golden signals (latency, traffic, errors, saturation) per component before build starts — retrofitting observability is expensive."
+      ],
+      "bullets": [
+        "Four golden signals: latency, traffic, errors, saturation (Google SRE)",
+        "SLO: target over rolling window (30 days common)",
+        "Error budget: remaining allowable unreliability before SLO breach",
+        "RED method: Rate, Errors, Duration for request-driven services"
+      ]
+    },
+    {
+      "title": "Load Testing and Validation",
+      "paragraphs": [
+        "Load tests validate capacity assumptions before users do. Types: smoke (minimal, CI), load (expected peak), stress (beyond peak to find breaking point), soak (sustained hours — memory leaks, connection exhaustion), spike (sudden 10× burst). Match test profile to estimated traffic shape.",
+        "Test in production-like environment — staging with 10% of prod data size often lies about query plans and cache behavior. Use anonymized production data snapshots or synthetic generators that reproduce skew (hot keys, celebrity users).",
+        "Measure during tests: p50/p95/p99 latency, error rate, resource saturation (CPU, memory, disk IOPS, connection pool usage, Kafka lag). Compare against design doc estimates. Gap analysis drives next iteration: 'estimated 10K QPS; stress test knee at 4K — database write lock contention.'",
+        "Chaos and fault injection in staging: kill a replica, inject latency to dependencies, partition network. Validate failover, circuit breakers, and degradation paths designed on paper actually work. A design untested under failure is hope, not engineering."
+      ],
+      "bullets": [
+        "k6, Locust, Gatling — programmatic load test scripts in CI",
+        "Production traffic shadowing/mirroring — test new path with real traffic safely",
+        "Gradual rollout: canary 1% → 10% → 50% → 100% with automated rollback",
+        "Load test failure is success — you found the bottleneck before users did"
+      ]
+    },
+    {
+      "title": "Learning from Production: Postmortems and Iteration",
+      "paragraphs": [
+        "Blameless postmortems document incidents: timeline, root cause, contributing factors, action items. Focus on systems and processes, not individuals. 'Database failover took 15 minutes because runbook was stale' → action: automate failover + quarterly drill.",
+        "Postmortem action items feed the design loop: add cache layer, increase timeout, fix idempotency bug, shard hot table. Architecture evolves from production pain — the best designs are revised, not born perfect.",
+        "Continuous profiling (CPU, memory, lock contention) in production finds regressions invisible in averages. A deployment that adds 5ms p99 doesn't trip error alerts but erodes SLO over weeks. Compare canary metrics to baseline automatically during rollout.",
+        "Capacity review cadence: quarterly re-run estimation with growth metrics. Traffic 3× in six months? Revisit shard plan before emergency. Technical debt register tracks shortcuts taken in MVP with remediation triggers ('shard when write QPS > 5K')."
+      ],
+      "bullets": [
+        "Blameless culture: fix systems, not punish people",
+        "Five whys: dig from symptom to root cause",
+        "Action items: specific, owned, dated — tracked to completion",
+        "Game days: scheduled disaster recovery exercises"
+      ]
+    },
+    {
+      "title": "Evolutionary Architecture and Knowing When to Redesign",
+      "paragraphs": [
+        "Evolutionary architecture supports guided change: fitness functions (automated architecture tests) enforce rules ('domain layer cannot import infrastructure'). Modular monoliths evolve into services when metrics justify — not on a calendar.",
+        "Recognize redesign triggers: sustained SLO breach despite optimization, org structure outgrows architecture (Conway's Law), fundamental schema change needed, cost curve nonlinear. Incremental refactor (Strangler Fig) beats rewrite unless technical debt is existential.",
+        "Document architecture decision records (ADRs): context, decision, consequences, status. Future teams understand why Kafka was chosen over RabbitMQ in 2024 and when to revisit. Design loop includes revisiting ADRs when assumptions change.",
+        "The meta-skill: hold design lightly. Measure ruthlessly. Iterate quickly. Systems that survive are not the most elegant initial design — they are the ones whose teams learned fastest from reality."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "From Design Doc to MVP",
+        "paragraphs": [
+          "A design document captures intent: requirements, architecture diagram, data model, failure modes, and open questions. It is a proposal, not a contract. The MVP implements must-have functional requirements at modest scale with explicit non-goals — 'no multi-region, no full-text search, single AZ database with nightly backups.'",
+          "Build the simplest architecture that validates the core hypothesis: do users want this feature? Can we meet latency targets at 1K QPS? Premature optimization wastes weeks; missing critical path design (wrong data model, unshardable schema) wastes months. Focus MVP engineering on reversible decisions and hard-to-change foundations (data model, API contracts).",
+          "Feature flags decouple deployment from release — ship code dark, enable for 1% of users, measure, expand. Strangler patterns apply within monoliths: new code path behind flag, old path default, migrate traffic incrementally. Design docs should specify flag strategy and rollback plan for risky changes.",
+          "Define 'done' for MVP with measurable criteria: p99 < 300ms at 500 QPS load test, error rate < 0.1%, core user journey E2E tests pass. Without exit criteria, MVP scope creeps indefinitely."
+        ],
+        "bullets": [
+          "Design doc: requirements, diagram, schema, risks, open questions",
+          "MVP: must-haves only; explicit non-goals documented",
+          "Reversible vs irreversible decisions — invest design time accordingly",
+          "Feature flags: deploy != release; enable gradual rollout"
+        ]
+      },
+      {
+        "title": "Measuring What Matters: SLIs, SLOs, and Error Budgets",
+        "paragraphs": [
+          "SLI (Service Level Indicator) is a measured metric: request latency, availability, throughput, correctness. SLO (Service Level Objective) is a target: 99.9% of requests complete in < 200ms over 30 days. SLAs are contractual SLOs with penalties — internal teams use SLOs without legal binding.",
+          "Error budget = 100% - SLO. At 99.9% availability, you have 0.1% budget (~43 minutes downtime/month). Budget exhausted → freeze features, focus on reliability. Budget healthy → take more deployment risk. This framework aligns product velocity with reliability mathematically.",
+          "Choose SLIs users feel: availability (successful responses / total), latency (p99 of server-side duration), freshness (age of data in async pipeline). Avoid vanity metrics (CPU average) as primary SLOs — correlate to user experience.",
+          "Instrument from day one: structured logs, metrics (Prometheus/Datadog), distributed tracing (OpenTelemetry). Design docs should list golden signals (latency, traffic, errors, saturation) per component before build starts — retrofitting observability is expensive."
+        ],
+        "bullets": [
+          "Four golden signals: latency, traffic, errors, saturation (Google SRE)",
+          "SLO: target over rolling window (30 days common)",
+          "Error budget: remaining allowable unreliability before SLO breach",
+          "RED method: Rate, Errors, Duration for request-driven services"
+        ]
+      },
+      {
+        "title": "Load Testing and Validation",
+        "paragraphs": [
+          "Load tests validate capacity assumptions before users do. Types: smoke (minimal, CI), load (expected peak), stress (beyond peak to find breaking point), soak (sustained hours — memory leaks, connection exhaustion), spike (sudden 10× burst). Match test profile to estimated traffic shape.",
+          "Test in production-like environment — staging with 10% of prod data size often lies about query plans and cache behavior. Use anonymized production data snapshots or synthetic generators that reproduce skew (hot keys, celebrity users).",
+          "Measure during tests: p50/p95/p99 latency, error rate, resource saturation (CPU, memory, disk IOPS, connection pool usage, Kafka lag). Compare against design doc estimates. Gap analysis drives next iteration: 'estimated 10K QPS; stress test knee at 4K — database write lock contention.'",
+          "Chaos and fault injection in staging: kill a replica, inject latency to dependencies, partition network. Validate failover, circuit breakers, and degradation paths designed on paper actually work. A design untested under failure is hope, not engineering."
+        ],
+        "bullets": [
+          "k6, Locust, Gatling — programmatic load test scripts in CI",
+          "Production traffic shadowing/mirroring — test new path with real traffic safely",
+          "Gradual rollout: canary 1% → 10% → 50% → 100% with automated rollback",
+          "Load test failure is success — you found the bottleneck before users did"
+        ]
+      },
+      {
+        "title": "Learning from Production: Postmortems and Iteration",
+        "paragraphs": [
+          "Blameless postmortems document incidents: timeline, root cause, contributing factors, action items. Focus on systems and processes, not individuals. 'Database failover took 15 minutes because runbook was stale' → action: automate failover + quarterly drill.",
+          "Postmortem action items feed the design loop: add cache layer, increase timeout, fix idempotency bug, shard hot table. Architecture evolves from production pain — the best designs are revised, not born perfect.",
+          "Continuous profiling (CPU, memory, lock contention) in production finds regressions invisible in averages. A deployment that adds 5ms p99 doesn't trip error alerts but erodes SLO over weeks. Compare canary metrics to baseline automatically during rollout.",
+          "Capacity review cadence: quarterly re-run estimation with growth metrics. Traffic 3× in six months? Revisit shard plan before emergency. Technical debt register tracks shortcuts taken in MVP with remediation triggers ('shard when write QPS > 5K')."
+        ],
+        "bullets": [
+          "Blameless culture: fix systems, not punish people",
+          "Five whys: dig from symptom to root cause",
+          "Action items: specific, owned, dated — tracked to completion",
+          "Game days: scheduled disaster recovery exercises"
+        ]
+      },
+      {
+        "title": "Evolutionary Architecture and Knowing When to Redesign",
+        "paragraphs": [
+          "Evolutionary architecture supports guided change: fitness functions (automated architecture tests) enforce rules ('domain layer cannot import infrastructure'). Modular monoliths evolve into services when metrics justify — not on a calendar.",
+          "Recognize redesign triggers: sustained SLO breach despite optimization, org structure outgrows architecture (Conway's Law), fundamental schema change needed, cost curve nonlinear. Incremental refactor (Strangler Fig) beats rewrite unless technical debt is existential.",
+          "Document architecture decision records (ADRs): context, decision, consequences, status. Future teams understand why Kafka was chosen over RabbitMQ in 2024 and when to revisit. Design loop includes revisiting ADRs when assumptions change.",
+          "The meta-skill: hold design lightly. Measure ruthlessly. Iterate quickly. Systems that survive are not the most elegant initial design — they are the ones whose teams learned fastest from reality."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "The Design → Build → Measure Loop — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of The Design → Build → Measure Loop: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "The Design → Build → Measure Loop — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for The Design → Build → Measure Loop: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Design doc → MVP → measure → iterate — continuous loop",
+    "SLI/SLO/error budget: reliability targets tied to product velocity",
+    "Golden signals: latency, traffic, errors, saturation",
+    "Load testing types: smoke, load, stress, soak, spike",
+    "Canary deployment: gradual rollout with automated rollback",
+    "Blameless postmortem: learn from incidents without finger-pointing",
+    "Feature flags: decouple deployment from user-visible release",
+    "Fitness functions: automated checks enforcing architectural constraints",
+    "ADR (Architecture Decision Record): document decisions and revisit triggers",
+    "Strangler Fig: incremental migration over big-bang rewrite"
+  ],
+  "practices": [
+    "Write a one-page design doc with explicit MVP non-goals before coding",
+    "Define SLIs and SLOs for core user journeys before launch",
+    "Run load tests at estimated peak before major releases",
+    "Use canary rollouts with automatic rollback on SLO regression",
+    "Conduct blameless postmortems within 48 hours of significant incidents",
+    "Re-estimate capacity quarterly using production growth metrics",
+    "Maintain ADRs for significant technology and architecture choices"
+  ],
+  "pitfalls": [
+    "Design doc as shelf-ware — no validation against production metrics",
+    "Vanity metrics (CPU, request count) without latency and error SLOs",
+    "Skipping load tests — discovering limits during Black Friday",
+    "Blame culture — hides root causes; incidents repeat",
+    "Big-bang rewrite instead of incremental Strangler migration",
+    "Observability as phase 2 — flying blind during critical early iterations"
+  ],
+  "examples": [
+    {
+      "title": "MVP → scale iteration for a startup API",
+      "description": "MVP: monolith + Postgres, SLO 99.5% / 500ms p99. Month 3: p99 degrades to 800ms at 2K QPS — load test reproduces; add Redis cache for hot reads, p99 back to 200ms. Month 9: write QPS nears 3K — add read replica, async job queue for emails. Month 18: shard users table by user_id. Each step triggered by SLO breach or capacity review, not premature planning."
+    },
+    {
+      "title": "Error budget freeze before holiday season",
+      "description": "E-commerce platform has 99.95% availability SLO. October error budget at 15% remaining before Black Friday freeze. Team defers risky database migration to January, focuses on load test remediation and runbook drills. December traffic 5× — SLO met. Budget framework prevented a risky change during critical window."
+    },
+    {
+      "title": "Postmortem-driven architecture change",
+      "description": "Outage: payment webhook consumer fell behind, 4-hour delay in order confirmations. Root cause: single-threaded consumer, no dead letter queue, poison message blocked partition. Actions: horizontal consumer scaling, DLQ, idempotency keys, alert on consumer lag > 1 min. Design loop turned incident into durable architecture improvement."
+    }
+  ],
+  "keyTakeaways": [
+    "System design is a continuous loop — MVP, measure, learn, iterate",
+    "SLIs, SLOs, and error budgets connect reliability to engineering priorities",
+    "Load and chaos testing validate design assumptions before users pay the price",
+    "Blameless postmortems convert incidents into architecture improvements",
+    "Feature flags and canaries enable safe iteration in production",
+    "Revisit capacity estimates and ADRs as traffic and org structure evolve",
+    "The best architecture emerges from measured iteration, not upfront perfection"
+  ],
+  "whyItMatters": "Interview designs are static; production systems are living. Engineers who close the design-build-measure loop ship reliable systems and learn faster than teams that treat architecture as a one-time diagram. This mindset distinguishes staff-level ownership from feature-level implementation.",
+  "reflectionQuestions": [
+    "What SLIs and SLOs would you define for a food delivery app's order tracking feature?",
+    "Your load test shows p99 latency acceptable but p99.9 terrible. Is the system ready to launch? Why or why not?",
+    "Describe a postmortem action item that would change architecture, not just fix a bug.",
+    "When would you trigger a full redesign vs incremental Strangler migration?"
+  ],
+  "resources": [
+    "Google SRE Book — Ch. 4 (SLOs), Ch. 15 (Postmortem Culture)",
+    "Accelerate (Forsgren, Humble, Kim) — DORA metrics and iteration",
+    "Building Evolutionary Architectures (Ford, Parsons, Kua)",
+    "Architecture Decision Records (adr.github.io)",
+    "The Phoenix Project — DevOps learning loop narrative"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "framework-iteration-overview",
+      "title": "The Design → Build → Measure Loop overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain The Design → Build → Measure Loop and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on The Design → Build → Measure Loop; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Google SRE Book — Ch. 4 (SLOs), Ch. 15 (Postmortem Culture)"
+    },
+    {
+      "title": "Accelerate (Forsgren, Humble, Kim) — DORA metrics and iteration"
+    },
+    {
+      "title": "Building Evolutionary Architectures (Ford, Parsons, Kua)"
+    },
+    {
+      "title": "Architecture Decision Records (adr.github.io)"
+    },
+    {
+      "title": "The Phoenix Project — DevOps learning loop narrative"
+    }
+  ],
+  "relatedLessons": [
+    "framework-architecture",
+    "framework-requirements",
+    "mind-apis-data"
+  ]
+}

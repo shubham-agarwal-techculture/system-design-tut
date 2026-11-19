@@ -1,0 +1,236 @@
+{
+  "id": "scale-vertical-horizontal",
+  "title": "Vertical vs Horizontal Scaling",
+  "moduleId": "scalability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 35,
+  "summary": "Scaling is how systems handle growth in traffic, data, and complexity. Vertical scaling adds power to a single machine; horizontal scaling adds more machines. Production architectures almost always combine both, but horizontal scaling — with stateless services and load balancing — is the path to massive, fault-tolerant scale.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "scale-state-management"
+  ],
+  "tags": [
+    "scalability",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "What Scaling Means in Practice",
+      "paragraphs": [
+        "When users, requests, or data volume grow, every component in your stack faces pressure: CPU, memory, disk I/O, network bandwidth, and connection limits. Scaling is the set of strategies you use to increase capacity without rewriting the entire system.",
+        "The two fundamental approaches are vertical scaling (scale up) and horizontal scaling (scale out). Vertical scaling means upgrading the hardware or instance size of a single node — more cores, more RAM, faster SSDs. Horizontal scaling means running multiple copies of a service behind a load balancer and distributing work across them.",
+        "Early-stage products often scale vertically because it requires no architectural changes: you resize the database instance or upgrade the app server. But vertical scaling has hard ceilings — single-machine limits, diminishing returns on cost, and a single point of failure. Horizontal scaling removes those ceilings but demands that your application, data layer, and deployment pipeline support distribution from the start or through deliberate refactoring."
+      ]
+    },
+    {
+      "title": "Vertical Scaling: Strengths and Limits",
+      "paragraphs": [
+        "Vertical scaling is operationally simple. You change an instance type, restart services, and capacity increases. Databases especially benefit early on: a larger PostgreSQL instance with more RAM holds more of the working set in memory, reducing disk reads dramatically.",
+        "The limits appear quickly at scale. Cloud providers cap instance sizes; beyond a certain point, doubling RAM costs more than doubling throughput. A single large database cannot survive zone failures without replication. Memory-bound workloads may not fit on any commercially available machine.",
+        "Vertical scaling also creates upgrade windows: migrating from db.r5.2xlarge to db.r5.4xlarge often requires downtime or complex failover. Teams that rely exclusively on vertical scaling eventually hit a wall where the only option is a painful horizontal split — sharding, read replicas, or service extraction."
+      ],
+      "bullets": [
+        "Best for: early growth, stateful monoliths, workloads that resist distribution",
+        "Watch for: cost curves that outpace revenue, single points of failure, upgrade downtime"
+      ]
+    },
+    {
+      "title": "Horizontal Scaling: Architecture Requirements",
+      "paragraphs": [
+        "Horizontal scaling distributes load across N identical nodes. A load balancer — L4 (TCP) or L7 (HTTP) — routes incoming requests using algorithms like round-robin, least connections, or consistent hashing. Health checks remove unhealthy nodes automatically.",
+        "For horizontal scaling to work, application servers must be stateless or share state through external stores. Session data in local memory breaks horizontal scale: killing one node loses sessions for users pinned to it. Externalize sessions to Redis, use JWTs, or accept sticky sessions with their trade-offs.",
+        "Data layers scale horizontally through read replicas (scale reads), sharding (partition writes across nodes), or purpose-built distributed databases (Cassandra, DynamoDB). Each approach introduces consistency, query, and operational complexity that vertical scaling avoided."
+      ]
+    },
+    {
+      "title": "Auto-Scaling and Elastic Capacity",
+      "paragraphs": [
+        "Modern cloud platforms offer auto-scaling groups that add or remove instances based on metrics — CPU utilization, request rate, queue depth, or custom CloudWatch/Prometheus signals. Elastic capacity matches cost to demand: fewer servers at 3 AM, more during peak events.",
+        "Auto-scaling requires warm-up time. New instances must pass health checks, load application code, and establish connection pools before accepting traffic. Scale-out policies should trigger before saturation; scale-in policies should be conservative to avoid flapping during variable load.",
+        "Design for scale-to-zero only when cold-start latency is acceptable (serverless functions). For latency-sensitive APIs, maintain a minimum fleet size and use predictive scaling for known traffic patterns like product launches or Black Friday."
+      ]
+    },
+    {
+      "title": "Choosing the Right Strategy",
+      "paragraphs": [
+        "Start vertical when the team is small and traffic is predictable. Plan horizontal paths before you need them: stateless services, connection pooling, database read replicas, and clear service boundaries make future scale-out feasible.",
+        "Use vertical scaling for components that are inherently hard to distribute — single-leader databases, legacy monoliths, or licensed software with per-core pricing. Use horizontal scaling for stateless APIs, worker pools, CDN edges, and stream processors.",
+        "The best production systems combine both: vertically sized database primaries with horizontally scaled read replicas; horizontally scaled API tiers on moderately sized instances rather than one giant machine or hundreds of tiny ones."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "What Scaling Means in Practice",
+        "paragraphs": [
+          "When users, requests, or data volume grow, every component in your stack faces pressure: CPU, memory, disk I/O, network bandwidth, and connection limits. Scaling is the set of strategies you use to increase capacity without rewriting the entire system.",
+          "The two fundamental approaches are vertical scaling (scale up) and horizontal scaling (scale out). Vertical scaling means upgrading the hardware or instance size of a single node — more cores, more RAM, faster SSDs. Horizontal scaling means running multiple copies of a service behind a load balancer and distributing work across them.",
+          "Early-stage products often scale vertically because it requires no architectural changes: you resize the database instance or upgrade the app server. But vertical scaling has hard ceilings — single-machine limits, diminishing returns on cost, and a single point of failure. Horizontal scaling removes those ceilings but demands that your application, data layer, and deployment pipeline support distribution from the start or through deliberate refactoring."
+        ]
+      },
+      {
+        "title": "Vertical Scaling: Strengths and Limits",
+        "paragraphs": [
+          "Vertical scaling is operationally simple. You change an instance type, restart services, and capacity increases. Databases especially benefit early on: a larger PostgreSQL instance with more RAM holds more of the working set in memory, reducing disk reads dramatically.",
+          "The limits appear quickly at scale. Cloud providers cap instance sizes; beyond a certain point, doubling RAM costs more than doubling throughput. A single large database cannot survive zone failures without replication. Memory-bound workloads may not fit on any commercially available machine.",
+          "Vertical scaling also creates upgrade windows: migrating from db.r5.2xlarge to db.r5.4xlarge often requires downtime or complex failover. Teams that rely exclusively on vertical scaling eventually hit a wall where the only option is a painful horizontal split — sharding, read replicas, or service extraction."
+        ],
+        "bullets": [
+          "Best for: early growth, stateful monoliths, workloads that resist distribution",
+          "Watch for: cost curves that outpace revenue, single points of failure, upgrade downtime"
+        ]
+      },
+      {
+        "title": "Horizontal Scaling: Architecture Requirements",
+        "paragraphs": [
+          "Horizontal scaling distributes load across N identical nodes. A load balancer — L4 (TCP) or L7 (HTTP) — routes incoming requests using algorithms like round-robin, least connections, or consistent hashing. Health checks remove unhealthy nodes automatically.",
+          "For horizontal scaling to work, application servers must be stateless or share state through external stores. Session data in local memory breaks horizontal scale: killing one node loses sessions for users pinned to it. Externalize sessions to Redis, use JWTs, or accept sticky sessions with their trade-offs.",
+          "Data layers scale horizontally through read replicas (scale reads), sharding (partition writes across nodes), or purpose-built distributed databases (Cassandra, DynamoDB). Each approach introduces consistency, query, and operational complexity that vertical scaling avoided."
+        ]
+      },
+      {
+        "title": "Auto-Scaling and Elastic Capacity",
+        "paragraphs": [
+          "Modern cloud platforms offer auto-scaling groups that add or remove instances based on metrics — CPU utilization, request rate, queue depth, or custom CloudWatch/Prometheus signals. Elastic capacity matches cost to demand: fewer servers at 3 AM, more during peak events.",
+          "Auto-scaling requires warm-up time. New instances must pass health checks, load application code, and establish connection pools before accepting traffic. Scale-out policies should trigger before saturation; scale-in policies should be conservative to avoid flapping during variable load.",
+          "Design for scale-to-zero only when cold-start latency is acceptable (serverless functions). For latency-sensitive APIs, maintain a minimum fleet size and use predictive scaling for known traffic patterns like product launches or Black Friday."
+        ]
+      },
+      {
+        "title": "Choosing the Right Strategy",
+        "paragraphs": [
+          "Start vertical when the team is small and traffic is predictable. Plan horizontal paths before you need them: stateless services, connection pooling, database read replicas, and clear service boundaries make future scale-out feasible.",
+          "Use vertical scaling for components that are inherently hard to distribute — single-leader databases, legacy monoliths, or licensed software with per-core pricing. Use horizontal scaling for stateless APIs, worker pools, CDN edges, and stream processors.",
+          "The best production systems combine both: vertically sized database primaries with horizontally scaled read replicas; horizontally scaled API tiers on moderately sized instances rather than one giant machine or hundreds of tiny ones."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Vertical vs Horizontal Scaling — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Vertical vs Horizontal Scaling: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Vertical vs Horizontal Scaling — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Vertical vs Horizontal Scaling: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Vertical scaling (scale up): increase CPU, RAM, or disk on a single node",
+    "Horizontal scaling (scale out): add nodes and distribute load",
+    "Load balancers: L4 vs L7, health checks, routing algorithms",
+    "Stateless services scale horizontally without session affinity",
+    "Read replicas scale read-heavy workloads; sharding scales writes",
+    "Auto-scaling groups: metric-driven elastic capacity",
+    "Shared-nothing architecture: nodes do not share local memory or disk",
+    "Diminishing returns and cost cliffs on large single instances",
+    "Consistent hashing for cache and data partition stability"
+  ],
+  "practices": [
+    "Externalize session and application state before scaling web tiers horizontally",
+    "Set up health checks and graceful shutdown so load balancers drain connections safely",
+    "Define auto-scaling policies with cooldown periods to prevent thrashing",
+    "Right-size instances: avoid both undersized nodes (constant CPU pressure) and oversized waste",
+    "Load test before launch to find the first bottleneck — database, API, or network",
+    "Use read replicas for read-heavy paths; monitor replication lag",
+    "Document which components scale vertically vs horizontally in your architecture"
+  ],
+  "pitfalls": [
+    "Scaling the app tier while the database remains a single small instance — the DB becomes the bottleneck",
+    "Assuming sticky sessions eliminate the need for shared session storage during node failures",
+    "Aggressive scale-in that terminates nodes still processing long-running requests",
+    "Ignoring connection pool limits — 100 new API instances can overwhelm a database with connections",
+    "Vertical-only scaling until a mandatory rewrite is the only option",
+    "Auto-scaling on CPU alone while the real constraint is memory, disk I/O, or downstream latency"
+  ],
+  "examples": [
+    {
+      "title": "E-commerce checkout API",
+      "description": "An checkout service runs as 20 stateless containers behind an ALB. Session carts live in Redis; orders write to a PostgreSQL primary with two read replicas for order history. During flash sales, auto-scaling adds API containers from 20 to 80 based on request count, while the database scales vertically once before adding read replicas."
+    },
+    {
+      "title": "Video transcoding pipeline",
+      "description": "Transcoding is embarrassingly parallel: each video chunk is independent. A job queue (SQS) feeds a horizontally scaled worker fleet. Workers scale from 5 to 500 based on queue depth. No vertical scaling needed — each worker is a modest CPU-optimized instance."
+    },
+    {
+      "title": "Legacy monolith migration path",
+      "description": "A Rails monolith on a single 32 GB server hits memory limits. Phase 1: vertical upgrade to 64 GB. Phase 2: extract file uploads to S3 and sessions to Redis. Phase 3: run 4 stateless app servers behind Nginx. Phase 4: introduce read replicas for reporting queries."
+    }
+  ],
+  "keyTakeaways": [
+    "Vertical scaling is simpler but bounded; horizontal scaling is the path to massive scale",
+    "Stateless application tiers scale horizontally; state must live in external stores",
+    "Load balancers and health checks are prerequisites for horizontal scale",
+    "Auto-scaling aligns cost with demand but requires careful policy tuning",
+    "Combine vertical and horizontal strategies per component — one size does not fit all",
+    "Identify bottlenecks with load tests before scaling the wrong layer",
+    "Plan horizontal paths early even if you scale vertically today"
+  ],
+  "whyItMatters": "The scaling model you choose shapes every other architectural decision — database design, session handling, deployment strategy, and cost structure. Teams that defer horizontal readiness pay with emergency rewrites under traffic spikes. Interviewers and production incidents both start with: where is the bottleneck, and can this component scale out?",
+  "reflectionQuestions": [
+    "Why can't you vertically scale a database forever, even with unlimited budget?",
+    "What state must you externalize before horizontally scaling a web application?",
+    "When would consistent hashing be preferable to round-robin at the load balancer?",
+    "How would you scale a service that maintains a large in-memory cache of user permissions?"
+  ],
+  "resources": [
+    "Designing Data-Intensive Applications — Chapter 1 (Scalability)",
+    "AWS Well-Architected Framework — Performance Efficiency pillar",
+    "Google SRE Book — Handling Overload",
+    "Martin Fowler — Microservices and the First Law of Distributed Objects"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "scale-vertical-horizontal-overview",
+      "title": "Vertical vs Horizontal Scaling overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Vertical vs Horizontal Scaling and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Vertical vs Horizontal Scaling; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Chapter 1 (Scalability)"
+    },
+    {
+      "title": "AWS Well-Architected Framework — Performance Efficiency pillar"
+    },
+    {
+      "title": "Google SRE Book — Handling Overload"
+    },
+    {
+      "title": "Martin Fowler — Microservices and the First Law of Distributed Objects"
+    }
+  ],
+  "relatedLessons": [
+    "fund-estimation",
+    "fund-stateless",
+    "fund-vertical-horizontal"
+  ]
+}

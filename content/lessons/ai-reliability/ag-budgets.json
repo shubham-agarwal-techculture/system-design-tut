@@ -1,0 +1,98 @@
+{
+  "id": "ag-budgets",
+  "title": "Cost/Latency Budgets & Human-in-the-Loop",
+  "moduleId": "ai-reliability",
+  "phaseId": "agentic-systems",
+  "durationMinutes": 30,
+  "summary": "Cost/Latency Budgets & Human-in-the-Loop — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "ai-reliability",
+    "evergreen",
+    "agentic-systems"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Cost/Latency Budgets & Human-in-the-Loop. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Cost/Latency Budgets & Human-in-the-Loop. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Cost/Latency Budgets & Human-in-the-Loop — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Cost/Latency Budgets & Human-in-the-Loop: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Cost/Latency Budgets & Human-in-the-Loop — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Cost/Latency Budgets & Human-in-the-Loop: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Cost/Latency Budgets & Human-in-the-Loop: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Cost/Latency Budgets & Human-in-the-Loop belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Cost/Latency Budgets & Human-in-the-Loop improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Cost/Latency Budgets & Human-in-the-Loop in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ag-budgets-overview",
+      "title": "Cost/Latency Budgets & Human-in-the-Loop overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Cost/Latency Budgets & Human-in-the-Loop and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Cost/Latency Budgets & Human-in-the-Loop; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ag-evals",
+    "ag-injection"
+  ]
+}

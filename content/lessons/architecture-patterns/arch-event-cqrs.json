@@ -1,0 +1,101 @@
+{
+  "id": "arch-event-cqrs",
+  "title": "Event-Driven, CQRS & Event Sourcing",
+  "moduleId": "architecture-patterns",
+  "phaseId": "architecture",
+  "durationMinutes": 30,
+  "summary": "Event-Driven, CQRS & Event Sourcing — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "arch-clean-ddd"
+  ],
+  "tags": [
+    "architecture-patterns",
+    "evergreen",
+    "architecture"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Event-Driven, CQRS & Event Sourcing. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Event-Driven, CQRS & Event Sourcing. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Event-Driven, CQRS & Event Sourcing — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Event-Driven, CQRS & Event Sourcing: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Event-Driven, CQRS & Event Sourcing — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Event-Driven, CQRS & Event Sourcing: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Event-Driven, CQRS & Event Sourcing: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Event-Driven, CQRS & Event Sourcing belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Event-Driven, CQRS & Event Sourcing improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Event-Driven, CQRS & Event Sourcing in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "arch-event-cqrs-overview",
+      "title": "Event-Driven, CQRS & Event Sourcing overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Event-Driven, CQRS & Event Sourcing and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Event-Driven, CQRS & Event Sourcing; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "arch-clean-ddd",
+    "arch-hexagonal-ddd",
+    "arch-monolith-micro"
+  ]
+}

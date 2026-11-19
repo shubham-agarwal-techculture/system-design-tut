@@ -1,0 +1,263 @@
+{
+  "id": "db-storage-engines",
+  "title": "B+ Trees & LSM Trees",
+  "moduleId": "databases",
+  "phaseId": "foundations",
+  "durationMinutes": 45,
+  "summary": "Storage engines define how databases organize data on disk and in memory. B+ trees optimize for read-heavy, in-place update workloads (PostgreSQL, MySQL InnoDB). LSM trees optimize for write-heavy, append-only workloads (RocksDB, Cassandra, LevelDB). Choosing the wrong engine shape for your access pattern is one of the costliest architectural mistakes.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "db-replication-sharding"
+  ],
+  "tags": [
+    "databases",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Why Storage Engine Design Matters",
+      "paragraphs": [
+        "A database is not a monolith — at its core sits a storage engine responsible for persisting rows or key-value pairs, maintaining indexes, and recovering after crashes. The engine's on-disk layout determines read latency, write throughput, compression efficiency, and how the system behaves under compaction or vacuum.",
+        "Two families dominate modern systems: update-in-place B+ trees and append-only LSM (Log-Structured Merge) trees. Neither is universally superior. PostgreSQL's B+ tree excels at complex queries with range scans and secondary indexes. Cassandra's LSM tree excels at high-volume sequential writes and horizontal scaling — but range queries and updates are expensive.",
+        "Every storage engine also implements a WAL (Write-Ahead Log): before applying changes to data structures, append an durable log record. On crash, replay the WAL to recover. The WAL is sequential write — fast on both HDD and SSD — and is the foundation of durability (the D in ACID).",
+        "When designing a system, your read/write ratio, update frequency, range query needs, and tolerance for write amplification during compaction should drive engine selection — not brand familiarity or what your team used last project."
+      ]
+    },
+    {
+      "title": "B+ Trees: Read-Optimized, Update-in-Place",
+      "paragraphs": [
+        "A B+ tree is a balanced tree where data lives only in leaf nodes; internal nodes store keys for navigation. Leaves are linked for efficient range scans. Each node typically matches a disk page (4–16 KB), so a tree of height 3–4 can index billions of keys with only 3–4 disk reads.",
+        "To insert or update, the engine finds the leaf, modifies it in place (or splits the page if full), and propagates splits upward. Reads follow the root-to-leaf path — predictable latency, excellent for point lookups and ORDER BY on indexed columns. Secondary indexes in PostgreSQL and MySQL are separate B+ trees pointing to primary key tuples.",
+        "Random writes to B+ tree pages cause write amplification at the filesystem level — updating one row may dirty an entire page. SSDs handle this better than HDDs, but sustained random write loads still wear flash and trigger garbage collection in the FTL. Buffer pools cache hot pages in RAM, minimizing disk reads.",
+        "PostgreSQL stores rows in heap files (unordered) with B+ tree indexes on top. MySQL InnoDB clusters the primary key — data rows live in the PK B+ tree leaf pages, making PK lookups very fast but secondary index lookups require two tree traversals (secondary index → PK → row)."
+      ],
+      "bullets": [
+        "Page-oriented: one node = one disk page, fits in buffer pool",
+        "Range scan: follow leaf sibling pointers left to right",
+        "Page split: insert into full page splits node, may cascade upward",
+        "Clustered vs non-clustered index: row data in PK tree (InnoDB) vs separate heap (PostgreSQL)"
+      ]
+    },
+    {
+      "title": "LSM Trees: Write-Optimized, Append-Only",
+      "paragraphs": [
+        "LSM trees invert the B+ tree trade-off. Writes go to an in-memory sorted structure (memtable, often a skip list or red-black tree) and an append-only WAL on disk. When the memtable fills, it is flushed as an immutable sorted SSTable (Sorted String Table) file on disk.",
+        "Reads check memtable, then search SSTables newest-to-oldest, often using Bloom filters to skip SSTables that definitely do not contain the key. Without compaction, read amplification grows linearly with the number of SSTables — unacceptable for production.",
+        "Compaction merges SSTables in the background — rewriting data to reduce duplicates (updates and deletes become tombstones), remove expired tombstones, and organize data into fewer, larger files. Compaction strategies (leveled, tiered, size-tiered) trade write amplification, read amplification, and space amplification differently.",
+        "Cassandra, RocksDB, LevelDB, and ScyllaDB use LSM variants. They shine when writes are inserts or append-only events, when you partition data so each node handles a subset of keys, and when you can tolerate eventual visibility of data during compactions."
+      ],
+      "bullets": [
+        "Memtable: in-memory write buffer, sorted by key",
+        "SSTable: immutable on-disk sorted file, never modified in place",
+        "Bloom filter: probabilistic 'key definitely not here' to skip SSTables",
+        "Tombstone: deletion marker removed only after compaction"
+      ]
+    },
+    {
+      "title": "Amplification and Compaction Trade-offs",
+      "paragraphs": [
+        "Write amplification: bytes written to disk per byte of application data. LSM compaction rewrites the same key multiple times as it moves through levels — 10–30× write amplification is common in leveled compaction. SSD endurance and cloud IOPS billing make this a real cost.",
+        "Read amplification: disk reads per logical read. B+ tree is typically 1–3 page reads. LSM may check memtable + multiple SSTable levels + Bloom filter false positives. Read-heavy workloads on LSM without sufficient RAM for block cache suffer.",
+        "Space amplification: disk usage vs logical data size. Tombstones, duplicate versions during compaction, and snapshot isolation retain old versions until compaction cleans them.",
+        "Leveled compaction (LevelDB, RocksDB default): SSTables in level L are ~10× larger than L-1; each key appears in at most one SSTable per level — bounded read amplification, higher write amplification. Size-tiered compaction (Cassandra STCS): merge similar-sized SSTables — lower write amp, higher read amp and space amp. Incremental strategies (DTCS, ICS) target time-series data."
+      ]
+    },
+    {
+      "title": "Choosing and Operating Storage Engines",
+      "paragraphs": [
+        "Choose B+ tree engines when: complex queries with joins and range scans dominate, updates modify existing rows frequently, strong single-node consistency is required, and working set fits mostly in buffer pool. PostgreSQL, MySQL, SQL Server fit this profile.",
+        "Choose LSM engines when: write throughput is the bottleneck, data is naturally partitioned by key, access is mostly primary-key get/put, or you need embedded storage (RocksDB inside Kafka Streams, Cockroach's Pebble). Cassandra, DynamoDB (conceptually), TiKV/RocksDB fit here.",
+        "Hybrid systems exist: MyRocks (MySQL on RocksDB) for write-heavy MySQL workloads. CockroachDB and TiDB use LSM (Pebble/RocksDB) with distributed SQL layers. ClickHouse uses merge-tree structures optimized for analytics — yet another design point.",
+        "Operational implications: B+ trees need VACUUM (PostgreSQL) or purge (InnoDB) to reclaim space from dead tuples. LSM trees need compaction tuning — stalled compaction causes read degradation and disk fill. Monitor compaction pending bytes, SSTable count, and write stall events in RocksDB."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Why Storage Engine Design Matters",
+        "paragraphs": [
+          "A database is not a monolith — at its core sits a storage engine responsible for persisting rows or key-value pairs, maintaining indexes, and recovering after crashes. The engine's on-disk layout determines read latency, write throughput, compression efficiency, and how the system behaves under compaction or vacuum.",
+          "Two families dominate modern systems: update-in-place B+ trees and append-only LSM (Log-Structured Merge) trees. Neither is universally superior. PostgreSQL's B+ tree excels at complex queries with range scans and secondary indexes. Cassandra's LSM tree excels at high-volume sequential writes and horizontal scaling — but range queries and updates are expensive.",
+          "Every storage engine also implements a WAL (Write-Ahead Log): before applying changes to data structures, append an durable log record. On crash, replay the WAL to recover. The WAL is sequential write — fast on both HDD and SSD — and is the foundation of durability (the D in ACID).",
+          "When designing a system, your read/write ratio, update frequency, range query needs, and tolerance for write amplification during compaction should drive engine selection — not brand familiarity or what your team used last project."
+        ]
+      },
+      {
+        "title": "B+ Trees: Read-Optimized, Update-in-Place",
+        "paragraphs": [
+          "A B+ tree is a balanced tree where data lives only in leaf nodes; internal nodes store keys for navigation. Leaves are linked for efficient range scans. Each node typically matches a disk page (4–16 KB), so a tree of height 3–4 can index billions of keys with only 3–4 disk reads.",
+          "To insert or update, the engine finds the leaf, modifies it in place (or splits the page if full), and propagates splits upward. Reads follow the root-to-leaf path — predictable latency, excellent for point lookups and ORDER BY on indexed columns. Secondary indexes in PostgreSQL and MySQL are separate B+ trees pointing to primary key tuples.",
+          "Random writes to B+ tree pages cause write amplification at the filesystem level — updating one row may dirty an entire page. SSDs handle this better than HDDs, but sustained random write loads still wear flash and trigger garbage collection in the FTL. Buffer pools cache hot pages in RAM, minimizing disk reads.",
+          "PostgreSQL stores rows in heap files (unordered) with B+ tree indexes on top. MySQL InnoDB clusters the primary key — data rows live in the PK B+ tree leaf pages, making PK lookups very fast but secondary index lookups require two tree traversals (secondary index → PK → row)."
+        ],
+        "bullets": [
+          "Page-oriented: one node = one disk page, fits in buffer pool",
+          "Range scan: follow leaf sibling pointers left to right",
+          "Page split: insert into full page splits node, may cascade upward",
+          "Clustered vs non-clustered index: row data in PK tree (InnoDB) vs separate heap (PostgreSQL)"
+        ]
+      },
+      {
+        "title": "LSM Trees: Write-Optimized, Append-Only",
+        "paragraphs": [
+          "LSM trees invert the B+ tree trade-off. Writes go to an in-memory sorted structure (memtable, often a skip list or red-black tree) and an append-only WAL on disk. When the memtable fills, it is flushed as an immutable sorted SSTable (Sorted String Table) file on disk.",
+          "Reads check memtable, then search SSTables newest-to-oldest, often using Bloom filters to skip SSTables that definitely do not contain the key. Without compaction, read amplification grows linearly with the number of SSTables — unacceptable for production.",
+          "Compaction merges SSTables in the background — rewriting data to reduce duplicates (updates and deletes become tombstones), remove expired tombstones, and organize data into fewer, larger files. Compaction strategies (leveled, tiered, size-tiered) trade write amplification, read amplification, and space amplification differently.",
+          "Cassandra, RocksDB, LevelDB, and ScyllaDB use LSM variants. They shine when writes are inserts or append-only events, when you partition data so each node handles a subset of keys, and when you can tolerate eventual visibility of data during compactions."
+        ],
+        "bullets": [
+          "Memtable: in-memory write buffer, sorted by key",
+          "SSTable: immutable on-disk sorted file, never modified in place",
+          "Bloom filter: probabilistic 'key definitely not here' to skip SSTables",
+          "Tombstone: deletion marker removed only after compaction"
+        ]
+      },
+      {
+        "title": "Amplification and Compaction Trade-offs",
+        "paragraphs": [
+          "Write amplification: bytes written to disk per byte of application data. LSM compaction rewrites the same key multiple times as it moves through levels — 10–30× write amplification is common in leveled compaction. SSD endurance and cloud IOPS billing make this a real cost.",
+          "Read amplification: disk reads per logical read. B+ tree is typically 1–3 page reads. LSM may check memtable + multiple SSTable levels + Bloom filter false positives. Read-heavy workloads on LSM without sufficient RAM for block cache suffer.",
+          "Space amplification: disk usage vs logical data size. Tombstones, duplicate versions during compaction, and snapshot isolation retain old versions until compaction cleans them.",
+          "Leveled compaction (LevelDB, RocksDB default): SSTables in level L are ~10× larger than L-1; each key appears in at most one SSTable per level — bounded read amplification, higher write amplification. Size-tiered compaction (Cassandra STCS): merge similar-sized SSTables — lower write amp, higher read amp and space amp. Incremental strategies (DTCS, ICS) target time-series data."
+        ]
+      },
+      {
+        "title": "Choosing and Operating Storage Engines",
+        "paragraphs": [
+          "Choose B+ tree engines when: complex queries with joins and range scans dominate, updates modify existing rows frequently, strong single-node consistency is required, and working set fits mostly in buffer pool. PostgreSQL, MySQL, SQL Server fit this profile.",
+          "Choose LSM engines when: write throughput is the bottleneck, data is naturally partitioned by key, access is mostly primary-key get/put, or you need embedded storage (RocksDB inside Kafka Streams, Cockroach's Pebble). Cassandra, DynamoDB (conceptually), TiKV/RocksDB fit here.",
+          "Hybrid systems exist: MyRocks (MySQL on RocksDB) for write-heavy MySQL workloads. CockroachDB and TiDB use LSM (Pebble/RocksDB) with distributed SQL layers. ClickHouse uses merge-tree structures optimized for analytics — yet another design point.",
+          "Operational implications: B+ trees need VACUUM (PostgreSQL) or purge (InnoDB) to reclaim space from dead tuples. LSM trees need compaction tuning — stalled compaction causes read degradation and disk fill. Monitor compaction pending bytes, SSTable count, and write stall events in RocksDB."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "B+ Trees & LSM Trees — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of B+ Trees & LSM Trees: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "B+ Trees & LSM Trees — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for B+ Trees & LSM Trees: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "B+ tree: balanced tree, data in leaves, range scan via leaf links",
+    "LSM tree: memtable + immutable SSTables, append-only writes",
+    "WAL (Write-Ahead Log): durable sequential log for crash recovery",
+    "Write amplification: disk bytes written per application byte",
+    "Read amplification: disk reads per logical read operation",
+    "Compaction: background merge of SSTables to bound read cost",
+    "Bloom filter: skip SSTables that cannot contain a key",
+    "Buffer pool / block cache: RAM cache for hot pages or blocks",
+    "Clustered index: row data stored in primary key B+ tree (InnoDB)",
+    "Tombstone: deletion marker in LSM, removed during compaction"
+  ],
+  "practices": [
+    "Match engine to access pattern: read/update-heavy → B+ tree; write/insert-heavy → LSM",
+    "Size buffer pool or block cache to hold hot working set — avoids disk on every read",
+    "Monitor LSM compaction lag, pending compaction bytes, and write stalls",
+    "Run PostgreSQL VACUUM or autovacuum tuning for B+ tree heap bloat",
+    "Prefer sequential write patterns (batch inserts, append-only events) on LSM systems",
+    "Use Bloom filter and block cache hit rates as leading indicators of LSM read health",
+    "Test with production-like data volume — amplification effects appear only at scale"
+  ],
+  "pitfalls": [
+    "Using Cassandra for heavy range scans or frequent updates — LSM penalty on reads and compactions",
+    "Ignoring write amplification on cloud SSD — IOPS limits cause throttling during compaction",
+    "Assuming all 'NoSQL' uses LSM — MongoDB WiredTiger uses B-trees, different trade-offs",
+    "Undersizing RAM on LSM — without block cache, every read hits multiple SSTables",
+    "Disabling or starving autovacuum in PostgreSQL — table bloat degrades scans and wastes disk",
+    "Treating WAL as optional — it is the durability backbone; sync policy matters"
+  ],
+  "examples": [
+    {
+      "title": "PostgreSQL heap + B+ tree index",
+      "description": "An UPDATE in PostgreSQL creates a new row version (MVCC) in the heap and updates index entries pointing to the new tuple. Old versions remain until VACUUM reclaims them. Heavy UPDATE workloads cause bloat — autovacuum must keep pace. Index-only scans avoid heap fetches when visibility map confirms all tuples on a page are visible — a B+ tree optimization for read-heavy analytics."
+    },
+    {
+      "title": "Cassandra write path",
+      "description": "A write goes to commit log (WAL) + memtable. When memtable exceeds memtable_flush_after, it flushes to SSTable on disk. Reads merge memtable + SSTables. With size-tiered compaction, many SSTables accumulate; read latency grows until compaction merges them. Production clusters tune compaction strategy, gc_grace_seconds, and concurrent_compactors based on write rate and read SLA."
+    },
+    {
+      "title": "RocksDB in Kafka Streams state store",
+      "description": "Kafka Streams embeds RocksDB for local state (aggregations, joins). Changelog topics provide durability — RocksDB can rebuild from Kafka on restore. Compaction and block cache sizing directly affect stream processing latency during repartitioning or recovery. This shows LSM as an embedded component, not just a standalone database."
+    }
+  ],
+  "keyTakeaways": [
+    "B+ trees: update-in-place, great reads and range scans, used by most relational DBs",
+    "LSM trees: append-only writes, great write throughput, compaction manages read cost",
+    "WAL provides durability for both engine families — sequential append before data structure change",
+    "Write/read/space amplification quantify engine trade-offs — measure at production scale",
+    "Compaction is the defining operational concern for LSM; VACUUM/bloat for B+ tree heaps",
+    "Engine choice follows access patterns — not SQL vs NoSQL labels",
+    "Hybrid and specialized engines (ClickHouse merge-tree) exist for analytics workloads"
+  ],
+  "whyItMatters": "Storage engine choice affects every downstream decision: shard key design, hardware sizing, latency SLAs, and operational runbooks. Saying 'we'll use PostgreSQL' without understanding B+ tree behavior under write-heavy UPDATE load, or choosing Cassandra without planning for compaction, leads to expensive re-architecture. Interviewers probe storage engines because they reveal whether you understand what happens below the SQL or API layer.",
+  "reflectionQuestions": [
+    "Your write-heavy event ingestion (1M events/sec) needs durable storage. Compare PostgreSQL bulk insert vs Cassandra vs Kafka + RocksDB. Trade-offs?",
+    "RocksDB write stalls appear during peak traffic. What is happening internally, and what knobs would you tune?",
+    "Why does PostgreSQL need VACUUM but Cassandra needs compaction — what problem is each solving?",
+    "When would MyRocks (LSM under MySQL) be preferable to InnoDB (B+ tree)?"
+  ],
+  "resources": [
+    "Designing Data-Intensive Applications — Chapters 3 and 4 (Martin Kleppmann)",
+    "Database Internals — Storage engines (Alex Petrov)",
+    "RocksDB Wiki — Compaction, Write Stalls, Tuning Guide",
+    "PostgreSQL documentation — Index Types and Routine Vacuuming"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "db-storage-engines-overview",
+      "title": "B+ Trees & LSM Trees overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain B+ Trees & LSM Trees and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on B+ Trees & LSM Trees; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Chapters 3 and 4 (Martin Kleppmann)"
+    },
+    {
+      "title": "Database Internals — Storage engines (Alex Petrov)"
+    },
+    {
+      "title": "RocksDB Wiki — Compaction, Write Stalls, Tuning Guide"
+    },
+    {
+      "title": "PostgreSQL documentation — Index Types and Routine Vacuuming"
+    }
+  ],
+  "relatedLessons": [
+    "db-cdc",
+    "db-indexes-replication",
+    "db-modeling"
+  ]
+}

@@ -1,0 +1,226 @@
+{
+  "id": "security-auth",
+  "title": "Authentication, Authorization & Encryption",
+  "moduleId": "security",
+  "phaseId": "fundamentals",
+  "durationMinutes": 42,
+  "summary": "Security is layered defense: verify identity (authentication), enforce permissions (authorization), protect data in transit and at rest (encryption), and manage secrets safely. Most breaches stem from misconfigured auth, leaked credentials, and missing encryption — not sophisticated zero-day exploits.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-security"
+  ],
+  "tags": [
+    "security",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Authentication: Proving Identity",
+      "paragraphs": [
+        "Authentication answers 'who are you?' Common mechanisms include username/password (with bcrypt/argon2 hashing), multi-factor authentication (TOTP, WebAuthn), API keys, and federated identity via OAuth 2.0 and OpenID Connect (OIDC).",
+        "OAuth 2.0 delegates authorization to an identity provider (Google, Okta, Auth0) without sharing passwords. OIDC adds an identity layer — ID tokens (JWTs) containing user claims. The authorization code flow with PKCE is the standard for web and mobile apps.",
+        "JWTs (JSON Web Tokens) encode claims in a signed, base64 payload. Stateless verification is fast — no server-side session lookup. Downsides: revocation is hard (requires blocklists or short TTLs), tokens can be stolen if not stored securely, and payload is readable (not encrypted) unless using JWE."
+      ]
+    },
+    {
+      "title": "Authorization: Enforcing Permissions",
+      "paragraphs": [
+        "Authorization answers 'what can you do?' Role-Based Access Control (RBAC) assigns permissions to roles (admin, editor, viewer) and roles to users. Simple and widely used for internal tools and SaaS products.",
+        "Attribute-Based Access Control (ABAC) evaluates policies against attributes — user department, resource owner, time of day, IP range. More flexible for complex enterprise policies. Policy engines (OPA, Cedar) evaluate ABAC rules at runtime.",
+        "Principle of least privilege: grant minimum permissions needed. Service accounts for machine-to-machine auth get scoped API keys or mTLS certificates — never root credentials. Regularly audit and rotate permissions."
+      ]
+    },
+    {
+      "title": "Encryption in Transit and at Rest",
+      "paragraphs": [
+        "Encryption in transit protects data on the wire via TLS 1.2+ (HTTPS, mTLS for service-to-service). Terminate TLS at the load balancer or service mesh; enforce HSTS and modern cipher suites. Never transmit secrets or PII over unencrypted HTTP.",
+        "Encryption at rest protects stored data: database TDE (Transparent Data Encryption), S3 server-side encryption (SSE-S3, SSE-KMS), disk encryption on VMs. Keys managed by KMS (AWS KMS, HashiCorp Vault) with rotation policies.",
+        "Application-level encryption adds a layer for especially sensitive fields (SSN, credit card) — encrypt before storing so a database breach does not expose plaintext. Manage field-level keys separately from storage keys."
+      ]
+    },
+    {
+      "title": "Secrets Management",
+      "paragraphs": [
+        "Secrets — API keys, database passwords, TLS private keys, encryption keys — must never appear in source code, Docker images, or git history. Use secrets managers: AWS Secrets Manager, HashiCorp Vault, GCP Secret Manager, Kubernetes Secrets (with encryption at rest enabled).",
+        "Inject secrets at runtime via environment variables or mounted volumes. Rotate secrets automatically where supported. Audit access to secrets — who read which secret when.",
+        "Development environments use separate secrets from production. .env files are for local dev only — add to .gitignore and use tools like git-secrets to prevent accidental commits."
+      ]
+    },
+    {
+      "title": "Security in System Design",
+      "paragraphs": [
+        "Defense in depth: WAF at the edge, network segmentation (VPCs, security groups), auth at API gateway, authorization in services, encryption everywhere. No single layer is sufficient.",
+        "Input validation and parameterized queries prevent injection attacks. Rate limiting and CAPTCHA mitigate brute force. Security headers (CSP, X-Frame-Options) reduce browser-side attacks. Log and alert on auth failures and privilege escalation attempts.",
+        "Compliance frameworks (SOC 2, GDPR, PCI-DSS) mandate specific controls — understand which apply to your domain. Security is a continuous process: dependency scanning, penetration testing, and incident response plans."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Authentication: Proving Identity",
+        "paragraphs": [
+          "Authentication answers 'who are you?' Common mechanisms include username/password (with bcrypt/argon2 hashing), multi-factor authentication (TOTP, WebAuthn), API keys, and federated identity via OAuth 2.0 and OpenID Connect (OIDC).",
+          "OAuth 2.0 delegates authorization to an identity provider (Google, Okta, Auth0) without sharing passwords. OIDC adds an identity layer — ID tokens (JWTs) containing user claims. The authorization code flow with PKCE is the standard for web and mobile apps.",
+          "JWTs (JSON Web Tokens) encode claims in a signed, base64 payload. Stateless verification is fast — no server-side session lookup. Downsides: revocation is hard (requires blocklists or short TTLs), tokens can be stolen if not stored securely, and payload is readable (not encrypted) unless using JWE."
+        ]
+      },
+      {
+        "title": "Authorization: Enforcing Permissions",
+        "paragraphs": [
+          "Authorization answers 'what can you do?' Role-Based Access Control (RBAC) assigns permissions to roles (admin, editor, viewer) and roles to users. Simple and widely used for internal tools and SaaS products.",
+          "Attribute-Based Access Control (ABAC) evaluates policies against attributes — user department, resource owner, time of day, IP range. More flexible for complex enterprise policies. Policy engines (OPA, Cedar) evaluate ABAC rules at runtime.",
+          "Principle of least privilege: grant minimum permissions needed. Service accounts for machine-to-machine auth get scoped API keys or mTLS certificates — never root credentials. Regularly audit and rotate permissions."
+        ]
+      },
+      {
+        "title": "Encryption in Transit and at Rest",
+        "paragraphs": [
+          "Encryption in transit protects data on the wire via TLS 1.2+ (HTTPS, mTLS for service-to-service). Terminate TLS at the load balancer or service mesh; enforce HSTS and modern cipher suites. Never transmit secrets or PII over unencrypted HTTP.",
+          "Encryption at rest protects stored data: database TDE (Transparent Data Encryption), S3 server-side encryption (SSE-S3, SSE-KMS), disk encryption on VMs. Keys managed by KMS (AWS KMS, HashiCorp Vault) with rotation policies.",
+          "Application-level encryption adds a layer for especially sensitive fields (SSN, credit card) — encrypt before storing so a database breach does not expose plaintext. Manage field-level keys separately from storage keys."
+        ]
+      },
+      {
+        "title": "Secrets Management",
+        "paragraphs": [
+          "Secrets — API keys, database passwords, TLS private keys, encryption keys — must never appear in source code, Docker images, or git history. Use secrets managers: AWS Secrets Manager, HashiCorp Vault, GCP Secret Manager, Kubernetes Secrets (with encryption at rest enabled).",
+          "Inject secrets at runtime via environment variables or mounted volumes. Rotate secrets automatically where supported. Audit access to secrets — who read which secret when.",
+          "Development environments use separate secrets from production. .env files are for local dev only — add to .gitignore and use tools like git-secrets to prevent accidental commits."
+        ]
+      },
+      {
+        "title": "Security in System Design",
+        "paragraphs": [
+          "Defense in depth: WAF at the edge, network segmentation (VPCs, security groups), auth at API gateway, authorization in services, encryption everywhere. No single layer is sufficient.",
+          "Input validation and parameterized queries prevent injection attacks. Rate limiting and CAPTCHA mitigate brute force. Security headers (CSP, X-Frame-Options) reduce browser-side attacks. Log and alert on auth failures and privilege escalation attempts.",
+          "Compliance frameworks (SOC 2, GDPR, PCI-DSS) mandate specific controls — understand which apply to your domain. Security is a continuous process: dependency scanning, penetration testing, and incident response plans."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Authentication, Authorization & Encryption — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Authentication, Authorization & Encryption: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Authentication, Authorization & Encryption — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Authentication, Authorization & Encryption: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "OAuth 2.0 authorization code flow with PKCE",
+    "OpenID Connect (OIDC) ID tokens and user claims",
+    "JWT structure: header.payload.signature; HS256 vs RS256",
+    "RBAC: roles mapped to permissions",
+    "ABAC: policy-based access with attributes",
+    "TLS/mTLS for encryption in transit",
+    "Encryption at rest: TDE, SSE-KMS, disk encryption",
+    "Secrets managers: Vault, AWS Secrets Manager",
+    "Principle of least privilege",
+    "bcrypt/argon2 for password hashing — never plaintext or MD5"
+  ],
+  "practices": [
+    "Use OIDC/OAuth for user auth; never roll your own crypto",
+    "Store JWTs in httpOnly, Secure, SameSite cookies — not localStorage",
+    "Implement RBAC with least privilege; audit permissions quarterly",
+    "Encrypt all data in transit (TLS 1.2+) and at rest (KMS-managed keys)",
+    "Store secrets in a secrets manager; rotate automatically",
+    "Use parameterized queries and input validation on all endpoints",
+    "Enable MFA for admin and privileged accounts"
+  ],
+  "pitfalls": [
+    "JWT in localStorage — vulnerable to XSS theft",
+    "Hardcoded API keys committed to git",
+    "Shared service account credentials across all microservices",
+    "Missing TLS on internal service communication ('we trust our network')",
+    "Authorization checks only at the API gateway — internal services trust all callers",
+    "MD5/SHA1 for password hashing — use bcrypt or argon2"
+  ],
+  "examples": [
+    {
+      "title": "SaaS multi-tenant authorization",
+      "description": "Users authenticate via Auth0 (OIDC). JWT contains user_id and org_id. API middleware extracts claims; each query filters by org_id for tenant isolation. Admin role checked via RBAC policy engine (OPA). Cross-tenant access returns 403."
+    },
+    {
+      "title": "Microservice mTLS mesh",
+      "description": "Services in a Kubernetes cluster communicate via Istio service mesh with mutual TLS. Each service has a SPIFFE identity certificate. Unauthorized services cannot call internal APIs even if they reach the network — identity is verified on every request."
+    },
+    {
+      "title": "PCI-compliant payment handling",
+      "description": "Credit card data never touches application servers — Stripe Elements tokenizes on the client. Tokens are sent to the backend, which calls Stripe API over TLS. Database stores only last-four digits. Secrets (Stripe API key) live in AWS Secrets Manager with 90-day rotation."
+    }
+  ],
+  "keyTakeaways": [
+    "Authenticate with established protocols (OAuth/OIDC) — do not build custom auth",
+    "Authorize at every layer — gateway and service level",
+    "Encrypt in transit (TLS) and at rest (KMS) by default",
+    "Secrets belong in secrets managers, never in code or images",
+    "JWTs enable stateless auth but complicate revocation — use short TTLs",
+    "Least privilege for users and service accounts limits breach impact"
+  ],
+  "whyItMatters": "Security breaches destroy trust, trigger regulatory fines, and end careers. Most incidents are basic misconfigurations — not APTs. Every system design must address auth, encryption, and secrets. Interviewers expect you to identify security gaps in architectures and propose concrete mitigations.",
+  "reflectionQuestions": [
+    "Why is JWT revocation difficult compared to server-side sessions?",
+    "Where should API keys be stored in a production deployment?",
+    "How do you prevent one tenant from accessing another tenant's data?",
+    "When would you choose mTLS over API keys for service-to-service auth?"
+  ],
+  "resources": [
+    "OAuth 2.0 RFC 6749 and OIDC Core specification",
+    "OWASP Top 10 — Web application security risks",
+    "HashiCorp Vault documentation — Secrets management",
+    "NIST SP 800-63B — Digital identity guidelines"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "security-auth-overview",
+      "title": "Authentication, Authorization & Encryption overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Authentication, Authorization & Encryption and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Authentication, Authorization & Encryption; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "OAuth 2.0 RFC 6749 and OIDC Core specification"
+    },
+    {
+      "title": "OWASP Top 10 — Web application security risks"
+    },
+    {
+      "title": "HashiCorp Vault documentation — Secrets management"
+    },
+    {
+      "title": "NIST SP 800-63B — Digital identity guidelines"
+    }
+  ],
+  "relatedLessons": [
+    "fund-security"
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "id": "arch-hexagonal-ddd",
+  "title": "Hexagonal, Clean Architecture & DDD",
+  "moduleId": "architecture-patterns",
+  "phaseId": "architecture",
+  "durationMinutes": 30,
+  "summary": "Hexagonal, Clean Architecture & DDD — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "arch-event-cqrs"
+  ],
+  "tags": [
+    "architecture-patterns",
+    "evergreen",
+    "architecture"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Hexagonal, Clean Architecture & DDD. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Hexagonal, Clean Architecture & DDD. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Hexagonal, Clean Architecture & DDD — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Hexagonal, Clean Architecture & DDD: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Hexagonal, Clean Architecture & DDD — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Hexagonal, Clean Architecture & DDD: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Hexagonal, Clean Architecture & DDD: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Hexagonal, Clean Architecture & DDD belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Hexagonal, Clean Architecture & DDD improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Hexagonal, Clean Architecture & DDD in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "arch-hexagonal-ddd-overview",
+      "title": "Hexagonal, Clean Architecture & DDD overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Hexagonal, Clean Architecture & DDD and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Hexagonal, Clean Architecture & DDD; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "arch-clean-ddd",
+    "arch-event-cqrs",
+    "arch-monolith-micro"
+  ]
+}

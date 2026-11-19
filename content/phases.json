@@ -1,0 +1,98 @@
+[
+  {
+    "id": "foundations",
+    "number": 1,
+    "title": "Foundations",
+    "subtitle": "Before distributed systems",
+    "description": "Master networking, operating systems, and databases from first principles.",
+    "color": "graphite"
+  },
+  {
+    "id": "fundamentals",
+    "number": 2,
+    "title": "System Design Fundamentals",
+    "subtitle": "Core building blocks",
+    "description": "Scalability, storage, caching, messaging, distributed systems, APIs, reliability, and security.",
+    "color": "slate"
+  },
+  {
+    "id": "architecture",
+    "number": 3,
+    "title": "Architecture Patterns",
+    "subtitle": "Structural choices",
+    "description": "Learn when to use monoliths, microservices, event-driven systems, CQRS, and other patterns.",
+    "color": "oxblood"
+  },
+  {
+    "id": "infrastructure",
+    "number": 4,
+    "title": "Infrastructure",
+    "subtitle": "Running systems at scale",
+    "description": "Containers, orchestration, CI/CD, and observability.",
+    "color": "teal"
+  },
+  {
+    "id": "design-patterns",
+    "number": 5,
+    "title": "Design Patterns",
+    "subtitle": "Reusable solutions",
+    "description": "Classic software patterns that appear inside services and frameworks.",
+    "color": "olive"
+  },
+  {
+    "id": "internal-designs",
+    "number": 6,
+    "title": "Internal Designs",
+    "subtitle": "How great systems work inside",
+    "description": "Deep dives into production systems.",
+    "color": "plum"
+  },
+  {
+    "id": "design-systems",
+    "number": 7,
+    "title": "Design These Systems",
+    "subtitle": "Practice by doing",
+    "description": "Progressive design challenges from URL shorteners to distributed filesystems.",
+    "color": "rust"
+  },
+  {
+    "id": "designer-mindset",
+    "number": 8,
+    "title": "Think Like a Designer",
+    "subtitle": "The design framework",
+    "description": "A repeatable framework for any system design problem.",
+    "color": "slate"
+  },
+  {
+    "id": "low-latency",
+    "number": 9,
+    "title": "Low-Latency & Trading Systems",
+    "subtitle": "Microseconds matter",
+    "description": "Order books, matching engines, and kernel-bypass networking.",
+    "color": "amber"
+  },
+  {
+    "id": "ml-foundations",
+    "number": 10,
+    "title": "ML & LLM Foundations",
+    "subtitle": "Systems view of models",
+    "description": "Transformers, accelerators, and data pipelines as a system designer needs them.",
+    "color": "cobalt"
+  },
+  {
+    "id": "training-inference",
+    "number": 11,
+    "title": "Training & Inference Systems",
+    "subtitle": "Serving models at scale",
+    "description": "Distributed training, post-training, and production inference.",
+    "color": "verdant"
+  },
+  {
+    "id": "agentic-systems",
+    "number": 12,
+    "title": "Agentic & AI Application Design",
+    "subtitle": "Building with agents and RAG",
+    "description": "RAG, agents, protocols, reliability and safety for AI applications.",
+    "color": "magenta"
+  }
+]

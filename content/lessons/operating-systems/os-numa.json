@@ -1,0 +1,101 @@
+{
+  "id": "os-numa",
+  "title": "NUMA & Memory Hierarchy",
+  "moduleId": "operating-systems",
+  "phaseId": "foundations",
+  "durationMinutes": 30,
+  "summary": "NUMA & Memory Hierarchy — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "os-memory"
+  ],
+  "tags": [
+    "operating-systems",
+    "evergreen",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers NUMA & Memory Hierarchy. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers NUMA & Memory Hierarchy. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "NUMA & Memory Hierarchy — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of NUMA & Memory Hierarchy: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "NUMA & Memory Hierarchy — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for NUMA & Memory Hierarchy: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "NUMA & Memory Hierarchy: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "NUMA & Memory Hierarchy belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding NUMA & Memory Hierarchy improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for NUMA & Memory Hierarchy in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "os-numa-overview",
+      "title": "NUMA & Memory Hierarchy overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain NUMA & Memory Hierarchy and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on NUMA & Memory Hierarchy; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "os-io-sync",
+    "os-memory",
+    "os-processes-threads"
+  ]
+}

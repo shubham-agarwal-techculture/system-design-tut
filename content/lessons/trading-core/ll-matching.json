@@ -1,0 +1,103 @@
+{
+  "id": "ll-matching",
+  "title": "Matching Engines",
+  "moduleId": "trading-core",
+  "phaseId": "low-latency",
+  "durationMinutes": 30,
+  "summary": "A matching engine applies deterministic rules to an order book under tight latency budgets. Correctness, fairness, and replayability dominate design.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "ll-market-data"
+  ],
+  "tags": [
+    "trading-core",
+    "evergreen",
+    "low-latency"
+  ],
+  "sections": [
+    {
+      "title": "Deterministic core",
+      "paragraphs": [
+        "The matching loop consumes a sequenced input log and produces trades and book updates. Determinism enables replay for audit, debugging, and state reconstruction after failure. Shared-nothing per-symbol shards are common; cross-symbol constraints need careful design."
+      ]
+    },
+    {
+      "title": "Latency path",
+      "paragraphs": [
+        "Hot path techniques include preallocated structures, avoidance of syscalls on the match path, and careful cache locality for price levels. Market data fanout and persistence are adjacent systems with their own SLOs — do not block matching on slow consumers."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Deterministic core",
+        "paragraphs": [
+          "The matching loop consumes a sequenced input log and produces trades and book updates. Determinism enables replay for audit, debugging, and state reconstruction after failure. Shared-nothing per-symbol shards are common; cross-symbol constraints need careful design."
+        ]
+      },
+      {
+        "title": "Latency path",
+        "paragraphs": [
+          "Hot path techniques include preallocated structures, avoidance of syscalls on the match path, and careful cache locality for price levels. Market data fanout and persistence are adjacent systems with their own SLOs — do not block matching on slow consumers."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Matching Engines — Deep Dive",
+        "paragraphs": [
+          "Operational detail for Matching Engines: metrics to watch, capacity knobs, and failure injection ideas."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Matching Engines — Expert Notes",
+        "paragraphs": [
+          "Edge cases and multi-tenant considerations for Matching Engines."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Sequenced input log + deterministic apply",
+    "Per-symbol sharding",
+    "Decouple matching from market-data fanout"
+  ],
+  "practices": [
+    "Journal inputs before effects when durability requires it",
+    "Define fairness rules explicitly (price-time, pro-rata, etc.)"
+  ],
+  "pitfalls": [
+    "Hidden latency from synchronous risk or logging on the hot path"
+  ],
+  "examples": [
+    {
+      "title": "Production pattern",
+      "description": "Teams operating matching engines treat measurement and budgets as part of the design, not an afterthought."
+    }
+  ],
+  "keyTakeaways": [
+    "Matching engines are specialized deterministic state machines"
+  ],
+  "whyItMatters": "Financial and other high-contention marketplaces fail catastrophically when ordering and replay semantics are vague.",
+  "reflectionQuestions": [
+    "How would you recover matching state after a crash mid-batch?"
+  ],
+  "numbersToKnow": [],
+  "diagrams": [],
+  "caseStudies": [],
+  "interviewQuestions": [],
+  "exercises": [],
+  "sources": [],
+  "relatedLessons": [
+    "ll-kernel-bypass",
+    "ll-market-data",
+    "ll-order-book"
+  ]
+}

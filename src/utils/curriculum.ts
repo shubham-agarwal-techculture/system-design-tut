@@ -75,64 +75,19 @@ export function getChallengesByDifficulty() {
   };
 }
 
+/** @deprecated Prefer semantic tokens / PhaseMarker motifs */
 export const phaseColors: Record<
   string,
   { bg: string; text: string; border: string; ring: string; gradient: string }
-> = {
-  indigo: {
-    bg: "bg-emerald-950/8",
-    text: "text-emerald-900",
-    border: "border-emerald-900/20",
-    ring: "ring-emerald-900/25",
-    gradient: "from-emerald-800 to-emerald-950",
+> = new Proxy(
+  {},
+  {
+    get: () => ({
+      bg: "bg-[var(--color-surface-raised)]",
+      text: "text-[var(--color-ink)]",
+      border: "border-[var(--color-rule)]",
+      ring: "ring-[var(--color-signal)]",
+      gradient: "from-[var(--color-ink)] to-[var(--color-ink-muted)]",
+    }),
   },
-  violet: {
-    bg: "bg-slate-800/8",
-    text: "text-slate-800",
-    border: "border-slate-800/20",
-    ring: "ring-slate-800/25",
-    gradient: "from-slate-700 to-slate-900",
-  },
-  purple: {
-    bg: "bg-red-950/8",
-    text: "text-red-900",
-    border: "border-red-900/20",
-    ring: "ring-red-900/25",
-    gradient: "from-red-900 to-red-950",
-  },
-  fuchsia: {
-    bg: "bg-stone-600/8",
-    text: "text-stone-700",
-    border: "border-stone-600/25",
-    ring: "ring-stone-600/25",
-    gradient: "from-stone-600 to-stone-800",
-  },
-  pink: {
-    bg: "bg-rose-900/8",
-    text: "text-rose-900",
-    border: "border-rose-900/20",
-    ring: "ring-rose-900/25",
-    gradient: "from-rose-800 to-rose-950",
-  },
-  rose: {
-    bg: "bg-orange-950/8",
-    text: "text-orange-950",
-    border: "border-orange-900/20",
-    ring: "ring-orange-900/25",
-    gradient: "from-orange-800 to-orange-950",
-  },
-  orange: {
-    bg: "bg-amber-900/8",
-    text: "text-amber-900",
-    border: "border-amber-800/25",
-    ring: "ring-amber-800/25",
-    gradient: "from-amber-700 to-amber-900",
-  },
-  amber: {
-    bg: "bg-yellow-900/8",
-    text: "text-yellow-900",
-    border: "border-yellow-800/25",
-    ring: "ring-yellow-800/25",
-    gradient: "from-yellow-700 to-yellow-900",
-  },
-};
+);

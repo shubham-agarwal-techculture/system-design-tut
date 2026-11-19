@@ -1,0 +1,291 @@
+{
+  "id": "patterns-core",
+  "title": "Essential Design Patterns",
+  "moduleId": "software-patterns",
+  "phaseId": "design-patterns",
+  "durationMinutes": 40,
+  "summary": "Design patterns are reusable solutions to recurring problems in software architecture — not copy-paste recipes, but a shared vocabulary for discussing trade-offs. This lesson covers the patterns that appear most often in production systems and system design interviews: creational patterns for object lifecycle, structural patterns for composition, and behavioral patterns for communication and responsibility.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "pat-resilience"
+  ],
+  "tags": [
+    "software-patterns",
+    "design-patterns"
+  ],
+  "sections": [
+    {
+      "title": "Why Patterns Matter in System Design",
+      "paragraphs": [
+        "A design pattern names a problem-solution pair that experienced engineers recognize instantly. When someone says 'we used a circuit breaker here' or 'this is a classic observer setup,' the entire team understands the constraints, failure modes, and alternatives without a whiteboard session from scratch.",
+        "Patterns sit at the intersection of code and architecture. Singleton and Factory appear in application code; Circuit Breaker, Bulkhead, and Saga span service boundaries. Learning patterns trains you to see structural similarities across domains — a payment retry queue and a notification dispatcher both implement variations of the same publish-subscribe and retry idioms.",
+        "Patterns are not goals. Applying every pattern from the Gang of Four catalog to a simple CRUD app is over-engineering. The skill is recognizing when a recurring force — varying object creation, decoupling senders from receivers, isolating failure domains — makes a named pattern the simplest correct solution.",
+        "In interviews, patterns demonstrate that you think in abstractions transferable across companies and stacks. In production, they give you proven starting points with documented pitfalls, so you spend design time on domain specifics rather than reinventing structural solutions."
+      ],
+      "bullets": [
+        "Pattern = recurring problem + context + proven solution + consequences",
+        "GoF (1994): 23 classic OOP patterns — still relevant at architectural scale",
+        "Enterprise patterns (Fowler, Hohpe): messaging, integration, domain logic",
+        "Cloud-native patterns: sidecar, ambassador, anti-corruption layer"
+      ]
+    },
+    {
+      "title": "Creational Patterns: Controlling Object Creation",
+      "paragraphs": [
+        "Creational patterns manage how objects are instantiated — critical when construction is expensive, configuration varies, or you need to enforce a single shared instance. Factory Method and Abstract Factory delegate creation to subclasses or factory objects, letting you swap implementations (PostgreSQL vs. DynamoDB repository) without changing callers.",
+        "Builder separates construction of a complex object from its representation. You see this in fluent API clients (AWS SDK builders), SQL query builders, and HTTP request construction. It prevents telescoping constructors with twelve optional parameters and makes immutable objects practical.",
+        "Singleton guarantees one instance — useful for connection pool managers, configuration registries, and metric collectors. The danger is hidden global state: singletons make testing hard, create hidden coupling, and in distributed systems, 'singleton' is a lie unless backed by leader election. Prefer dependency injection with a scoped lifetime over static singletons in modern codebases.",
+        "Prototype clones existing objects instead of building from scratch — valuable when object creation requires parsing configs or deep copying is cheaper than re-fetching. Object pools (borrow/return instead of new/GC) are creational cousins common in database drivers and thread pools."
+      ],
+      "bullets": [
+        "Factory Method: subclass decides which concrete type to instantiate",
+        "Abstract Factory: families of related objects (UI toolkit, storage backend)",
+        "Builder: step-by-step construction with validation at build() time",
+        "Singleton: one instance — use sparingly; prefer DI container scoping"
+      ]
+    },
+    {
+      "title": "Structural Patterns: Composition and Adaptation",
+      "paragraphs": [
+        "Structural patterns organize classes and objects into larger structures while keeping them flexible and efficient. Adapter wraps an incompatible interface so legacy code works with new APIs — the classic integration pattern when you cannot rewrite the vendor SDK or third-party service.",
+        "Decorator adds behavior dynamically without subclass explosion. Middleware stacks in Express, Koa, and gRPC interceptors are decorator chains: logging wraps auth wraps rate limiting wraps the handler. Each layer implements the same interface and delegates to the inner layer.",
+        "Facade provides a simplified interface to a complex subsystem. An API gateway is a distributed facade: clients call one endpoint; the gateway routes to dozens of internal services. Inside a monolith, a service layer facade hides repository, cache, and messaging details from controllers.",
+        "Proxy controls access to another object — lazy loading, access control, caching, or remote calls. Smart references in ORMs that lazy-load associations, caching proxies in Redis clients, and RPC stubs are all proxies. Composite treats individual objects and groups uniformly — useful for tree structures like org charts, file systems, and UI component trees."
+      ],
+      "bullets": [
+        "Adapter: translate one interface to another (legacy integration)",
+        "Decorator: stack behaviors without modifying original class",
+        "Facade: single entry point hiding subsystem complexity",
+        "Proxy: indirection for lazy load, cache, security, or remote access"
+      ]
+    },
+    {
+      "title": "Behavioral Patterns: Communication and Responsibility",
+      "paragraphs": [
+        "Behavioral patterns govern how objects interact and distribute responsibility. Observer defines a one-to-many dependency: when one object changes state, dependents are notified. Event buses, WebSocket push, React state updates, and domain event publishing are observer variants at different scales.",
+        "Strategy encapsulates interchangeable algorithms. Payment processing (credit card vs. PayPal vs. crypto), compression codecs, and routing algorithms all use strategy so runtime configuration swaps behavior without conditional spaghetti. Dependency injection makes strategy trivial — inject the interface, not the implementation.",
+        "Command encapsulates a request as an object, enabling undo, queuing, logging, and retry. Job queues (Sidekiq, SQS consumers) process command objects. CQRS command handlers are named commands with idempotent execution. Template Method defines a skeleton algorithm with overridable steps — base class handles the flow, subclasses fill in specifics.",
+        "Chain of Responsibility passes a request along a handler chain until someone processes it — middleware pipelines, servlet filters, and approval workflows. State pattern lets an object alter behavior when its internal state changes — order lifecycle (pending → paid → shipped) without giant switch statements."
+      ],
+      "bullets": [
+        "Observer: publish-subscribe within and across process boundaries",
+        "Strategy: swap algorithms at runtime via interface injection",
+        "Command: requests as first-class objects — queue, log, undo, retry",
+        "Chain of Responsibility: middleware and filter pipelines"
+      ]
+    },
+    {
+      "title": "Patterns at Architectural Scale",
+      "paragraphs": [
+        "Many 'microservice patterns' are behavioral and structural patterns scaled to the network. Circuit Breaker (from Release It!) stops calling a failing dependency after a threshold, failing fast instead of hanging threads. Bulkhead isolates thread pools or connection pools so one slow dependency cannot exhaust all resources.",
+        "Saga coordinates long-running distributed transactions through a sequence of local transactions with compensating actions — the distributed cousin of Command + undo. Outbox pattern combines Observer with transactional integrity: write events to a database table in the same transaction as business data, then a relay publishes to Kafka.",
+        "Anti-Corruption Layer (from DDD) is an Adapter at bounded-context boundaries — translate external models into your domain language so legacy systems do not leak their terminology into your core model. Sidecar and Ambassador (from cloud-native patterns) attach cross-cutting concerns (logging, TLS, retries) without polluting application code.",
+        "The meta-pattern: choose the pattern that minimizes the cost of the change you expect. If algorithms vary, use Strategy. If wiring varies, use Factory. If failure isolation matters, use Bulkhead and Circuit Breaker. Name your choices so the next engineer understands intent."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Why Patterns Matter in System Design",
+        "paragraphs": [
+          "A design pattern names a problem-solution pair that experienced engineers recognize instantly. When someone says 'we used a circuit breaker here' or 'this is a classic observer setup,' the entire team understands the constraints, failure modes, and alternatives without a whiteboard session from scratch.",
+          "Patterns sit at the intersection of code and architecture. Singleton and Factory appear in application code; Circuit Breaker, Bulkhead, and Saga span service boundaries. Learning patterns trains you to see structural similarities across domains — a payment retry queue and a notification dispatcher both implement variations of the same publish-subscribe and retry idioms.",
+          "Patterns are not goals. Applying every pattern from the Gang of Four catalog to a simple CRUD app is over-engineering. The skill is recognizing when a recurring force — varying object creation, decoupling senders from receivers, isolating failure domains — makes a named pattern the simplest correct solution.",
+          "In interviews, patterns demonstrate that you think in abstractions transferable across companies and stacks. In production, they give you proven starting points with documented pitfalls, so you spend design time on domain specifics rather than reinventing structural solutions."
+        ],
+        "bullets": [
+          "Pattern = recurring problem + context + proven solution + consequences",
+          "GoF (1994): 23 classic OOP patterns — still relevant at architectural scale",
+          "Enterprise patterns (Fowler, Hohpe): messaging, integration, domain logic",
+          "Cloud-native patterns: sidecar, ambassador, anti-corruption layer"
+        ]
+      },
+      {
+        "title": "Creational Patterns: Controlling Object Creation",
+        "paragraphs": [
+          "Creational patterns manage how objects are instantiated — critical when construction is expensive, configuration varies, or you need to enforce a single shared instance. Factory Method and Abstract Factory delegate creation to subclasses or factory objects, letting you swap implementations (PostgreSQL vs. DynamoDB repository) without changing callers.",
+          "Builder separates construction of a complex object from its representation. You see this in fluent API clients (AWS SDK builders), SQL query builders, and HTTP request construction. It prevents telescoping constructors with twelve optional parameters and makes immutable objects practical.",
+          "Singleton guarantees one instance — useful for connection pool managers, configuration registries, and metric collectors. The danger is hidden global state: singletons make testing hard, create hidden coupling, and in distributed systems, 'singleton' is a lie unless backed by leader election. Prefer dependency injection with a scoped lifetime over static singletons in modern codebases.",
+          "Prototype clones existing objects instead of building from scratch — valuable when object creation requires parsing configs or deep copying is cheaper than re-fetching. Object pools (borrow/return instead of new/GC) are creational cousins common in database drivers and thread pools."
+        ],
+        "bullets": [
+          "Factory Method: subclass decides which concrete type to instantiate",
+          "Abstract Factory: families of related objects (UI toolkit, storage backend)",
+          "Builder: step-by-step construction with validation at build() time",
+          "Singleton: one instance — use sparingly; prefer DI container scoping"
+        ]
+      },
+      {
+        "title": "Structural Patterns: Composition and Adaptation",
+        "paragraphs": [
+          "Structural patterns organize classes and objects into larger structures while keeping them flexible and efficient. Adapter wraps an incompatible interface so legacy code works with new APIs — the classic integration pattern when you cannot rewrite the vendor SDK or third-party service.",
+          "Decorator adds behavior dynamically without subclass explosion. Middleware stacks in Express, Koa, and gRPC interceptors are decorator chains: logging wraps auth wraps rate limiting wraps the handler. Each layer implements the same interface and delegates to the inner layer.",
+          "Facade provides a simplified interface to a complex subsystem. An API gateway is a distributed facade: clients call one endpoint; the gateway routes to dozens of internal services. Inside a monolith, a service layer facade hides repository, cache, and messaging details from controllers.",
+          "Proxy controls access to another object — lazy loading, access control, caching, or remote calls. Smart references in ORMs that lazy-load associations, caching proxies in Redis clients, and RPC stubs are all proxies. Composite treats individual objects and groups uniformly — useful for tree structures like org charts, file systems, and UI component trees."
+        ],
+        "bullets": [
+          "Adapter: translate one interface to another (legacy integration)",
+          "Decorator: stack behaviors without modifying original class",
+          "Facade: single entry point hiding subsystem complexity",
+          "Proxy: indirection for lazy load, cache, security, or remote access"
+        ]
+      },
+      {
+        "title": "Behavioral Patterns: Communication and Responsibility",
+        "paragraphs": [
+          "Behavioral patterns govern how objects interact and distribute responsibility. Observer defines a one-to-many dependency: when one object changes state, dependents are notified. Event buses, WebSocket push, React state updates, and domain event publishing are observer variants at different scales.",
+          "Strategy encapsulates interchangeable algorithms. Payment processing (credit card vs. PayPal vs. crypto), compression codecs, and routing algorithms all use strategy so runtime configuration swaps behavior without conditional spaghetti. Dependency injection makes strategy trivial — inject the interface, not the implementation.",
+          "Command encapsulates a request as an object, enabling undo, queuing, logging, and retry. Job queues (Sidekiq, SQS consumers) process command objects. CQRS command handlers are named commands with idempotent execution. Template Method defines a skeleton algorithm with overridable steps — base class handles the flow, subclasses fill in specifics.",
+          "Chain of Responsibility passes a request along a handler chain until someone processes it — middleware pipelines, servlet filters, and approval workflows. State pattern lets an object alter behavior when its internal state changes — order lifecycle (pending → paid → shipped) without giant switch statements."
+        ],
+        "bullets": [
+          "Observer: publish-subscribe within and across process boundaries",
+          "Strategy: swap algorithms at runtime via interface injection",
+          "Command: requests as first-class objects — queue, log, undo, retry",
+          "Chain of Responsibility: middleware and filter pipelines"
+        ]
+      },
+      {
+        "title": "Patterns at Architectural Scale",
+        "paragraphs": [
+          "Many 'microservice patterns' are behavioral and structural patterns scaled to the network. Circuit Breaker (from Release It!) stops calling a failing dependency after a threshold, failing fast instead of hanging threads. Bulkhead isolates thread pools or connection pools so one slow dependency cannot exhaust all resources.",
+          "Saga coordinates long-running distributed transactions through a sequence of local transactions with compensating actions — the distributed cousin of Command + undo. Outbox pattern combines Observer with transactional integrity: write events to a database table in the same transaction as business data, then a relay publishes to Kafka.",
+          "Anti-Corruption Layer (from DDD) is an Adapter at bounded-context boundaries — translate external models into your domain language so legacy systems do not leak their terminology into your core model. Sidecar and Ambassador (from cloud-native patterns) attach cross-cutting concerns (logging, TLS, retries) without polluting application code.",
+          "The meta-pattern: choose the pattern that minimizes the cost of the change you expect. If algorithms vary, use Strategy. If wiring varies, use Factory. If failure isolation matters, use Bulkhead and Circuit Breaker. Name your choices so the next engineer understands intent."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Essential Design Patterns — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Essential Design Patterns: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Essential Design Patterns — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Essential Design Patterns: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Factory Method / Abstract Factory: delegate creation to swap implementations",
+    "Builder: construct complex objects step-by-step with validation",
+    "Singleton: single instance — global state risk in tests and distributed systems",
+    "Adapter: wrap incompatible interfaces for integration",
+    "Decorator: add behavior via composable wrapper chains (middleware)",
+    "Observer: one-to-many notification — events, pub/sub, reactive UI",
+    "Strategy: interchangeable algorithms selected at runtime",
+    "Command: encapsulate requests for queue, retry, undo, audit",
+    "Circuit Breaker: fail fast when a dependency is unhealthy",
+    "Saga: distributed transaction via compensating local steps"
+  ],
+  "practices": [
+    "Name patterns in design docs so reviewers instantly grasp structure and trade-offs",
+    "Prefer composition (Decorator, Strategy) over deep inheritance hierarchies",
+    "Use Factory or DI to swap implementations — never hard-code concrete types in business logic",
+    "Apply Circuit Breaker and Bulkhead on every synchronous cross-service call",
+    "Replace switch-on-type with Strategy or polymorphism when behavior varies by category",
+    "Use Command objects for async work — enables retry, idempotency keys, and dead letter queues",
+    "Avoid Singleton for testability; inject shared instances through your DI container"
+  ],
+  "pitfalls": [
+    "Pattern obsession: adding indirection when a simple function or module suffices",
+    "Singleton abuse: hidden global state, untestable code, false 'single instance' in distributed systems",
+    "Wrong pattern for the force: using Observer when polling or batch processing is simpler",
+    "Leaky abstraction: Decorator chains so deep that debugging requires tracing ten layers",
+    "Ignoring consequences: Saga compensations are hard — not every workflow fits choreographed events",
+    "Copy-paste from tutorials without adapting to domain constraints and failure modes"
+  ],
+  "examples": [
+    {
+      "title": "Express middleware as Decorator chain",
+      "description": "An Express app stacks middleware functions — each implements (req, res, next), adds behavior (auth check, body parsing, logging), and calls next(). The final route handler sits at the innermost layer. Adding rate limiting means inserting a new decorator without touching existing handlers."
+    },
+    {
+      "title": "Netflix Hystrix → Resilience4j Circuit Breaker",
+      "description": "When a downstream recommendation service latency spikes, the circuit breaker opens after error/latency thresholds. Callers receive fallback responses immediately instead of blocking threads. After a cooldown, half-open probes test recovery. This is the Circuit Breaker pattern applied at service mesh scale."
+    },
+    {
+      "title": "E-commerce order Saga",
+      "description": "PlaceOrder → ReserveInventory → ChargePayment → ShipOrder. If payment fails after inventory reservation, a compensating ReleaseInventory command runs. Each step is a local transaction; the saga coordinator (or choreographed events) ensures the workflow completes or rolls back logically — not via a single distributed lock."
+    }
+  ],
+  "keyTakeaways": [
+    "Patterns are a shared vocabulary for proven solutions to recurring design forces",
+    "Creational patterns control object lifecycle; structural patterns organize composition; behavioral patterns govern interaction",
+    "Middleware, event buses, and job queues are production-scale Command, Decorator, and Observer",
+    "Circuit Breaker, Bulkhead, and Saga are essential architectural patterns for distributed systems",
+    "Choose patterns based on expected change — not to fill a catalog checklist",
+    "Every pattern has consequences; name them in design reviews so trade-offs stay visible",
+    "Dependency injection makes Strategy, Factory, and test doubles natural in modern codebases"
+  ],
+  "whyItMatters": "Senior engineers communicate design intent in pattern names and apply proven structures instead of reinventing fragile ad-hoc solutions. In interviews and architecture reviews, recognizing patterns — and knowing when not to use them — signals maturity and saves teams months of debugging implicit design decisions.",
+  "reflectionQuestions": [
+    "Identify three patterns in a codebase you know. For each, what problem force does it address, and what are its consequences?",
+    "When would you choose a Saga over a two-phase commit? What compensating actions would an order cancellation require?",
+    "Draw the middleware chain for an HTTP request in your stack. Which layers are Decorator, which are Chain of Responsibility?",
+    "Where have you seen Singleton cause testing or scaling problems? What would you use instead?"
+  ],
+  "resources": [
+    "Design Patterns: Elements of Reusable Object-Oriented Software (Gamma et al.)",
+    "Patterns of Enterprise Application Architecture (Martin Fowler)",
+    "Enterprise Integration Patterns (Gregor Hohpe, Bobby Woolf)",
+    "Release It! — Stability patterns (Michael Nygard)",
+    "microservices.io — Chris Richardson's pattern catalog"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "patterns-core-overview",
+      "title": "Essential Design Patterns overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Essential Design Patterns and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Essential Design Patterns; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Design Patterns: Elements of Reusable Object-Oriented Software (Gamma et al.)"
+    },
+    {
+      "title": "Patterns of Enterprise Application Architecture (Martin Fowler)"
+    },
+    {
+      "title": "Enterprise Integration Patterns (Gregor Hohpe, Bobby Woolf)"
+    },
+    {
+      "title": "Release It! — Stability patterns (Michael Nygard)"
+    },
+    {
+      "title": "microservices.io — Chris Richardson's pattern catalog"
+    }
+  ],
+  "relatedLessons": [
+    "pat-concurrency",
+    "pat-core-patterns",
+    "pat-resilience"
+  ]
+}

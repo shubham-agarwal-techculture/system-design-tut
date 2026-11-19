@@ -1,0 +1,273 @@
+{
+  "id": "os-processes-threads",
+  "title": "Processes & Threads",
+  "moduleId": "operating-systems",
+  "phaseId": "foundations",
+  "durationMinutes": 40,
+  "summary": "Processes are isolated execution units with their own virtual address space, file descriptors, and security context. Threads share a process's memory and resources, enabling parallelism within a single program — but introducing race conditions that every backend engineer must understand.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "os-numa"
+  ],
+  "tags": [
+    "operating-systems",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "What Is a Process?",
+      "paragraphs": [
+        "When you run a program — a web server, database, or Python script — the operating system creates a process to represent that running instance. A process is not the source code on disk; it is a live execution context with its own virtual memory space, open files, network sockets, signal handlers, and a unique process ID (PID).",
+        "The OS kernel mediates every interaction between a process and hardware. When your code reads a file or allocates memory, it makes a system call — a controlled transition from user mode (restricted) to kernel mode (privileged). This boundary is what prevents one buggy application from corrupting another's memory or crashing the entire machine.",
+        "Processes are created through fork() (copy-on-write clone of the parent) followed often by exec() (replace the image with a new program) on Unix-like systems, or CreateProcess on Windows. Parent and child processes are independent: killing the parent does not automatically kill children unless you configure process groups or use init/systemd as a reaper.",
+        "From a system design perspective, every container, microservice instance, and worker process you deploy maps to one or more OS processes. Understanding this mapping helps you reason about memory limits, file descriptor exhaustion, and why 'one process per connection' architectures break at scale."
+      ],
+      "bullets": [
+        "Process = program in execution with isolated address space",
+        "PID, PPID (parent), UID/GID control identity and permissions",
+        "Zombie processes: exited but not yet reaped by parent via wait()",
+        "Orphan processes: reparented to init when parent dies first"
+      ]
+    },
+    {
+      "title": "Threads: Shared Memory, Shared Risk",
+      "paragraphs": [
+        "A thread is a lightweight unit of execution within a process. All threads in a process share the same heap, global variables, and open file descriptors — but each thread has its own stack (local variables, call frames) and program counter. This sharing makes inter-thread communication fast (just read/write shared memory) but dangerous without synchronization.",
+        "The OS scheduler treats threads as schedulable entities. On Linux, threads are implemented as tasks sharing the same mm_struct (memory descriptor) — what pthreads expose to application code. Context switching between threads in the same process is cheaper than switching between processes because the MMU page tables stay mapped.",
+        "Modern runtimes add another layer. Go goroutines, Java virtual threads (Project Loom), and Node.js async/await multiplex thousands of logical tasks onto a smaller pool of OS threads. The runtime handles scheduling, stack growth, and I/O polling — but underneath, OS threads still do the actual work and contend for CPU cores.",
+        "When designing concurrent systems, ask: what is shared mutable state, and who can access it? Race conditions occur when two threads read-modify-write the same memory without coordination, producing results that depend on interleaving — a class of bugs that are notoriously hard to reproduce and fix."
+      ],
+      "bullets": [
+        "User-space threading (N:1) vs kernel threading (1:1) vs hybrid (M:N)",
+        "Thread pool: fixed workers pull tasks from a queue — bounds resource usage",
+        "Work stealing: idle threads steal tasks from busy peers (ForkJoin, Go scheduler)",
+        "Thread-local storage (TLS): per-thread copies of global-like variables"
+      ]
+    },
+    {
+      "title": "Context Switching and CPU Cost",
+      "paragraphs": [
+        "The CPU can execute only one thread at a time per core (ignoring SMT/hyper-threading nuances). When the OS scheduler preempts a running thread — because its time slice expired, a higher-priority thread became ready, or it blocked on I/O — it performs a context switch: save registers, switch page tables if needed, restore the next thread's state, and resume execution.",
+        "Context switches are not free. Each switch flushes CPU caches and branch predictors to some degree, causing a 'cold start' penalty for the incoming thread. A system with thousands of runnable threads and few cores spends significant time switching rather than doing useful work. This is why blindly spawning one thread per request is a classic anti-pattern.",
+        "Blocking syscalls are the other major cost. When a thread calls read() on a socket with no data available, the kernel puts it to sleep and schedules another thread. If you have 10,000 blocked threads, you pay memory for 10,000 stacks (typically 1–8 MB each on Linux unless overridden) plus scheduler overhead — even though most are idle.",
+        "High-performance servers therefore minimize blocking threads and context switches. Event-driven architectures (discussed in the I/O lesson) handle many connections with few threads. CPU-bound workloads use a thread pool sized to the number of cores (or cores minus one) to maximize cache locality and minimize preemption."
+      ]
+    },
+    {
+      "title": "Concurrency Models in Production",
+      "paragraphs": [
+        "Different languages and frameworks make different trade-offs. Java and C++ traditionally use thread pools for server workloads — e.g., Tomcat's connector thread pool serving HTTP requests. Oversizing the pool causes contention; undersizing causes queueing latency under load.",
+        "Go's model is deceptively simple: go func() launches a goroutine, and the runtime multiplexes them onto GOMAXPROCS OS threads. Blocking syscalls may spawn additional threads automatically. This makes it easy to write concurrent code, but shared maps still need mutexes or sync.Map, and goroutine leaks (blocked forever) can exhaust memory.",
+        "Node.js and Python asyncio use a single-threaded event loop for application code, delegating CPU-heavy or blocking work to thread/process pools. This eliminates data races in application logic but creates a different bottleneck: one slow synchronous operation blocks the entire loop.",
+        "Process-based isolation (multiple worker processes behind a load balancer, as in Gunicorn, uWSGI, or Erlang/OTP) trades memory for fault isolation. One worker crash does not take down siblings. This pattern appears everywhere from Nginx master/worker model to Chrome's multi-process architecture."
+      ],
+      "bullets": [
+        "Prefork: master creates N workers at startup, each handles requests independently",
+        "Fork-after-bind: workers inherit a listening socket and accept() concurrently",
+        "C10K problem: serving 10,000 concurrent clients required rethinking thread-per-connection"
+      ]
+    },
+    {
+      "title": "Processes, Containers, and cgroups",
+      "paragraphs": [
+        "Linux containers are processes with extra isolation. Docker and Kubernetes do not run 'mini VMs' — they run ordinary processes constrained by namespaces (PID, network, mount, UTS, IPC, user) and cgroups (CPU, memory, I/O limits). A container is a process tree with a restricted view of the host.",
+        "When you set memory limits in Kubernetes (resources.limits.memory), the kernel's OOM killer terminates processes in the cgroup that exceed the limit. Understanding that your JVM, Node, or Go service is one or more OS processes inside a cgroup explains OOMKilled pods and why the host's view of memory differs from inside the container.",
+        "Process signals (SIGTERM, SIGKILL, SIGHUP) are the OS's mechanism for lifecycle management. Kubernetes sends SIGTERM on pod deletion, waits terminationGracePeriodSeconds, then SIGKILL. Applications must handle SIGTERM to drain connections and flush state — a system design requirement, not just an ops detail.",
+        "For interviews and architecture reviews, being able to trace from 'my API service' down to 'N worker processes × M threads × cgroup limits' demonstrates the kind of bottom-up reasoning that separates senior engineers from those who treat the runtime as a black box."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "What Is a Process?",
+        "paragraphs": [
+          "When you run a program — a web server, database, or Python script — the operating system creates a process to represent that running instance. A process is not the source code on disk; it is a live execution context with its own virtual memory space, open files, network sockets, signal handlers, and a unique process ID (PID).",
+          "The OS kernel mediates every interaction between a process and hardware. When your code reads a file or allocates memory, it makes a system call — a controlled transition from user mode (restricted) to kernel mode (privileged). This boundary is what prevents one buggy application from corrupting another's memory or crashing the entire machine.",
+          "Processes are created through fork() (copy-on-write clone of the parent) followed often by exec() (replace the image with a new program) on Unix-like systems, or CreateProcess on Windows. Parent and child processes are independent: killing the parent does not automatically kill children unless you configure process groups or use init/systemd as a reaper.",
+          "From a system design perspective, every container, microservice instance, and worker process you deploy maps to one or more OS processes. Understanding this mapping helps you reason about memory limits, file descriptor exhaustion, and why 'one process per connection' architectures break at scale."
+        ],
+        "bullets": [
+          "Process = program in execution with isolated address space",
+          "PID, PPID (parent), UID/GID control identity and permissions",
+          "Zombie processes: exited but not yet reaped by parent via wait()",
+          "Orphan processes: reparented to init when parent dies first"
+        ]
+      },
+      {
+        "title": "Threads: Shared Memory, Shared Risk",
+        "paragraphs": [
+          "A thread is a lightweight unit of execution within a process. All threads in a process share the same heap, global variables, and open file descriptors — but each thread has its own stack (local variables, call frames) and program counter. This sharing makes inter-thread communication fast (just read/write shared memory) but dangerous without synchronization.",
+          "The OS scheduler treats threads as schedulable entities. On Linux, threads are implemented as tasks sharing the same mm_struct (memory descriptor) — what pthreads expose to application code. Context switching between threads in the same process is cheaper than switching between processes because the MMU page tables stay mapped.",
+          "Modern runtimes add another layer. Go goroutines, Java virtual threads (Project Loom), and Node.js async/await multiplex thousands of logical tasks onto a smaller pool of OS threads. The runtime handles scheduling, stack growth, and I/O polling — but underneath, OS threads still do the actual work and contend for CPU cores.",
+          "When designing concurrent systems, ask: what is shared mutable state, and who can access it? Race conditions occur when two threads read-modify-write the same memory without coordination, producing results that depend on interleaving — a class of bugs that are notoriously hard to reproduce and fix."
+        ],
+        "bullets": [
+          "User-space threading (N:1) vs kernel threading (1:1) vs hybrid (M:N)",
+          "Thread pool: fixed workers pull tasks from a queue — bounds resource usage",
+          "Work stealing: idle threads steal tasks from busy peers (ForkJoin, Go scheduler)",
+          "Thread-local storage (TLS): per-thread copies of global-like variables"
+        ]
+      },
+      {
+        "title": "Context Switching and CPU Cost",
+        "paragraphs": [
+          "The CPU can execute only one thread at a time per core (ignoring SMT/hyper-threading nuances). When the OS scheduler preempts a running thread — because its time slice expired, a higher-priority thread became ready, or it blocked on I/O — it performs a context switch: save registers, switch page tables if needed, restore the next thread's state, and resume execution.",
+          "Context switches are not free. Each switch flushes CPU caches and branch predictors to some degree, causing a 'cold start' penalty for the incoming thread. A system with thousands of runnable threads and few cores spends significant time switching rather than doing useful work. This is why blindly spawning one thread per request is a classic anti-pattern.",
+          "Blocking syscalls are the other major cost. When a thread calls read() on a socket with no data available, the kernel puts it to sleep and schedules another thread. If you have 10,000 blocked threads, you pay memory for 10,000 stacks (typically 1–8 MB each on Linux unless overridden) plus scheduler overhead — even though most are idle.",
+          "High-performance servers therefore minimize blocking threads and context switches. Event-driven architectures (discussed in the I/O lesson) handle many connections with few threads. CPU-bound workloads use a thread pool sized to the number of cores (or cores minus one) to maximize cache locality and minimize preemption."
+        ]
+      },
+      {
+        "title": "Concurrency Models in Production",
+        "paragraphs": [
+          "Different languages and frameworks make different trade-offs. Java and C++ traditionally use thread pools for server workloads — e.g., Tomcat's connector thread pool serving HTTP requests. Oversizing the pool causes contention; undersizing causes queueing latency under load.",
+          "Go's model is deceptively simple: go func() launches a goroutine, and the runtime multiplexes them onto GOMAXPROCS OS threads. Blocking syscalls may spawn additional threads automatically. This makes it easy to write concurrent code, but shared maps still need mutexes or sync.Map, and goroutine leaks (blocked forever) can exhaust memory.",
+          "Node.js and Python asyncio use a single-threaded event loop for application code, delegating CPU-heavy or blocking work to thread/process pools. This eliminates data races in application logic but creates a different bottleneck: one slow synchronous operation blocks the entire loop.",
+          "Process-based isolation (multiple worker processes behind a load balancer, as in Gunicorn, uWSGI, or Erlang/OTP) trades memory for fault isolation. One worker crash does not take down siblings. This pattern appears everywhere from Nginx master/worker model to Chrome's multi-process architecture."
+        ],
+        "bullets": [
+          "Prefork: master creates N workers at startup, each handles requests independently",
+          "Fork-after-bind: workers inherit a listening socket and accept() concurrently",
+          "C10K problem: serving 10,000 concurrent clients required rethinking thread-per-connection"
+        ]
+      },
+      {
+        "title": "Processes, Containers, and cgroups",
+        "paragraphs": [
+          "Linux containers are processes with extra isolation. Docker and Kubernetes do not run 'mini VMs' — they run ordinary processes constrained by namespaces (PID, network, mount, UTS, IPC, user) and cgroups (CPU, memory, I/O limits). A container is a process tree with a restricted view of the host.",
+          "When you set memory limits in Kubernetes (resources.limits.memory), the kernel's OOM killer terminates processes in the cgroup that exceed the limit. Understanding that your JVM, Node, or Go service is one or more OS processes inside a cgroup explains OOMKilled pods and why the host's view of memory differs from inside the container.",
+          "Process signals (SIGTERM, SIGKILL, SIGHUP) are the OS's mechanism for lifecycle management. Kubernetes sends SIGTERM on pod deletion, waits terminationGracePeriodSeconds, then SIGKILL. Applications must handle SIGTERM to drain connections and flush state — a system design requirement, not just an ops detail.",
+          "For interviews and architecture reviews, being able to trace from 'my API service' down to 'N worker processes × M threads × cgroup limits' demonstrates the kind of bottom-up reasoning that separates senior engineers from those who treat the runtime as a black box."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Processes & Threads — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Processes & Threads: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Processes & Threads — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Processes & Threads: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Process: isolated address space, file descriptors, PID, security context",
+    "Thread: shared heap and FDs, private stack, schedulable by the OS",
+    "System call: controlled transition to kernel mode for I/O, memory, scheduling",
+    "Context switch: CPU state save/restore when changing runnable threads",
+    "Race condition: outcome depends on thread interleaving without synchronization",
+    "Thread pool: bounded workers processing a shared task queue",
+    "Copy-on-write fork: parent and child share pages until one writes",
+    "Goroutines / async-await: user-space concurrency atop fewer OS threads",
+    "cgroups and namespaces: how Linux containers limit and isolate processes",
+    "Zombie and orphan processes: lifecycle edge cases in Unix process management"
+  ],
+  "practices": [
+    "Size thread pools based on workload type: ~num cores for CPU-bound, higher (but bounded) for I/O-bound with blocking calls",
+    "Minimize shared mutable state; prefer message passing (channels, queues) over shared memory when possible",
+    "Always set container memory and CPU limits — unbounded processes can take down the node",
+    "Handle SIGTERM gracefully: stop accepting new work, drain in-flight requests, then exit",
+    "Use process-level isolation (multiple workers) for fault tolerance in stateless services",
+    "Profile context switch rates and runnable thread counts under load before scaling thread pools",
+    "Document which resources are shared across threads (connection pools, caches) and how they are synchronized"
+  ],
+  "pitfalls": [
+    "Creating unbounded threads (one per request) — leads to memory exhaustion and scheduler thrashing",
+    "Assuming goroutines or async code are race-free — shared state still needs locks or immutability",
+    "Ignoring zombie processes in long-running daemons that fork but never call wait()",
+    "Setting thread pool size to 500 'just to be safe' — oversubscription hurts CPU-bound workloads",
+    "Forgetting that fork + multithreaded programs is dangerous (only async-signal-safe functions allowed in child)",
+    "Treating containers as VMs — they share the kernel; a kernel panic or CVE affects all tenants"
+  ],
+  "examples": [
+    {
+      "title": "Nginx master/worker model",
+      "description": "Nginx runs one master process (reads config, manages workers) and several worker processes, each single-threaded with an event loop. Workers accept connections independently via SO_REUSEPORT or inherited socket. A crash in one worker does not kill others. This process-based design is why Nginx scales to hundreds of thousands of connections without thread-per-connection overhead."
+    },
+    {
+      "title": "Java thread pool in a servlet container",
+      "description": "Tomcat's connector maintains a bounded thread pool (default 200). Each HTTP request borrows a thread for its duration. Under spike load, excess requests queue; if the queue fills, connections are rejected. Tuning maxThreads, acceptCount, and connectionTimeout is a direct application of process/thread resource management — and a common production incident source when defaults are left unchanged."
+    },
+    {
+      "title": "Kubernetes pod OOMKill",
+      "description": "A Java service with a 512 MB container limit but -Xmx1024m exceeds its cgroup memory. The Linux OOM killer sends SIGKILL to the offending process. The pod restarts in a CrashLoopBackOff. Understanding that the JVM is an OS process inside a cgroup — and that heap is only part of memory usage — prevents this class of misconfiguration."
+    }
+  ],
+  "keyTakeaways": [
+    "Processes provide isolation; threads provide parallelism within a process at the cost of shared-state complexity",
+    "Context switches and thread stacks have real cost — unbounded threading does not scale",
+    "Modern runtimes (Go, async Node, Loom) multiplex many logical tasks onto fewer OS threads",
+    "Containers are isolated process trees with resource limits, not lightweight VMs",
+    "Production architecture choices (prefork, thread pool, event loop) map directly to OS process/thread models",
+    "Graceful shutdown via signal handling is a system design requirement for zero-downtime deploys",
+    "Always ask: what is shared, what is mutable, and what synchronizes access?"
+  ],
+  "whyItMatters": "Every scalable backend you design — connection pools, worker counts, container limits, graceful shutdown — sits on top of OS processes and threads. Interviewers ask about 'how would you handle 100K concurrent connections' because the answer depends on whether you use processes, threads, or event loops, and how much each costs in memory and context switches. Production incidents from thread exhaustion, OOM kills, and race conditions trace directly to this layer.",
+  "reflectionQuestions": [
+    "Your API server uses 200 threads and CPU is only 30% utilized, but p99 latency spikes under load. What might be happening, and how would processes vs event loops change your approach?",
+    "Why would you choose multiple worker processes over multiple threads for a stateless HTTP service behind a load balancer?",
+    "A goroutine leak causes memory to grow unbounded over days. How would you detect and debug it using OS-level tools?",
+    "Design the concurrency model for a service that handles 50K long-lived WebSocket connections. How many OS threads would you expect?"
+  ],
+  "resources": [
+    "Operating Systems: Three Easy Pieces — Processes (Arpaci-Dusseau)",
+    "The Linux Programming Interface — Chapters on processes and threads (Michael Kerrisk)",
+    "Go blog: 'Concurrency is not Parallelism' — Rob Pike",
+    "C10K problem — Dan Kegel (kegel.com/c10k.html)"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "os-processes-threads-overview",
+      "title": "Processes & Threads overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Processes & Threads and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Processes & Threads; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Operating Systems: Three Easy Pieces — Processes (Arpaci-Dusseau)"
+    },
+    {
+      "title": "The Linux Programming Interface — Chapters on processes and threads (Michael Kerrisk)"
+    },
+    {
+      "title": "Go blog: 'Concurrency is not Parallelism' — Rob Pike"
+    },
+    {
+      "title": "C10K problem — Dan Kegel (kegel.com/c10k.html)"
+    }
+  ],
+  "relatedLessons": [
+    "os-io-sync",
+    "os-memory",
+    "os-numa"
+  ]
+}

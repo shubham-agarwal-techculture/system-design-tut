@@ -1,0 +1,277 @@
+{
+  "id": "arch-clean-ddd",
+  "title": "Clean Architecture & DDD",
+  "moduleId": "architecture-patterns",
+  "phaseId": "architecture",
+  "durationMinutes": 38,
+  "summary": "Clean Architecture and Domain-Driven Design (DDD) organize code around business domains rather than technical frameworks. This lesson covers hexagonal architecture, dependency inversion, bounded contexts, aggregates, and the tactical patterns that keep core business logic testable, framework-independent, and aligned with how the business actually works.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "architecture-patterns",
+    "architecture"
+  ],
+  "sections": [
+    {
+      "title": "Clean Architecture: Dependencies Point Inward",
+      "paragraphs": [
+        "Robert Martin's Clean Architecture organizes code into concentric rings. The innermost ring is the domain — entities and business rules that would exist even if you had no database, no web framework, and no UI. Each outer ring depends on the inner rings, never the reverse. Frameworks, databases, and UI are details that belong on the outside.",
+        "The Dependency Inversion Principle makes this work: high-level modules (business logic) define interfaces (ports); low-level modules (database adapters, HTTP handlers) implement them. Your OrderService depends on an IOrderRepository interface defined in the domain layer; PostgreSQLOrderRepository in the infrastructure layer implements it.",
+        "The payoff is testability and longevity. You can unit-test business rules without spinning up a database. You can swap PostgreSQL for MongoDB by writing a new adapter. When your web framework releases a breaking version, the domain layer doesn't change."
+      ],
+      "bullets": [
+        "Entities: core business objects with identity and lifecycle (Order, Customer, Account)",
+        "Use cases / application services: orchestrate domain logic for a specific user action",
+        "Interface adapters: controllers, presenters, gateways that translate between layers",
+        "Frameworks & drivers: web framework, ORM, message broker — outermost, most replaceable"
+      ]
+    },
+    {
+      "title": "Hexagonal Architecture: Ports and Adapters",
+      "paragraphs": [
+        "Alistair Cockburn's Hexagonal Architecture (Ports and Adapters) expresses the same idea with a vivid metaphor: the application core is a hexagon with ports (interfaces) on each side. Adapters plug into those ports — a REST controller adapter on one side, a PostgreSQL repository adapter on another, a Kafka event publisher on a third.",
+        "Primary (driving) adapters initiate interaction: HTTP controllers, CLI commands, message consumers. Secondary (driven) adapters respond to the core's needs: database repositories, email senders, external API clients. The core knows nothing about HTTP status codes or SQL syntax.",
+        "This symmetry makes the architecture explicit in your folder structure: domain/ contains entities and ports; application/ contains use cases; adapters/inbound/ and adapters/outbound/ contain framework-specific code. New team members can navigate by business concept, not by technology."
+      ],
+      "bullets": [
+        "Port: an interface the core defines (OrderRepository, PaymentGateway, EventPublisher)",
+        "Adapter: a concrete implementation for a specific technology (PostgresOrderRepository, StripePaymentGateway)",
+        "Primary adapter: drives the application (HTTP handler calls CreateOrderUseCase)",
+        "Secondary adapter: driven by the application (use case calls repository.save())"
+      ]
+    },
+    {
+      "title": "Domain-Driven Design: Strategic Patterns",
+      "paragraphs": [
+        "Eric Evans' Domain-Driven Design distinguishes strategic design (how large systems are divided) from tactical design (how code is structured within a boundary). The strategic cornerstone is the bounded context: a explicit boundary within which a particular domain model is defined and consistent.",
+        "In an e-commerce platform, 'Product' means different things in different contexts: the Catalog context cares about descriptions and images; the Inventory context cares about stock counts and warehouse locations; the Pricing context cares about cost, margin, and discounts. Forcing one Product model across all three creates confusion and coupling.",
+        "Context maps document relationships between bounded contexts: Shared Kernel (shared code), Customer-Supplier (upstream/downstream), Conformist (downstream adopts upstream model), Anti-Corruption Layer (translates foreign models). These relationships guide integration decisions when building microservices or modular monoliths."
+      ],
+      "bullets": [
+        "Ubiquitous language: developers and business stakeholders use the same terms in code and conversation",
+        "Bounded context: scope where a domain model is internally consistent",
+        "Context map: visual diagram of how bounded contexts relate and integrate",
+        "Anti-corruption layer: translation layer preventing foreign domain models from leaking in"
+      ]
+    },
+    {
+      "title": "Domain-Driven Design: Tactical Patterns",
+      "paragraphs": [
+        "Within a bounded context, tactical patterns structure the domain model. Entities have identity that persists over time (Order #12345). Value objects are defined by their attributes, not identity — Money($10, USD), Address, DateRange. They are immutable and interchangeable.",
+        "Aggregates are clusters of entities and value objects treated as a single consistency boundary. An Order aggregate contains OrderLineItems; you never modify a line item directly — you load the Order, call order.addItem(), and save the whole aggregate. This ensures invariants (total price matches sum of items) are always enforced.",
+        "Domain events capture something meaningful that happened in the domain: OrderPlaced, PaymentFailed, InventoryReserved. They enable loose coupling between aggregates and bounded contexts. Domain services handle operations that don't naturally belong to a single entity (e.g., transferring funds between two Accounts)."
+      ],
+      "bullets": [
+        "Entity: object with unique identity (Customer, Order, Shipment)",
+        "Value object: immutable, defined by attributes (Email, Money, GeoCoordinate)",
+        "Aggregate root: the single entry point for modifying an aggregate (Order is root; LineItem is not accessed directly)",
+        "Repository: persistence abstraction that retrieves and saves aggregates as whole units",
+        "Domain event: record of a significant state change within the domain"
+      ]
+    },
+    {
+      "title": "Applying Clean Architecture and DDD in Practice",
+      "paragraphs": [
+        "These patterns are not all-or-nothing. A CRUD admin panel doesn't need aggregates and domain events. A payment processing core benefits enormously from them. Apply DDD tactically where business complexity is highest — the domain experts care deeply about correctness there.",
+        "Common project structure: src/domain/ (entities, value objects, repository interfaces, domain events), src/application/ (use cases, DTOs, application services), src/infrastructure/ (database adapters, message broker adapters, external API clients), src/interfaces/ (HTTP controllers, GraphQL resolvers, CLI).",
+        "Testing strategy follows naturally: unit tests for domain logic (fast, no I/O), integration tests for adapters (real database in test container), end-to-end tests for critical user flows. Most tests should live at the unit level because the domain layer contains the business rules that matter most."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Clean Architecture: Dependencies Point Inward",
+        "paragraphs": [
+          "Robert Martin's Clean Architecture organizes code into concentric rings. The innermost ring is the domain — entities and business rules that would exist even if you had no database, no web framework, and no UI. Each outer ring depends on the inner rings, never the reverse. Frameworks, databases, and UI are details that belong on the outside.",
+          "The Dependency Inversion Principle makes this work: high-level modules (business logic) define interfaces (ports); low-level modules (database adapters, HTTP handlers) implement them. Your OrderService depends on an IOrderRepository interface defined in the domain layer; PostgreSQLOrderRepository in the infrastructure layer implements it.",
+          "The payoff is testability and longevity. You can unit-test business rules without spinning up a database. You can swap PostgreSQL for MongoDB by writing a new adapter. When your web framework releases a breaking version, the domain layer doesn't change."
+        ],
+        "bullets": [
+          "Entities: core business objects with identity and lifecycle (Order, Customer, Account)",
+          "Use cases / application services: orchestrate domain logic for a specific user action",
+          "Interface adapters: controllers, presenters, gateways that translate between layers",
+          "Frameworks & drivers: web framework, ORM, message broker — outermost, most replaceable"
+        ]
+      },
+      {
+        "title": "Hexagonal Architecture: Ports and Adapters",
+        "paragraphs": [
+          "Alistair Cockburn's Hexagonal Architecture (Ports and Adapters) expresses the same idea with a vivid metaphor: the application core is a hexagon with ports (interfaces) on each side. Adapters plug into those ports — a REST controller adapter on one side, a PostgreSQL repository adapter on another, a Kafka event publisher on a third.",
+          "Primary (driving) adapters initiate interaction: HTTP controllers, CLI commands, message consumers. Secondary (driven) adapters respond to the core's needs: database repositories, email senders, external API clients. The core knows nothing about HTTP status codes or SQL syntax.",
+          "This symmetry makes the architecture explicit in your folder structure: domain/ contains entities and ports; application/ contains use cases; adapters/inbound/ and adapters/outbound/ contain framework-specific code. New team members can navigate by business concept, not by technology."
+        ],
+        "bullets": [
+          "Port: an interface the core defines (OrderRepository, PaymentGateway, EventPublisher)",
+          "Adapter: a concrete implementation for a specific technology (PostgresOrderRepository, StripePaymentGateway)",
+          "Primary adapter: drives the application (HTTP handler calls CreateOrderUseCase)",
+          "Secondary adapter: driven by the application (use case calls repository.save())"
+        ]
+      },
+      {
+        "title": "Domain-Driven Design: Strategic Patterns",
+        "paragraphs": [
+          "Eric Evans' Domain-Driven Design distinguishes strategic design (how large systems are divided) from tactical design (how code is structured within a boundary). The strategic cornerstone is the bounded context: a explicit boundary within which a particular domain model is defined and consistent.",
+          "In an e-commerce platform, 'Product' means different things in different contexts: the Catalog context cares about descriptions and images; the Inventory context cares about stock counts and warehouse locations; the Pricing context cares about cost, margin, and discounts. Forcing one Product model across all three creates confusion and coupling.",
+          "Context maps document relationships between bounded contexts: Shared Kernel (shared code), Customer-Supplier (upstream/downstream), Conformist (downstream adopts upstream model), Anti-Corruption Layer (translates foreign models). These relationships guide integration decisions when building microservices or modular monoliths."
+        ],
+        "bullets": [
+          "Ubiquitous language: developers and business stakeholders use the same terms in code and conversation",
+          "Bounded context: scope where a domain model is internally consistent",
+          "Context map: visual diagram of how bounded contexts relate and integrate",
+          "Anti-corruption layer: translation layer preventing foreign domain models from leaking in"
+        ]
+      },
+      {
+        "title": "Domain-Driven Design: Tactical Patterns",
+        "paragraphs": [
+          "Within a bounded context, tactical patterns structure the domain model. Entities have identity that persists over time (Order #12345). Value objects are defined by their attributes, not identity — Money($10, USD), Address, DateRange. They are immutable and interchangeable.",
+          "Aggregates are clusters of entities and value objects treated as a single consistency boundary. An Order aggregate contains OrderLineItems; you never modify a line item directly — you load the Order, call order.addItem(), and save the whole aggregate. This ensures invariants (total price matches sum of items) are always enforced.",
+          "Domain events capture something meaningful that happened in the domain: OrderPlaced, PaymentFailed, InventoryReserved. They enable loose coupling between aggregates and bounded contexts. Domain services handle operations that don't naturally belong to a single entity (e.g., transferring funds between two Accounts)."
+        ],
+        "bullets": [
+          "Entity: object with unique identity (Customer, Order, Shipment)",
+          "Value object: immutable, defined by attributes (Email, Money, GeoCoordinate)",
+          "Aggregate root: the single entry point for modifying an aggregate (Order is root; LineItem is not accessed directly)",
+          "Repository: persistence abstraction that retrieves and saves aggregates as whole units",
+          "Domain event: record of a significant state change within the domain"
+        ]
+      },
+      {
+        "title": "Applying Clean Architecture and DDD in Practice",
+        "paragraphs": [
+          "These patterns are not all-or-nothing. A CRUD admin panel doesn't need aggregates and domain events. A payment processing core benefits enormously from them. Apply DDD tactically where business complexity is highest — the domain experts care deeply about correctness there.",
+          "Common project structure: src/domain/ (entities, value objects, repository interfaces, domain events), src/application/ (use cases, DTOs, application services), src/infrastructure/ (database adapters, message broker adapters, external API clients), src/interfaces/ (HTTP controllers, GraphQL resolvers, CLI).",
+          "Testing strategy follows naturally: unit tests for domain logic (fast, no I/O), integration tests for adapters (real database in test container), end-to-end tests for critical user flows. Most tests should live at the unit level because the domain layer contains the business rules that matter most."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Clean Architecture & DDD — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Clean Architecture & DDD: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Clean Architecture & DDD — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Clean Architecture & DDD: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Clean Architecture: concentric layers with dependencies pointing inward toward the domain",
+    "Dependency Inversion: high-level modules define interfaces; low-level modules implement them",
+    "Hexagonal Architecture: application core connected via ports and adapters",
+    "Bounded context: explicit boundary where a domain model is consistent",
+    "Ubiquitous language: shared vocabulary between developers and domain experts",
+    "Entity vs. value object: identity-based vs. attribute-based domain objects",
+    "Aggregate: consistency boundary grouping entities and value objects under a root",
+    "Domain event: immutable record of a significant business occurrence",
+    "Anti-corruption layer: translation boundary protecting your domain from external models",
+    "Repository pattern: abstract persistence behind a domain-centric interface"
+  ],
+  "practices": [
+    "Define ubiquitous language terms in a glossary shared with product and business teams",
+    "Place business rules in the domain layer — never in controllers or database triggers",
+    "Design aggregates small enough to load and save in one transaction",
+    "Use value objects for concepts like Money, Email, and Address to enforce invariants at construction",
+    "Define repository interfaces in the domain layer; implement them in infrastructure",
+    "Publish domain events from aggregate roots when state changes meaningfully",
+    "Apply DDD tactically to complex core domains; use simpler patterns for CRUD periphery"
+  ],
+  "pitfalls": [
+    "Anemic domain model: entities are data bags with all logic in service classes — defeats the purpose of DDD",
+    "Over-sized aggregates: loading an entire Customer with all Orders, Payments, and Addresses kills performance",
+    "Bounded context bleed: one team's model silently used by another without translation",
+    "Framework-driven design: letting ORM annotations and controller decorators define your architecture",
+    "Premature DDD: applying aggregates and context maps to a simple CRUD app adds complexity without benefit",
+    "Ignoring the context map: integrating bounded contexts without explicit relationship strategy"
+  ],
+  "examples": [
+    {
+      "title": "Amazon's Bounded Contexts",
+      "description": "Amazon's platform spans dozens of bounded contexts — Catalog, Ordering, Fulfillment, Payments, Recommendations — each with its own model of core concepts. 'Product' in Catalog (marketing copy, images) differs from 'Product' in Fulfillment (weight, dimensions, hazmat flags). Anti-corruption layers translate between them at integration points."
+    },
+    {
+      "title": "Clean Architecture in a Payment Service",
+      "description": "A payment service's domain layer defines Payment (entity), Money (value object), and PaymentGateway (port). The application layer has ProcessPaymentUseCase. Infrastructure provides StripeGateway and PostgresPaymentRepository. The domain can be fully tested with mock adapters — no Stripe API or database required."
+    }
+  ],
+  "keyTakeaways": [
+    "Organize code around business domains, not technical layers or frameworks",
+    "Dependencies must point inward — the domain never imports infrastructure",
+    "Bounded contexts prevent a single overloaded model from serving every use case",
+    "Aggregates enforce consistency boundaries — always modify through the root",
+    "Ports and adapters make the core testable and technology-swappable",
+    "Apply DDD where business complexity is high; keep CRUD areas simple",
+    "Ubiquitous language bridges the gap between code and business stakeholders"
+  ],
+  "whyItMatters": "Systems outlive frameworks. The average web framework has a 5–10 year dominance cycle; business rules persist for decades. Clean Architecture and DDD protect your most valuable asset — business logic — from being entangled with replaceable infrastructure. In system design interviews and real projects, demonstrating domain-centric thinking signals senior-level engineering judgment.",
+  "reflectionQuestions": [
+    "Identify two bounded contexts in a system you know. How does the same concept (e.g., 'User' or 'Product') differ between them?",
+    "Where in your current codebase does business logic leak into controllers or ORM models? How would you move it inward?",
+    "Design an aggregate for a library book lending system. What is the root? What invariants must it enforce?",
+    "When would an anti-corruption layer be necessary vs. simply calling another service's API directly?"
+  ],
+  "resources": [
+    "Domain-Driven Design (Eric Evans)",
+    "Implementing Domain-Driven Design (Vaughn Vernon)",
+    "Clean Architecture (Robert C. Martin)",
+    "Domain-Driven Design Distilled (Vaughn Vernon)",
+    "Hexagonal Architecture article (Alistair Cockburn)"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "arch-clean-ddd-overview",
+      "title": "Clean Architecture & DDD overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Clean Architecture & DDD and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Clean Architecture & DDD; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Domain-Driven Design (Eric Evans)"
+    },
+    {
+      "title": "Implementing Domain-Driven Design (Vaughn Vernon)"
+    },
+    {
+      "title": "Clean Architecture (Robert C. Martin)"
+    },
+    {
+      "title": "Domain-Driven Design Distilled (Vaughn Vernon)"
+    },
+    {
+      "title": "Hexagonal Architecture article (Alistair Cockburn)"
+    }
+  ],
+  "relatedLessons": [
+    "arch-event-cqrs",
+    "arch-hexagonal-ddd",
+    "arch-monolith-micro"
+  ]
+}

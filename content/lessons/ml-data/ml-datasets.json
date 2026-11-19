@@ -1,0 +1,97 @@
+{
+  "id": "ml-datasets",
+  "title": "Dataset Curation & Dedup",
+  "moduleId": "ml-data",
+  "phaseId": "ml-foundations",
+  "durationMinutes": 30,
+  "summary": "Dataset Curation & Dedup — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "ml-data",
+    "evergreen",
+    "ml-foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Dataset Curation & Dedup. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Dataset Curation & Dedup. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Dataset Curation & Dedup — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Dataset Curation & Dedup: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Dataset Curation & Dedup — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Dataset Curation & Dedup: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Dataset Curation & Dedup: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Dataset Curation & Dedup belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Dataset Curation & Dedup improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Dataset Curation & Dedup in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ml-datasets-overview",
+      "title": "Dataset Curation & Dedup overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Dataset Curation & Dedup and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Dataset Curation & Dedup; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ml-feature-stores"
+  ]
+}

@@ -1,0 +1,115 @@
+{
+  "id": "ml-attention-kv",
+  "title": "Attention Cost & KV Cache",
+  "moduleId": "ml-transformers",
+  "phaseId": "ml-foundations",
+  "durationMinutes": 30,
+  "summary": "Transformers spend memory and compute on attention. The KV cache is the dominant serving-memory cost during decode — system designers must treat it as a first-class resource.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "ml-transformers",
+    "evergreen",
+    "ml-foundations"
+  ],
+  "sections": [
+    {
+      "title": "Why attention dominates the systems budget",
+      "paragraphs": [
+        "Self-attention lets every token attend to every earlier token. Naively, that is quadratic in sequence length for compute and memory. Training can often afford full attention; autoregressive inference cannot casually ignore the growing key/value tensors.",
+        "During decode, each new token reuses prior keys and values. Systems cache them (the KV cache) so they are not recomputed. Cache size grows with batch × layers × heads × sequence × dtype — frequently the binding constraint on GPU memory before FLOPs are exhausted."
+      ],
+      "bullets": [
+        "Prefill: process the prompt (compute-heavy)",
+        "Decode: emit tokens one-by-one (memory-bandwidth heavy)",
+        "KV cache: stored keys/values per layer for prior tokens"
+      ]
+    },
+    {
+      "title": "Design implications",
+      "paragraphs": [
+        "Paged attention (as in vLLM) treats KV blocks like virtual memory pages to reduce fragmentation. Prefix caching reuses KV for shared prompt prefixes across requests. Separating prefill and decode onto different pools can improve utilization when traffic mixes long prompts with long generations.",
+        "When estimating capacity, start from concurrent sequences × expected context × bytes per KV element × layers — then compare to HBM. Quantization (FP8/INT8/INT4) and speculative decoding change the cost curve but do not remove the need for this estimate."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Why attention dominates the systems budget",
+        "paragraphs": [
+          "Self-attention lets every token attend to every earlier token. Naively, that is quadratic in sequence length for compute and memory. Training can often afford full attention; autoregressive inference cannot casually ignore the growing key/value tensors.",
+          "During decode, each new token reuses prior keys and values. Systems cache them (the KV cache) so they are not recomputed. Cache size grows with batch × layers × heads × sequence × dtype — frequently the binding constraint on GPU memory before FLOPs are exhausted."
+        ],
+        "bullets": [
+          "Prefill: process the prompt (compute-heavy)",
+          "Decode: emit tokens one-by-one (memory-bandwidth heavy)",
+          "KV cache: stored keys/values per layer for prior tokens"
+        ]
+      },
+      {
+        "title": "Design implications",
+        "paragraphs": [
+          "Paged attention (as in vLLM) treats KV blocks like virtual memory pages to reduce fragmentation. Prefix caching reuses KV for shared prompt prefixes across requests. Separating prefill and decode onto different pools can improve utilization when traffic mixes long prompts with long generations.",
+          "When estimating capacity, start from concurrent sequences × expected context × bytes per KV element × layers — then compare to HBM. Quantization (FP8/INT8/INT4) and speculative decoding change the cost curve but do not remove the need for this estimate."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Attention Cost & KV Cache — Deep Dive",
+        "paragraphs": [
+          "Operational detail for Attention Cost & KV Cache: metrics to watch, capacity knobs, and failure injection ideas."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Attention Cost & KV Cache — Expert Notes",
+        "paragraphs": [
+          "Edge cases and multi-tenant considerations for Attention Cost & KV Cache."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "KV cache memory scales with context and concurrency",
+    "Prefill vs decode have different bottlenecks",
+    "Paged attention reduces KV fragmentation"
+  ],
+  "practices": [
+    "Budget GPU memory from KV before picking batch size",
+    "Measure cache hit rates for prefix caching"
+  ],
+  "pitfalls": [
+    "Sizing fleets from FLOPs alone",
+    "Ignoring fragmentation in naive contiguous KV allocation"
+  ],
+  "examples": [
+    {
+      "title": "Production pattern",
+      "description": "Teams operating attention cost & kv cache treat measurement and budgets as part of the design, not an afterthought."
+    }
+  ],
+  "keyTakeaways": [
+    "KV cache is often the real capacity limit for LLM serving",
+    "Systems tricks (paging, prefix cache, prefill/decode split) exist to manage it"
+  ],
+  "whyItMatters": "Without a KV-aware capacity model, inference platforms overcommit memory and collapse under realistic context lengths.",
+  "reflectionQuestions": [
+    "How would you estimate max concurrent 8k-context sessions on an 80GB GPU?"
+  ],
+  "numbersToKnow": [],
+  "diagrams": [],
+  "caseStudies": [],
+  "interviewQuestions": [],
+  "exercises": [],
+  "sources": [],
+  "relatedLessons": [
+    "ml-context-memory"
+  ]
+}

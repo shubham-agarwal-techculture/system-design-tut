@@ -1,0 +1,101 @@
+{
+  "id": "ll-risk",
+  "title": "Pre-Trade Risk & Controls",
+  "moduleId": "trading-core",
+  "phaseId": "low-latency",
+  "durationMinutes": 30,
+  "summary": "Pre-Trade Risk & Controls — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "ll-order-book"
+  ],
+  "tags": [
+    "trading-core",
+    "evergreen",
+    "low-latency"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Pre-Trade Risk & Controls. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Pre-Trade Risk & Controls. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Pre-Trade Risk & Controls — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Pre-Trade Risk & Controls: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Pre-Trade Risk & Controls — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Pre-Trade Risk & Controls: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Pre-Trade Risk & Controls: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Pre-Trade Risk & Controls belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Pre-Trade Risk & Controls improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Pre-Trade Risk & Controls in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ll-risk-overview",
+      "title": "Pre-Trade Risk & Controls overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Pre-Trade Risk & Controls and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Pre-Trade Risk & Controls; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ll-kernel-bypass",
+    "ll-market-data",
+    "ll-matching"
+  ]
+}

@@ -1,0 +1,124 @@
+/* ═══════════════════════════════════════════════════════════════
+   TRANSIT SKIN — Public transit map / wayfinding aesthetic
+   Phase line colors: ochre | teal | oxblood | ultramarine |
+                      olive | plum | rust | slate
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Light mode ── */
+[data-skin="transit"],
+[data-skin="transit"][data-mode="light"] {
+  --palette-surface:        #E9E6DF;
+  --palette-surface-raised: #F2F0EA;
+  --palette-surface-sunken: #DEDAD2;
+  --palette-ink:            #1B1B1B;
+  --palette-ink-soft:       #333333;
+  --palette-ink-muted:      #666666;
+  --palette-ink-subtle:     #999999;
+  --palette-rule:           #C8C4BC;
+  --palette-rule-subtle:    #DEDAD2;
+  --palette-signal:         #C8640A; /* ochre-orange as default signal */
+  --palette-signal-hover:   #A8530A;
+
+  /* Phase line palette */
+  --transit-ochre:          #C8640A;
+  --transit-teal:           #0A7E78;
+  --transit-oxblood:        #7A1E24;
+  --transit-ultramarine:    #1C3A8C;
+  --transit-olive:          #5C6B1A;
+  --transit-plum:           #5C2060;
+  --transit-rust:           #A83820;
+  --transit-slate:          #3A5068;
+
+  --skin-font-heading:      "Overpass", "Arial", ui-sans-serif, sans-serif;
+  --skin-font-body:         "Overpass", "Arial", ui-sans-serif, sans-serif;
+  --skin-font-mono:         "IBM Plex Mono", "Courier New", ui-monospace, monospace;
+  --skin-font-label:        "Overpass", "Arial", ui-sans-serif, sans-serif;
+}
+
+/* ── Dark mode ── */
+[data-skin="transit"][data-mode="dark"] {
+  --palette-surface:        #1A1A1A;
+  --palette-surface-raised: #242424;
+  --palette-surface-sunken: #111111;
+  --palette-ink:            #E8E6DF;
+  --palette-ink-soft:       #D0CEC7;
+  --palette-ink-muted:      #999690;
+  --palette-ink-subtle:     #686660;
+  --palette-rule:           #333330;
+  --palette-rule-subtle:    #2A2A28;
+  --palette-signal:         #F0820A;
+  --palette-signal-hover:   #FF9820;
+
+  /* Phase line palette (brightened for dark) */
+  --transit-ochre:          #F0A030;
+  --transit-teal:           #20C8C0;
+  --transit-oxblood:        #E04858;
+  --transit-ultramarine:    #4870F0;
+  --transit-olive:          #90B020;
+  --transit-plum:           #C050D0;
+  --transit-rust:           #E06040;
+  --transit-slate:          #6090C0;
+
+  --skin-font-heading:      "Overpass", "Arial", ui-sans-serif, sans-serif;
+  --skin-font-body:         "Overpass", "Arial", ui-sans-serif, sans-serif;
+  --skin-font-mono:         "IBM Plex Mono", "Courier New", ui-monospace, monospace;
+  --skin-font-label:        "Overpass", "Arial", ui-sans-serif, sans-serif;
+}
+
+/* ── Colorway: ochre (default) ── */
+[data-skin="transit"][data-colorway="ochre"],
+[data-skin="transit"]:not([data-colorway]) {
+  --palette-accent:         var(--transit-ochre);
+  --palette-accent-hover:   #A8530A;
+  --palette-accent-subtle:  rgba(200, 100, 10, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+[data-skin="transit"][data-mode="dark"][data-colorway="ochre"],
+[data-skin="transit"][data-mode="dark"]:not([data-colorway]) {
+  --palette-accent:         var(--transit-ochre);
+  --palette-accent-hover:   #FFAA40;
+  --palette-accent-subtle:  rgba(240, 160, 48, 0.15);
+  --palette-accent-fg:      #1A1A1A;
+}
+
+/* ── Colorway: teal ── */
+[data-skin="transit"][data-colorway="teal"] {
+  --palette-accent:         var(--transit-teal);
+  --palette-accent-hover:   #086860;
+  --palette-accent-subtle:  rgba(10, 126, 120, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+[data-skin="transit"][data-mode="dark"][data-colorway="teal"] {
+  --palette-accent:         var(--transit-teal);
+  --palette-accent-hover:   #40D8D0;
+  --palette-accent-subtle:  rgba(32, 200, 192, 0.15);
+  --palette-accent-fg:      #1A1A1A;
+}
+
+/* ── Colorway: oxblood ── */
+[data-skin="transit"][data-colorway="oxblood"] {
+  --palette-accent:         var(--transit-oxblood);
+  --palette-accent-hover:   #621419;
+  --palette-accent-subtle:  rgba(122, 30, 36, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+[data-skin="transit"][data-mode="dark"][data-colorway="oxblood"] {
+  --palette-accent:         var(--transit-oxblood);
+  --palette-accent-hover:   #F06070;
+  --palette-accent-subtle:  rgba(224, 72, 88, 0.15);
+  --palette-accent-fg:      #1A1A1A;
+}
+
+/* ── Colorway: ultramarine ── */
+[data-skin="transit"][data-colorway="ultramarine"] {
+  --palette-accent:         var(--transit-ultramarine);
+  --palette-accent-hover:   #152E70;
+  --palette-accent-subtle:  rgba(28, 58, 140, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+[data-skin="transit"][data-mode="dark"][data-colorway="ultramarine"] {
+  --palette-accent:         var(--transit-ultramarine);
+  --palette-accent-hover:   #6888FF;
+  --palette-accent-subtle:  rgba(72, 112, 240, 0.15);
+  --palette-accent-fg:      #1A1A1A;
+}

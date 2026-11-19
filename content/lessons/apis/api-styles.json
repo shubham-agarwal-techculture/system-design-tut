@@ -1,0 +1,220 @@
+{
+  "id": "api-styles",
+  "title": "REST, GraphQL, gRPC & Streaming",
+  "moduleId": "apis",
+  "phaseId": "fundamentals",
+  "durationMinutes": 38,
+  "summary": "API style shapes client flexibility, performance, team velocity, and operational complexity. REST dominates public HTTP APIs; GraphQL optimizes client-driven data fetching; gRPC excels at internal service-to-service RPC; streaming protocols handle real-time and high-throughput data flows.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "apis",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "REST: Resource-Oriented HTTP",
+      "paragraphs": [
+        "REST (Representational State Transfer) models APIs as resources identified by URLs, manipulated with HTTP verbs (GET, POST, PUT, PATCH, DELETE), and described by standard status codes and headers. It leverages HTTP caching, CDN compatibility, and universal tooling.",
+        "REST shines for public APIs, CRUD operations, and teams wanting simplicity and broad client support. Hypermedia (HATEOAS) is rarely implemented in practice; most REST APIs are pragmatic resource endpoints with JSON bodies.",
+        "Challenges include over-fetching (returning entire objects when clients need one field), under-fetching (requiring multiple round trips), and inconsistent conventions across teams without strict API governance."
+      ]
+    },
+    {
+      "title": "GraphQL: Client-Specified Queries",
+      "paragraphs": [
+        "GraphQL provides a single endpoint where clients send queries specifying exactly the fields they need. The server resolves a graph of types — reducing over-fetching and enabling rapid frontend iteration without backend changes for every UI tweak.",
+        "GraphQL supports mutations (writes), subscriptions (real-time via WebSocket), and introspection for schema discovery. Tools like Apollo and Relay manage caching, batching, and optimistic updates on the client.",
+        "Risks include N+1 query problems (mitigated by DataLoader batching), complex server-side resolvers, query depth/complexity attacks, and caching difficulty at the HTTP layer — POST requests bypass CDN caches by default."
+      ]
+    },
+    {
+      "title": "gRPC: High-Performance RPC",
+      "paragraphs": [
+        "gRPC uses Protocol Buffers for compact binary serialization and HTTP/2 for multiplexed, bidirectional streaming. Service contracts are defined in .proto files, generating typed client and server stubs in multiple languages.",
+        "gRPC supports unary (request-response), server streaming, client streaming, and bidirectional streaming. It is ideal for internal microservice communication where performance, type safety, and streaming matter more than browser compatibility.",
+        "gRPC requires gRPC-Web or a proxy (Envoy) for browser clients. Debugging is harder than JSON REST — tools like grpcurl and reflection help. Load balancing uses client-side or proxy-based approaches (xDS, lookaside LB)."
+      ]
+    },
+    {
+      "title": "Streaming: WebSockets, SSE, and Webhooks",
+      "paragraphs": [
+        "Server-Sent Events (SSE) push server-to-client updates over a persistent HTTP connection — simpler than WebSockets, unidirectional, auto-reconnect built in. Ideal for live feeds, progress updates, and notifications.",
+        "WebSockets provide full-duplex communication — chat, collaborative editing, gaming. Scaling WebSockets requires sticky connections or a pub/sub backplane to broadcast across server instances.",
+        "Webhooks are server-to-server HTTP callbacks — event producers POST to consumer URLs when something happens. Simple to integrate but require retry logic, signature verification, and idempotent handlers on the receiving side."
+      ]
+    },
+    {
+      "title": "Choosing and Versioning APIs",
+      "paragraphs": [
+        "Public mobile and web clients: REST or GraphQL depending on client diversity and data-fetching complexity. Internal service mesh: gRPC for performance. Real-time features: WebSockets or SSE. Third-party integrations: REST webhooks.",
+        "Many organizations use REST/GraphQL at the edge and gRPC internally — an API gateway translates between them. Version APIs explicitly: URL path (/v2/users), header (Accept-Version), or schema evolution with backward compatibility.",
+        "Document APIs with OpenAPI (REST), GraphQL schema SDL, or proto files. Contract testing (Pact, Buf) catches breaking changes before deployment."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "REST: Resource-Oriented HTTP",
+        "paragraphs": [
+          "REST (Representational State Transfer) models APIs as resources identified by URLs, manipulated with HTTP verbs (GET, POST, PUT, PATCH, DELETE), and described by standard status codes and headers. It leverages HTTP caching, CDN compatibility, and universal tooling.",
+          "REST shines for public APIs, CRUD operations, and teams wanting simplicity and broad client support. Hypermedia (HATEOAS) is rarely implemented in practice; most REST APIs are pragmatic resource endpoints with JSON bodies.",
+          "Challenges include over-fetching (returning entire objects when clients need one field), under-fetching (requiring multiple round trips), and inconsistent conventions across teams without strict API governance."
+        ]
+      },
+      {
+        "title": "GraphQL: Client-Specified Queries",
+        "paragraphs": [
+          "GraphQL provides a single endpoint where clients send queries specifying exactly the fields they need. The server resolves a graph of types — reducing over-fetching and enabling rapid frontend iteration without backend changes for every UI tweak.",
+          "GraphQL supports mutations (writes), subscriptions (real-time via WebSocket), and introspection for schema discovery. Tools like Apollo and Relay manage caching, batching, and optimistic updates on the client.",
+          "Risks include N+1 query problems (mitigated by DataLoader batching), complex server-side resolvers, query depth/complexity attacks, and caching difficulty at the HTTP layer — POST requests bypass CDN caches by default."
+        ]
+      },
+      {
+        "title": "gRPC: High-Performance RPC",
+        "paragraphs": [
+          "gRPC uses Protocol Buffers for compact binary serialization and HTTP/2 for multiplexed, bidirectional streaming. Service contracts are defined in .proto files, generating typed client and server stubs in multiple languages.",
+          "gRPC supports unary (request-response), server streaming, client streaming, and bidirectional streaming. It is ideal for internal microservice communication where performance, type safety, and streaming matter more than browser compatibility.",
+          "gRPC requires gRPC-Web or a proxy (Envoy) for browser clients. Debugging is harder than JSON REST — tools like grpcurl and reflection help. Load balancing uses client-side or proxy-based approaches (xDS, lookaside LB)."
+        ]
+      },
+      {
+        "title": "Streaming: WebSockets, SSE, and Webhooks",
+        "paragraphs": [
+          "Server-Sent Events (SSE) push server-to-client updates over a persistent HTTP connection — simpler than WebSockets, unidirectional, auto-reconnect built in. Ideal for live feeds, progress updates, and notifications.",
+          "WebSockets provide full-duplex communication — chat, collaborative editing, gaming. Scaling WebSockets requires sticky connections or a pub/sub backplane to broadcast across server instances.",
+          "Webhooks are server-to-server HTTP callbacks — event producers POST to consumer URLs when something happens. Simple to integrate but require retry logic, signature verification, and idempotent handlers on the receiving side."
+        ]
+      },
+      {
+        "title": "Choosing and Versioning APIs",
+        "paragraphs": [
+          "Public mobile and web clients: REST or GraphQL depending on client diversity and data-fetching complexity. Internal service mesh: gRPC for performance. Real-time features: WebSockets or SSE. Third-party integrations: REST webhooks.",
+          "Many organizations use REST/GraphQL at the edge and gRPC internally — an API gateway translates between them. Version APIs explicitly: URL path (/v2/users), header (Accept-Version), or schema evolution with backward compatibility.",
+          "Document APIs with OpenAPI (REST), GraphQL schema SDL, or proto files. Contract testing (Pact, Buf) catches breaking changes before deployment."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "REST, GraphQL, gRPC & Streaming — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of REST, GraphQL, gRPC & Streaming: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "REST, GraphQL, gRPC & Streaming — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for REST, GraphQL, gRPC & Streaming: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "REST: resources, HTTP verbs, status codes, cacheable GET",
+    "GraphQL: schema, queries, mutations, subscriptions, resolver graph",
+    "gRPC: Protocol Buffers, HTTP/2, four streaming modes",
+    "SSE: unidirectional server push over HTTP",
+    "WebSockets: bidirectional persistent connection",
+    "Webhooks: server-to-server event callbacks",
+    "API versioning: URL, header, schema evolution",
+    "Over-fetching vs under-fetching trade-offs",
+    "DataLoader pattern for GraphQL N+1 prevention",
+    "gRPC-Web for browser compatibility"
+  ],
+  "practices": [
+    "Use REST for public CRUD APIs with good HTTP semantics and caching",
+    "Use GraphQL when many client types need different field subsets",
+    "Use gRPC for internal services with high throughput requirements",
+    "Define API contracts in OpenAPI, GraphQL SDL, or proto files — generate code",
+    "Implement rate limiting and query complexity limits on GraphQL endpoints",
+    "Verify webhook signatures (HMAC) and make handlers idempotent",
+    "Version APIs before external consumers depend on them"
+  ],
+  "pitfalls": [
+    "GraphQL exposing entire database schema without authorization per field",
+    "gRPC without deadlines/timeouts — cascading hangs across services",
+    "REST APIs that ignore HTTP caching semantics (no ETag, no Cache-Control)",
+    "WebSockets without a scale-out strategy — connections stuck on one node",
+    "Breaking API changes without versioning or deprecation period",
+    "Using POST for all GraphQL queries without complexity analysis — DoS vector"
+  ],
+  "examples": [
+    {
+      "title": "Netflix-style API layering",
+      "description": "Mobile and web clients hit a GraphQL BFF (Backend for Frontend) that aggregates data from internal gRPC microservices. The BFF handles auth, field resolution, and caching. Internal services communicate via gRPC with mTLS — never exposed publicly."
+    },
+    {
+      "title": "Stripe-style webhooks",
+      "description": "Stripe POSTs signed webhook events to merchant endpoints on payment success. Merchants verify HMAC signatures, return 200 quickly, and process asynchronously via a queue. Idempotency keys prevent duplicate order fulfillment on webhook retry."
+    }
+  ],
+  "keyTakeaways": [
+    "REST is the default for public HTTP APIs — simple, cacheable, universal",
+    "GraphQL gives clients query flexibility at the cost of server complexity",
+    "gRPC is the internal workhorse for typed, high-performance RPC",
+    "Streaming protocols (SSE, WebSockets) serve real-time use cases",
+    "Version and document APIs from day one — contract tests prevent breakage",
+    "Hybrid architectures (GraphQL edge + gRPC internal) are common at scale"
+  ],
+  "whyItMatters": "API choices affect latency budgets, developer experience, security surface, and deployment coupling. Wrong choices create frontend bottlenecks (REST over-fetching), operational nightmares (unbounded GraphQL queries), or integration friction (gRPC exposed to browsers). Interviewers expect nuanced comparisons, not 'always use REST.'",
+  "reflectionQuestions": [
+    "When does GraphQL's flexibility become a performance or security problem?",
+    "Why do large companies use gRPC internally but REST or GraphQL externally?",
+    "How would you scale WebSocket connections across a cluster of servers?",
+    "What versioning strategy would you use for a public API with mobile clients?"
+  ],
+  "resources": [
+    "GraphQL specification — graphql.org",
+    "gRPC documentation — Introduction and core concepts",
+    "Roy Fielding's REST dissertation",
+    "Microsoft REST API Guidelines"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "api-styles-overview",
+      "title": "REST, GraphQL, gRPC & Streaming overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain REST, GraphQL, gRPC & Streaming and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on REST, GraphQL, gRPC & Streaming; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "GraphQL specification — graphql.org"
+    },
+    {
+      "title": "gRPC documentation — Introduction and core concepts"
+    },
+    {
+      "title": "Roy Fielding's REST dissertation"
+    },
+    {
+      "title": "Microsoft REST API Guidelines"
+    }
+  ],
+  "relatedLessons": [
+    "fund-apis"
+  ]
+}

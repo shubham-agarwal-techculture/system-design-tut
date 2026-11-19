@@ -1,0 +1,101 @@
+{
+  "id": "fund-storage-types",
+  "title": "SQL, NoSQL, Object & Time-Series Storage",
+  "moduleId": "storage",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "SQL, NoSQL, Object & Time-Series Storage — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-search"
+  ],
+  "tags": [
+    "storage",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers SQL, NoSQL, Object & Time-Series Storage. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers SQL, NoSQL, Object & Time-Series Storage. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "SQL, NoSQL, Object & Time-Series Storage — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of SQL, NoSQL, Object & Time-Series Storage: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "SQL, NoSQL, Object & Time-Series Storage — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for SQL, NoSQL, Object & Time-Series Storage: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "SQL, NoSQL, Object & Time-Series Storage: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "SQL, NoSQL, Object & Time-Series Storage belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding SQL, NoSQL, Object & Time-Series Storage improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for SQL, NoSQL, Object & Time-Series Storage in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-storage-types-overview",
+      "title": "SQL, NoSQL, Object & Time-Series Storage overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain SQL, NoSQL, Object & Time-Series Storage and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on SQL, NoSQL, Object & Time-Series Storage; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-olap",
+    "fund-search",
+    "fund-vector-db"
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "id": "fund-messaging",
+  "title": "Queues, Pub/Sub & Event Streaming",
+  "moduleId": "messaging",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "Queues, Pub/Sub & Event Streaming — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "messaging",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Queues, Pub/Sub & Event Streaming. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Queues, Pub/Sub & Event Streaming. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Queues, Pub/Sub & Event Streaming — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Queues, Pub/Sub & Event Streaming: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Queues, Pub/Sub & Event Streaming — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Queues, Pub/Sub & Event Streaming: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Queues, Pub/Sub & Event Streaming: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Queues, Pub/Sub & Event Streaming belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Queues, Pub/Sub & Event Streaming improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Queues, Pub/Sub & Event Streaming in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-messaging-overview",
+      "title": "Queues, Pub/Sub & Event Streaming overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Queues, Pub/Sub & Event Streaming and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Queues, Pub/Sub & Event Streaming; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-stream-processing",
+    "msg-queues-pubsub"
+  ]
+}

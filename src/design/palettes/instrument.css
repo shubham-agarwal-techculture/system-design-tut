@@ -1,0 +1,106 @@
+/* ═══════════════════════════════════════════════════════════════
+   INSTRUMENT SKIN — Electronics / oscilloscope / lab aesthetic
+   Dark: graphite + phosphor displays
+   Light: datasheet paper + technical ink
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Dark mode (Oscilloscope / default) ── */
+[data-skin="instrument"],
+[data-skin="instrument"][data-mode="dark"] {
+  --palette-surface:        #121412;
+  --palette-surface-raised: #1A1D1A;
+  --palette-surface-sunken: #0A0C0A;
+  --palette-ink:            #E8F0E8;
+  --palette-ink-soft:       #C8D8C8;
+  --palette-ink-muted:      #7A9078;
+  --palette-ink-subtle:     #4A6448;
+  --palette-rule:           #2A342A;
+  --palette-rule-subtle:    #1E281E;
+  --palette-signal:         #FFB000;
+  --palette-signal-hover:   #FFC840;
+
+  /* Phosphor display colors */
+  --instrument-amber:       #FFB000;
+  --instrument-green:       #7BD88F;
+  --instrument-cyan:        #00E8C8;
+  --instrument-red:         #FF4040;
+  --instrument-blue:        #4080FF;
+  --instrument-white:       #E8F0E8;
+
+  --skin-font-heading:      "IBM Plex Sans", "Arial", ui-sans-serif, sans-serif;
+  --skin-font-body:         "IBM Plex Sans", "Arial", ui-sans-serif, sans-serif;
+  --skin-font-mono:         "IBM Plex Mono", "Courier New", ui-monospace, monospace;
+  --skin-font-label:        "IBM Plex Mono", "Courier New", ui-monospace, monospace;
+}
+
+/* ── Light mode (Datasheet paper) ── */
+[data-skin="instrument"][data-mode="light"] {
+  --palette-surface:        #F4F2EE;
+  --palette-surface-raised: #FAFAF8;
+  --palette-surface-sunken: #ECEAE4;
+  --palette-ink:            #1A1C1A;
+  --palette-ink-soft:       #2E302E;
+  --palette-ink-muted:      #5A6058;
+  --palette-ink-subtle:     #8A9088;
+  --palette-rule:           #C0C8BE;
+  --palette-rule-subtle:    #D8DED6;
+  --palette-signal:         #B07000;
+  --palette-signal-hover:   #906000;
+
+  /* Instrument colors adapted for paper */
+  --instrument-amber:       #B07000;
+  --instrument-green:       #2A7A40;
+  --instrument-cyan:        #007070;
+  --instrument-red:         #C02020;
+  --instrument-blue:        #2050C0;
+  --instrument-white:       #FAFAF8;
+
+  --skin-font-heading:      "IBM Plex Sans", "Arial", ui-sans-serif, sans-serif;
+  --skin-font-body:         "IBM Plex Sans", "Arial", ui-sans-serif, sans-serif;
+  --skin-font-mono:         "IBM Plex Mono", "Courier New", ui-monospace, monospace;
+  --skin-font-label:        "IBM Plex Mono", "Courier New", ui-monospace, monospace;
+}
+
+/* ── Colorway: amber (default) ── */
+[data-skin="instrument"][data-colorway="amber"],
+[data-skin="instrument"]:not([data-colorway]) {
+  --palette-accent:         var(--instrument-amber);
+  --palette-accent-hover:   #FFC840;
+  --palette-accent-subtle:  rgba(255, 176, 0, 0.14);
+  --palette-accent-fg:      #121412;
+}
+[data-skin="instrument"][data-mode="light"][data-colorway="amber"],
+[data-skin="instrument"][data-mode="light"]:not([data-colorway]) {
+  --palette-accent:         var(--instrument-amber);
+  --palette-accent-hover:   #906000;
+  --palette-accent-subtle:  rgba(176, 112, 0, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+
+/* ── Colorway: green (trace) ── */
+[data-skin="instrument"][data-colorway="green"] {
+  --palette-accent:         var(--instrument-green);
+  --palette-accent-hover:   #9FEFAC;
+  --palette-accent-subtle:  rgba(123, 216, 143, 0.14);
+  --palette-accent-fg:      #121412;
+}
+[data-skin="instrument"][data-mode="light"][data-colorway="green"] {
+  --palette-accent:         var(--instrument-green);
+  --palette-accent-hover:   #1A6030;
+  --palette-accent-subtle:  rgba(42, 122, 64, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+
+/* ── Colorway: cyan ── */
+[data-skin="instrument"][data-colorway="cyan"] {
+  --palette-accent:         var(--instrument-cyan);
+  --palette-accent-hover:   #40FFE8;
+  --palette-accent-subtle:  rgba(0, 232, 200, 0.14);
+  --palette-accent-fg:      #121412;
+}
+[data-skin="instrument"][data-mode="light"][data-colorway="cyan"] {
+  --palette-accent:         var(--instrument-cyan);
+  --palette-accent-hover:   #005858;
+  --palette-accent-subtle:  rgba(0, 112, 112, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}

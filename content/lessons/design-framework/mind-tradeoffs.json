@@ -1,0 +1,101 @@
+{
+  "id": "mind-tradeoffs",
+  "title": "Bottlenecks, Failures, Trade-offs & Iteration",
+  "moduleId": "design-framework",
+  "phaseId": "designer-mindset",
+  "durationMinutes": 30,
+  "summary": "Bottlenecks, Failures, Trade-offs & Iteration — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "mind-requirements"
+  ],
+  "tags": [
+    "design-framework",
+    "evergreen",
+    "designer-mindset"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Bottlenecks, Failures, Trade-offs & Iteration. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Bottlenecks, Failures, Trade-offs & Iteration. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Bottlenecks, Failures, Trade-offs & Iteration — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Bottlenecks, Failures, Trade-offs & Iteration: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Bottlenecks, Failures, Trade-offs & Iteration — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Bottlenecks, Failures, Trade-offs & Iteration: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Bottlenecks, Failures, Trade-offs & Iteration: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Bottlenecks, Failures, Trade-offs & Iteration belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Bottlenecks, Failures, Trade-offs & Iteration improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Bottlenecks, Failures, Trade-offs & Iteration in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "mind-tradeoffs-overview",
+      "title": "Bottlenecks, Failures, Trade-offs & Iteration overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Bottlenecks, Failures, Trade-offs & Iteration and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Bottlenecks, Failures, Trade-offs & Iteration; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "framework-architecture",
+    "framework-iteration",
+    "framework-requirements"
+  ]
+}

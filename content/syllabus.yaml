@@ -1,0 +1,283 @@
+version: "1.0.0"
+updated: "2026-03-26"
+phases:
+  - id: foundations
+    number: 1
+    title: Foundations
+    subtitle: Before distributed systems
+    description: Master networking, operating systems, and databases from first principles.
+    color: graphite
+    modules:
+      - id: networking
+        title: Networking
+        lessons:
+          - { id: net-tcp-udp, title: "TCP, UDP & the Transport Layer", kind: evergreen }
+          - { id: net-http, title: "HTTP/1.1, HTTP/2, HTTP/3", kind: living }
+          - { id: net-tls-dns, title: "TLS & DNS", kind: evergreen }
+          - { id: net-lb-proxy, title: "Load Balancing & Reverse Proxies", kind: evergreen }
+          - { id: net-realtime, title: "WebSockets & gRPC", kind: evergreen }
+          - { id: net-quic, title: "QUIC Internals", kind: living }
+          - { id: net-bgp-anycast, title: "BGP & Anycast", kind: evergreen }
+          - { id: net-kernel, title: "Kernel Networking (epoll, io_uring)", kind: evergreen }
+      - id: operating-systems
+        title: Operating Systems
+        lessons:
+          - { id: os-processes-threads, title: "Processes, Threads & Scheduling", kind: evergreen }
+          - { id: os-memory, title: "Virtual Memory & mmap", kind: evergreen }
+          - { id: os-io-sync, title: "Filesystems, I/O & Synchronization", kind: evergreen }
+          - { id: os-numa, title: "NUMA & Memory Hierarchy", kind: evergreen }
+          - { id: os-storage-hw, title: "SSD, NVMe & Storage Hardware", kind: living }
+      - id: databases
+        title: Databases
+        lessons:
+          - { id: db-storage-engines, title: "B+ Trees & LSM Trees", kind: evergreen }
+          - { id: db-transactions, title: "Transactions, WAL & MVCC", kind: evergreen }
+          - { id: db-replication-sharding, title: "Replication & Sharding", kind: evergreen }
+          - { id: db-modeling, title: "Data Modeling for Scale", kind: evergreen }
+          - { id: db-cdc, title: "Change Data Capture", kind: living }
+
+  - id: fundamentals
+    number: 2
+    title: System Design Fundamentals
+    subtitle: Core building blocks
+    description: Scalability, storage, caching, messaging, distributed systems, APIs, reliability, and security.
+    color: slate
+    modules:
+      - id: scalability
+        title: Scalability
+        lessons:
+          - { id: fund-vertical-horizontal, title: "Vertical vs Horizontal Scaling", kind: evergreen }
+          - { id: fund-stateless, title: "Stateless Services & State Management", kind: evergreen }
+          - { id: fund-estimation, title: "Back-of-Envelope Estimation", kind: evergreen }
+      - id: storage
+        title: Storage
+        lessons:
+          - { id: fund-storage-types, title: "SQL, NoSQL, Object & Time-Series Storage", kind: evergreen }
+          - { id: fund-olap, title: "OLAP & Columnar Storage", kind: living }
+          - { id: fund-search, title: "Search & Inverted Indexes", kind: evergreen }
+          - { id: fund-vector-db, title: "Vector Databases", kind: living }
+      - id: caching
+        title: Caching
+        lessons:
+          - { id: fund-caching, title: "Caching Layers & Strategies", kind: evergreen }
+          - { id: fund-cdn, title: "CDN Design", kind: evergreen }
+      - id: messaging
+        title: Messaging
+        lessons:
+          - { id: fund-messaging, title: "Queues, Pub/Sub & Event Streaming", kind: evergreen }
+          - { id: fund-stream-processing, title: "Stream Processing (Flink, Kafka Streams)", kind: living }
+      - id: distributed-systems
+        title: Distributed Systems
+        lessons:
+          - { id: fund-distributed, title: "CAP, Consensus & Consistency", kind: evergreen }
+          - { id: fund-clocks, title: "Clocks (Lamport, Vector, HLC)", kind: evergreen }
+          - { id: fund-consistency-models, title: "Consistency Models", kind: evergreen }
+          - { id: fund-crdts, title: "CRDTs", kind: evergreen }
+          - { id: fund-distributed-tx, title: "Distributed Transactions (2PC, Sagas)", kind: evergreen }
+          - { id: fund-gossip, title: "Gossip & Membership", kind: evergreen }
+      - id: apis
+        title: APIs
+        lessons:
+          - { id: fund-apis, title: "REST, GraphQL, gRPC & Streaming APIs", kind: evergreen }
+      - id: reliability
+        title: Reliability
+        lessons:
+          - { id: fund-reliability, title: "Retries, Circuit Breakers & Backpressure", kind: evergreen }
+          - { id: fund-slos, title: "SLOs & Error Budgets", kind: evergreen }
+          - { id: fund-chaos, title: "Chaos Engineering", kind: living }
+          - { id: fund-incidents, title: "Incident Response", kind: evergreen }
+      - id: security
+        title: Security
+        lessons:
+          - { id: fund-security, title: "AuthN, AuthZ, Encryption & Secrets", kind: evergreen }
+      - id: capacity-cost
+        title: Capacity & Cost
+        lessons:
+          - { id: fund-capacity, title: "Capacity Planning", kind: evergreen }
+          - { id: fund-finops, title: "FinOps & Cost Optimization", kind: living }
+
+  - id: architecture
+    number: 3
+    title: Architecture Patterns
+    subtitle: Structural choices
+    description: Learn when to use monoliths, microservices, event-driven systems, CQRS, and other patterns.
+    color: oxblood
+    modules:
+      - id: architecture-patterns
+        title: Architecture Patterns
+        lessons:
+          - { id: arch-monolith-micro, title: "Monolith to Microservices", kind: evergreen }
+          - { id: arch-event-cqrs, title: "Event-Driven, CQRS & Event Sourcing", kind: evergreen }
+          - { id: arch-hexagonal-ddd, title: "Hexagonal, Clean Architecture & DDD", kind: evergreen }
+          - { id: arch-serverless, title: "Serverless Patterns", kind: living }
+
+  - id: infrastructure
+    number: 4
+    title: Infrastructure
+    subtitle: Running systems at scale
+    description: Containers, orchestration, CI/CD, and observability.
+    color: teal
+    modules:
+      - id: infra-core
+        title: Infrastructure & Ops
+        lessons:
+          - { id: infra-containers-k8s, title: "Docker, Kubernetes & Service Mesh", kind: living }
+          - { id: infra-cicd-observability, title: "CI/CD & Observability", kind: evergreen }
+          - { id: infra-iac, title: "Infrastructure as Code", kind: living }
+
+  - id: design-patterns
+    number: 5
+    title: Design Patterns
+    subtitle: Reusable solutions
+    description: Classic software patterns that appear inside services and frameworks.
+    color: olive
+    modules:
+      - id: software-patterns
+        title: Software Design Patterns
+        lessons:
+          - { id: pat-core-patterns, title: "Core Design Patterns", kind: evergreen }
+          - { id: pat-concurrency, title: "Concurrency Patterns", kind: evergreen }
+          - { id: pat-resilience, title: "Resilience Patterns", kind: evergreen }
+
+  - id: internal-designs
+    number: 6
+    title: Internal Designs
+    subtitle: How great systems work inside
+    description: Deep dives into production systems.
+    color: plum
+    modules:
+      - id: system-internals
+        title: System Internals
+        lessons:
+          - { id: int-redis, title: "Redis Internals", kind: living }
+          - { id: int-postgres, title: "PostgreSQL Internals", kind: living }
+          - { id: int-kafka, title: "Apache Kafka Internals", kind: living }
+          - { id: int-nginx-envoy, title: "Nginx & Envoy Internals", kind: living }
+          - { id: int-clickhouse, title: "ClickHouse Internals", kind: living }
+          - { id: int-cassandra, title: "Cassandra Internals", kind: living }
+          - { id: int-etcd, title: "etcd Internals", kind: living }
+
+  - id: design-systems
+    number: 7
+    title: Design These Systems
+    subtitle: Practice by doing
+    description: Progressive design challenges from URL shorteners to distributed filesystems.
+    color: rust
+    modules:
+      - id: design-challenges
+        title: Design Challenges
+        lessons: []
+
+  - id: designer-mindset
+    number: 8
+    title: Think Like a Designer
+    subtitle: The design framework
+    description: A repeatable framework for any system design problem.
+    color: slate
+    modules:
+      - id: design-framework
+        title: The Design Framework
+        lessons:
+          - { id: mind-requirements, title: "Requirements & Capacity Estimation", kind: evergreen }
+          - { id: mind-apis-data, title: "APIs, Data Models & High-Level Architecture", kind: evergreen }
+          - { id: mind-tradeoffs, title: "Bottlenecks, Failures, Trade-offs & Iteration", kind: evergreen }
+
+  - id: low-latency
+    number: 9
+    title: Low-Latency & Trading Systems
+    subtitle: Microseconds matter
+    description: Order books, matching engines, and kernel-bypass networking.
+    color: amber
+    modules:
+      - id: trading-core
+        title: Trading Infrastructure
+        lessons:
+          - { id: ll-order-book, title: "Order Books", kind: evergreen }
+          - { id: ll-matching, title: "Matching Engines", kind: evergreen }
+          - { id: ll-kernel-bypass, title: "Kernel Bypass (DPDK, RDMA)", kind: living }
+          - { id: ll-market-data, title: "Market Data Pipelines", kind: living }
+          - { id: ll-risk, title: "Pre-Trade Risk & Controls", kind: evergreen }
+
+  - id: ml-foundations
+    number: 10
+    title: ML & LLM Foundations
+    subtitle: Systems view of models
+    description: Transformers, accelerators, and data pipelines as a system designer needs them.
+    color: cobalt
+    modules:
+      - id: ml-transformers
+        title: Transformers for Systems Engineers
+        lessons:
+          - { id: ml-attention-kv, title: "Attention Cost & KV Cache", kind: evergreen }
+          - { id: ml-context-memory, title: "Context Length vs Memory", kind: living }
+      - id: ml-hardware
+        title: Accelerator Hardware
+        lessons:
+          - { id: ml-gpu-memory, title: "GPU Memory Hierarchy & Roofline", kind: living }
+          - { id: ml-flops-math, title: "FLOPs & Memory Math", kind: evergreen }
+      - id: ml-data
+        title: ML Data Pipelines
+        lessons:
+          - { id: ml-datasets, title: "Dataset Curation & Dedup", kind: evergreen }
+          - { id: ml-feature-stores, title: "Feature Stores & Tokenization at Scale", kind: living }
+
+  - id: training-inference
+    number: 11
+    title: Training & Inference Systems
+    subtitle: Serving models at scale
+    description: Distributed training, post-training, and production inference.
+    color: verdant
+    modules:
+      - id: distributed-training
+        title: Distributed Training
+        lessons:
+          - { id: ti-parallelism, title: "Data, Tensor, Pipeline & MoE Parallelism", kind: living }
+          - { id: ti-zero-fsdp, title: "ZeRO, FSDP & Checkpointing", kind: living }
+          - { id: ti-collectives, title: "NCCL & Collective Communication", kind: living }
+      - id: post-training
+        title: Post-Training
+        lessons:
+          - { id: ti-finetune-lora, title: "Fine-Tuning & LoRA", kind: living }
+          - { id: ti-rlhf, title: "RLHF / RL Pipelines & Evals", kind: living }
+      - id: inference-serving
+        title: Inference Serving
+        lessons:
+          - { id: ti-batching, title: "Continuous Batching & Paged Attention", kind: living }
+          - { id: ti-spec-quant, title: "Speculative Decoding & Quantization", kind: living }
+          - { id: ti-fleet, title: "Multi-LoRA, Autoscaling & Cost/Token", kind: living }
+      - id: llm-ops
+        title: LLM Ops & Gateways
+        lessons:
+          - { id: ti-gateway, title: "LLM Gateways & Guardrails", kind: living }
+          - { id: ti-model-ops, title: "Model Registries, A/B & Shadow Traffic", kind: living }
+
+  - id: agentic-systems
+    number: 12
+    title: Agentic & AI Application Design
+    subtitle: Building with agents and RAG
+    description: RAG, agents, protocols, reliability and safety for AI applications.
+    color: magenta
+    modules:
+      - id: rag-systems
+        title: RAG Architectures
+        lessons:
+          - { id: ag-rag-core, title: "Chunking, Hybrid Search & Reranking", kind: living }
+          - { id: ag-vector-internals, title: "Vector DB Internals (HNSW, IVF, PQ)", kind: evergreen }
+          - { id: ag-graphrag, title: "GraphRAG", kind: living }
+      - id: agent-architectures
+        title: Agent Architectures
+        lessons:
+          - { id: ag-tools, title: "Tool Calling & Planner/Executor", kind: living }
+          - { id: ag-multiagent, title: "Multi-Agent Orchestration & Memory", kind: living }
+          - { id: ag-durable, title: "Durable Agent Execution", kind: living }
+      - id: agent-protocols
+        title: Protocols & Integration
+        lessons:
+          - { id: ag-mcp, title: "MCP & Agent Protocols", kind: living }
+          - { id: ag-sandbox, title: "Sandboxed Execution & Permissioning", kind: evergreen }
+      - id: ai-reliability
+        title: Reliability & Safety
+        lessons:
+          - { id: ag-evals, title: "Evals as CI & Observability", kind: living }
+          - { id: ag-injection, title: "Prompt Injection Defense", kind: living }
+          - { id: ag-budgets, title: "Cost/Latency Budgets & Human-in-the-Loop", kind: evergreen }

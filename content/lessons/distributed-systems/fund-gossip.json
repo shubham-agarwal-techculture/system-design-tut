@@ -1,0 +1,101 @@
+{
+  "id": "fund-gossip",
+  "title": "Gossip & Membership",
+  "moduleId": "distributed-systems",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "Gossip & Membership — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-distributed-tx"
+  ],
+  "tags": [
+    "distributed-systems",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Gossip & Membership. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Gossip & Membership. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Gossip & Membership — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Gossip & Membership: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Gossip & Membership — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Gossip & Membership: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Gossip & Membership: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Gossip & Membership belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Gossip & Membership improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Gossip & Membership in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-gossip-overview",
+      "title": "Gossip & Membership overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Gossip & Membership and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Gossip & Membership; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "dist-cap-consensus",
+    "fund-clocks",
+    "fund-consistency-models"
+  ]
+}

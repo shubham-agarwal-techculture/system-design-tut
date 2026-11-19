@@ -1,0 +1,289 @@
+{
+  "id": "framework-architecture",
+  "title": "Architecture, Failures & Trade-offs",
+  "moduleId": "design-framework",
+  "phaseId": "designer-mindset",
+  "durationMinutes": 38,
+  "summary": "Architecture is the art of choosing trade-offs under constraints. No design optimizes everything — you balance latency vs consistency, availability vs durability, simplicity vs flexibility. This lesson provides a framework for structuring designs, reasoning about failure modes, and articulating trade-offs clearly in reviews and interviews.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "design-framework",
+    "designer-mindset"
+  ],
+  "sections": [
+    {
+      "title": "A Structured Approach to System Design",
+      "paragraphs": [
+        "After requirements and estimation, proceed in layers: (1) high-level components and data flow, (2) API and data model, (3) deep dives on the hardest problems, (4) bottlenecks and scale plan, (5) failure modes and monitoring. This sequence keeps interviews organized and ensures you don't optimize details before defining scope.",
+        "Start with a simple design that meets functional requirements for moderate scale — single app server, one database, cache optional. Then evolve: 'at 10× traffic, the database becomes the bottleneck → read replicas and cache; at 100×, shard by user_id.' Iterative scaling narrative shows you won't over-engineer day one but have a credible growth path.",
+        "Draw data flow for critical paths: user action → API → business logic → storage → async side effects. Mark sync vs async boundaries, cache layers, and external dependencies. One diagram for happy path; annotate failure behavior on the same diagram.",
+        "Identify the 2–3 core entities and their relationships. Resist designing every feature — depth on timeline generation beats breadth on 15 minor endpoints. Interviewers probe where you go deep, not how many boxes you draw."
+      ],
+      "bullets": [
+        "Layer 1: clients, load balancer, app tier, storage, async pipeline",
+        "Layer 2: API contracts, schema, indexes for access patterns",
+        "Layer 3: deep dive — the hardest NFR (feed, search, consistency)",
+        "Evolution narrative: what breaks at 10×, 100×, 1000×"
+      ]
+    },
+    {
+      "title": "CAP, PACELC, and Consistency Models",
+      "paragraphs": [
+        "CAP theorem: in a network partition, you choose Consistency (all nodes see same data) or Availability (every request gets a response). Partition tolerance is mandatory in distributed systems — the real choice is CP (ZooKeeper, etcd, strongly consistent DB during partition) vs AP (Cassandra, Dynamo-style, available with divergent state merged later).",
+        "PACELC extends CAP: else (even without partition), you choose Latency or Consistency. Most systems are PA/EL — available during partition, low latency when network is fine, accepting eventual consistency. This matches most user-facing products where 100ms matters more than immediate global consistency.",
+        "Consistency models in practice: strong (linearizable reads/writes), causal (see your own writes and related ordering), read-your-writes (session stickiness or version check), eventual (converge after delay). Pick per operation: inventory deduction strong; view count eventual; user profile read-your-writes.",
+        "Don't cite CAP as excuse without specifics. Say: 'like counts use eventual consistency with periodic sync — stale by seconds is acceptable; payment status uses strong consistency via synchronous DB transaction.' Tie model to user-visible behavior."
+      ],
+      "bullets": [
+        "CP: consistent during partition, may reject requests (etcd, Spanner)",
+        "AP: available during partition, reconcile later (Cassandra, DynamoDB)",
+        "PACELC: without partition, latency vs consistency trade-off",
+        "Per-operation consistency — not one choice for entire system"
+      ]
+    },
+    {
+      "title": "Designing for Failure",
+      "paragraphs": [
+        "Everything fails: servers, disks, networks, deployments, humans. Design assumes failure is normal. Redundancy: N+1 or N+2 for critical tiers — multiple app instances across AZs, database with automatic failover, multi-AZ object storage. Single points of failure (one Redis node, one cron leader) must be identified and eliminated or accepted with documented risk.",
+        "Timeouts everywhere: client → service, service → database, service → external API. Without timeouts, one slow dependency blocks thread pools and cascades. Retries with exponential backoff and jitter for idempotent operations — never unbounded retry storms. Circuit breakers fail fast when downstream is unhealthy.",
+        "Idempotency keys for writes: client sends Idempotency-Key header; server deduplicates within TTL window. Essential for payment APIs and any at-least-once delivery (Kafka consumers, webhook retries). Without idempotency, retries double-charge or duplicate records.",
+        "Graceful degradation: if recommendations fail, show popular items; if search is down, browse categories. Define fallback behavior per dependency. Bulkheads isolate thread pools so one slow dependency cannot exhaust all resources. Health checks and load balancer draining remove unhealthy instances before total collapse."
+      ],
+      "bullets": [
+        "Failover: automatic promotion of replica (RDS, Redis Sentinel)",
+        "Blast radius: limit impact of one failure (AZ isolation, cell architecture)",
+        "Chaos engineering: inject failures to validate assumptions (Netflix Simian Army)",
+        "Runbooks: documented response for each alert — not improvised during outage"
+      ]
+    },
+    {
+      "title": "Common Architectural Trade-offs",
+      "paragraphs": [
+        "Push vs pull for fan-out: push (write-time fan-out to follower timelines) gives fast reads but expensive writes for celebrities; pull (assemble timeline at read time) saves writes but slow reads; hybrid (push for normal users, pull for celebrities) is Twitter's approach. Trade-off: read latency vs write amplification vs implementation complexity.",
+        "SQL vs NoSQL: relational for ACID, joins, complex queries; document/wide-column for horizontal scale, flexible schema, high write throughput. Polyglot persistence is normal — Postgres for transactions, Elasticsearch for search, Redis for cache, S3 for blobs.",
+        "Sync vs async: sync simplifies client mental model (request → response includes result) but couples latency and availability; async (queue, webhook, polling) decouples and absorbs spikes but complicates UX (job status, notifications). Choose async when side effects are slow, optional, or fan out to many systems.",
+        "Build vs buy: managed services (RDS, SQS, CloudFront) reduce ops burden and accelerate MVP; self-hosted (Kafka cluster, custom CDN) offers control and cost at scale. Trade-off: engineering time vs operational ownership vs vendor lock-in."
+      ],
+      "bullets": [
+        "Write amplification vs read optimization — pick based on read/write ratio",
+        "Normalization vs denormalization — joins vs duplicate data for read speed",
+        "Strong consistency cost: coordination, latency, reduced availability during partition",
+        "Operational complexity: microservices vs monolith team velocity trade-off"
+      ]
+    },
+    {
+      "title": "Presenting and Defending Your Design",
+      "paragraphs": [
+        "Lead with the core flow, then justify each major component: 'Redis cache here because 95% of reads are hot keys; 90% hit rate cuts DB load 10×.' Anticipate challenges: 'What if cache fails? DB absorbs load — we have headroom to 2×; alerts fire; degrade non-critical features.'",
+        "Name trade-offs explicitly: 'We chose eventual consistency for likes because strong consistency would require distributed locking on every click, adding 50ms latency for negligible user benefit.' Unnamed trade-offs look like oversights.",
+        "Scope management: when interviewer adds 'also support real-time notifications,' acknowledge, prioritize against MoSCoW, extend diagram incrementally rather than restarting. 'I'll add a WebSocket gateway and notification service fed by the existing event bus — deferring mobile push provider integration to phase 2.'",
+        "Close with monitoring and success criteria: metrics, alerts, SLIs/SLOs. Architecture without observability is incomplete — you cannot operate what you cannot measure."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "A Structured Approach to System Design",
+        "paragraphs": [
+          "After requirements and estimation, proceed in layers: (1) high-level components and data flow, (2) API and data model, (3) deep dives on the hardest problems, (4) bottlenecks and scale plan, (5) failure modes and monitoring. This sequence keeps interviews organized and ensures you don't optimize details before defining scope.",
+          "Start with a simple design that meets functional requirements for moderate scale — single app server, one database, cache optional. Then evolve: 'at 10× traffic, the database becomes the bottleneck → read replicas and cache; at 100×, shard by user_id.' Iterative scaling narrative shows you won't over-engineer day one but have a credible growth path.",
+          "Draw data flow for critical paths: user action → API → business logic → storage → async side effects. Mark sync vs async boundaries, cache layers, and external dependencies. One diagram for happy path; annotate failure behavior on the same diagram.",
+          "Identify the 2–3 core entities and their relationships. Resist designing every feature — depth on timeline generation beats breadth on 15 minor endpoints. Interviewers probe where you go deep, not how many boxes you draw."
+        ],
+        "bullets": [
+          "Layer 1: clients, load balancer, app tier, storage, async pipeline",
+          "Layer 2: API contracts, schema, indexes for access patterns",
+          "Layer 3: deep dive — the hardest NFR (feed, search, consistency)",
+          "Evolution narrative: what breaks at 10×, 100×, 1000×"
+        ]
+      },
+      {
+        "title": "CAP, PACELC, and Consistency Models",
+        "paragraphs": [
+          "CAP theorem: in a network partition, you choose Consistency (all nodes see same data) or Availability (every request gets a response). Partition tolerance is mandatory in distributed systems — the real choice is CP (ZooKeeper, etcd, strongly consistent DB during partition) vs AP (Cassandra, Dynamo-style, available with divergent state merged later).",
+          "PACELC extends CAP: else (even without partition), you choose Latency or Consistency. Most systems are PA/EL — available during partition, low latency when network is fine, accepting eventual consistency. This matches most user-facing products where 100ms matters more than immediate global consistency.",
+          "Consistency models in practice: strong (linearizable reads/writes), causal (see your own writes and related ordering), read-your-writes (session stickiness or version check), eventual (converge after delay). Pick per operation: inventory deduction strong; view count eventual; user profile read-your-writes.",
+          "Don't cite CAP as excuse without specifics. Say: 'like counts use eventual consistency with periodic sync — stale by seconds is acceptable; payment status uses strong consistency via synchronous DB transaction.' Tie model to user-visible behavior."
+        ],
+        "bullets": [
+          "CP: consistent during partition, may reject requests (etcd, Spanner)",
+          "AP: available during partition, reconcile later (Cassandra, DynamoDB)",
+          "PACELC: without partition, latency vs consistency trade-off",
+          "Per-operation consistency — not one choice for entire system"
+        ]
+      },
+      {
+        "title": "Designing for Failure",
+        "paragraphs": [
+          "Everything fails: servers, disks, networks, deployments, humans. Design assumes failure is normal. Redundancy: N+1 or N+2 for critical tiers — multiple app instances across AZs, database with automatic failover, multi-AZ object storage. Single points of failure (one Redis node, one cron leader) must be identified and eliminated or accepted with documented risk.",
+          "Timeouts everywhere: client → service, service → database, service → external API. Without timeouts, one slow dependency blocks thread pools and cascades. Retries with exponential backoff and jitter for idempotent operations — never unbounded retry storms. Circuit breakers fail fast when downstream is unhealthy.",
+          "Idempotency keys for writes: client sends Idempotency-Key header; server deduplicates within TTL window. Essential for payment APIs and any at-least-once delivery (Kafka consumers, webhook retries). Without idempotency, retries double-charge or duplicate records.",
+          "Graceful degradation: if recommendations fail, show popular items; if search is down, browse categories. Define fallback behavior per dependency. Bulkheads isolate thread pools so one slow dependency cannot exhaust all resources. Health checks and load balancer draining remove unhealthy instances before total collapse."
+        ],
+        "bullets": [
+          "Failover: automatic promotion of replica (RDS, Redis Sentinel)",
+          "Blast radius: limit impact of one failure (AZ isolation, cell architecture)",
+          "Chaos engineering: inject failures to validate assumptions (Netflix Simian Army)",
+          "Runbooks: documented response for each alert — not improvised during outage"
+        ]
+      },
+      {
+        "title": "Common Architectural Trade-offs",
+        "paragraphs": [
+          "Push vs pull for fan-out: push (write-time fan-out to follower timelines) gives fast reads but expensive writes for celebrities; pull (assemble timeline at read time) saves writes but slow reads; hybrid (push for normal users, pull for celebrities) is Twitter's approach. Trade-off: read latency vs write amplification vs implementation complexity.",
+          "SQL vs NoSQL: relational for ACID, joins, complex queries; document/wide-column for horizontal scale, flexible schema, high write throughput. Polyglot persistence is normal — Postgres for transactions, Elasticsearch for search, Redis for cache, S3 for blobs.",
+          "Sync vs async: sync simplifies client mental model (request → response includes result) but couples latency and availability; async (queue, webhook, polling) decouples and absorbs spikes but complicates UX (job status, notifications). Choose async when side effects are slow, optional, or fan out to many systems.",
+          "Build vs buy: managed services (RDS, SQS, CloudFront) reduce ops burden and accelerate MVP; self-hosted (Kafka cluster, custom CDN) offers control and cost at scale. Trade-off: engineering time vs operational ownership vs vendor lock-in."
+        ],
+        "bullets": [
+          "Write amplification vs read optimization — pick based on read/write ratio",
+          "Normalization vs denormalization — joins vs duplicate data for read speed",
+          "Strong consistency cost: coordination, latency, reduced availability during partition",
+          "Operational complexity: microservices vs monolith team velocity trade-off"
+        ]
+      },
+      {
+        "title": "Presenting and Defending Your Design",
+        "paragraphs": [
+          "Lead with the core flow, then justify each major component: 'Redis cache here because 95% of reads are hot keys; 90% hit rate cuts DB load 10×.' Anticipate challenges: 'What if cache fails? DB absorbs load — we have headroom to 2×; alerts fire; degrade non-critical features.'",
+          "Name trade-offs explicitly: 'We chose eventual consistency for likes because strong consistency would require distributed locking on every click, adding 50ms latency for negligible user benefit.' Unnamed trade-offs look like oversights.",
+          "Scope management: when interviewer adds 'also support real-time notifications,' acknowledge, prioritize against MoSCoW, extend diagram incrementally rather than restarting. 'I'll add a WebSocket gateway and notification service fed by the existing event bus — deferring mobile push provider integration to phase 2.'",
+          "Close with monitoring and success criteria: metrics, alerts, SLIs/SLOs. Architecture without observability is incomplete — you cannot operate what you cannot measure."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Architecture, Failures & Trade-offs — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Architecture, Failures & Trade-offs: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Architecture, Failures & Trade-offs — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Architecture, Failures & Trade-offs: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Layered design: components → API/schema → deep dive → scale → failures",
+    "CAP / PACELC: consistency vs availability vs latency trade-offs",
+    "Idempotency: safe retries without duplicate side effects",
+    "Circuit breaker, bulkhead, timeout: fault isolation patterns",
+    "Graceful degradation: reduced functionality vs total outage",
+    "Push vs pull fan-out: write amplification vs read latency",
+    "Polyglot persistence: right storage for each access pattern",
+    "Blast radius: contain failure impact via redundancy and isolation",
+    "SLI/SLO: service level indicators and objectives for reliability targets",
+    "Evolution narrative: credible scaling path without premature complexity"
+  ],
+  "practices": [
+    "Start simple; add complexity only when estimation or NFRs demand it",
+    "Assign consistency model per operation with user-visible justification",
+    "Set timeouts and retries on every external call; use circuit breakers",
+    "Require idempotency keys on all non-read APIs that mutate state",
+    "Identify single points of failure; eliminate or document accepted risk",
+    "Name trade-offs aloud in reviews — push vs pull, sync vs async, SQL vs NoSQL",
+    "Define SLIs, alerts, and runbooks alongside architecture diagrams"
+  ],
+  "pitfalls": [
+    "Analysis paralysis: endless alternatives without committing to a design",
+    "Golden hammer: Kafka/microservices for every problem regardless of scale",
+    "Ignoring failure modes until 'phase 2' — outages happen in phase 1",
+    "Unbounded retries causing retry storms that amplify outages",
+    "Strong consistency everywhere — unnecessary latency and availability cost",
+    "Diagram without data flow numbers — architecture disconnected from capacity"
+  ],
+  "examples": [
+    {
+      "title": "Hybrid timeline fan-out (Twitter model)",
+      "description": "Normal users (< 10K followers): push tweets to follower timeline Redis lists on write — O(followers) write, O(1) read. Celebrities: pull at read time from celebrity's tweet list merged with pushed timelines. Trade-off: bounded write amplification while keeping read latency under 200ms for 99% of users."
+    },
+    {
+      "title": "Payment service CP design",
+      "description": "During network partition, payment service rejects writes rather than risk double-spend or inconsistent balances. Strong consistency via Postgres serializable isolation + idempotency keys. Availability sacrificed for financial correctness — explicit CP choice with user-facing 'try again' messaging."
+    },
+    {
+      "title": "Circuit breaker on third-party SMS",
+      "description": "SMS provider latency degrades from 200ms to 30s. Circuit breaker opens after 50% error rate in 10s window. Notification service queues messages locally, returns success to user ('notification pending'), drains queue when circuit half-open probes succeed. Graceful degradation — email fallback if SMS unavailable > 5 min."
+    }
+  ],
+  "keyTakeaways": [
+    "Architecture is structured trade-off decisions anchored in requirements and scale",
+    "Design for failure first — timeouts, idempotency, redundancy, degradation",
+    "Consistency and availability choices apply per operation, not globally",
+    "Push vs pull, sync vs async, SQL vs NoSQL are context-dependent trade-offs",
+    "Evolve design in layers: simple first, then credible 10×/100× scaling narrative",
+    "Name trade-offs explicitly — unnamed choices look like blind spots in reviews",
+    "Observability (SLIs, alerts, runbooks) is part of architecture, not an afterthought"
+  ],
+  "whyItMatters": "Senior system design is less about knowing every technology and more about reasoning under constraints. Interviewers and architecture review boards test whether you anticipate failures, justify consistency choices, and articulate what you sacrificed. Frameworks for structure and trade-off vocabulary separate thoughtful designers from diagram collectors.",
+  "reflectionQuestions": [
+    "Pick a system you use daily. Identify one AP and one CP component and explain what happens during a network partition.",
+    "Design graceful degradation for an e-commerce site when the recommendation service is down. What does the user see?",
+    "For a bank transfer vs a 'like' button, compare consistency requirements, failure handling, and idempotency needs.",
+    "What is the blast radius if your single Redis cluster fails? How would you reduce it?"
+  ],
+  "resources": [
+    "Designing Data-Intensive Applications (Martin Kleppmann) — consistency and fault tolerance",
+    "System Design Interview Vol 2 (Alex Xu) — case studies and trade-offs",
+    "Google SRE Book — Ch. 3 (Embracing Risk), Ch. 28 (Handling Overload)",
+    "AWS Architecture Center — Well-Architected Framework pillars",
+    "Fallacies of Distributed Computing (Peter Deutsch)"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "framework-architecture-overview",
+      "title": "Architecture, Failures & Trade-offs overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Architecture, Failures & Trade-offs and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Architecture, Failures & Trade-offs; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications (Martin Kleppmann) — consistency and fault tolerance"
+    },
+    {
+      "title": "System Design Interview Vol 2 (Alex Xu) — case studies and trade-offs"
+    },
+    {
+      "title": "Google SRE Book — Ch. 3 (Embracing Risk), Ch. 28 (Handling Overload)"
+    },
+    {
+      "title": "AWS Architecture Center — Well-Architected Framework pillars"
+    },
+    {
+      "title": "Fallacies of Distributed Computing (Peter Deutsch)"
+    }
+  ],
+  "relatedLessons": [
+    "framework-iteration",
+    "framework-requirements",
+    "mind-apis-data"
+  ]
+}

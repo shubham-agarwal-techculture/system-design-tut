@@ -1,0 +1,219 @@
+{
+  "id": "scale-state-management",
+  "title": "Stateless Services & State Management",
+  "moduleId": "scalability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 38,
+  "summary": "Stateless services can be added, removed, and replaced freely — they are the foundation of elastic, fault-tolerant systems. State must be deliberately placed in databases, caches, message queues, or object stores. Misplaced state is the most common reason scaling efforts fail.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-vertical-horizontal"
+  ],
+  "tags": [
+    "scalability",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Stateless vs Stateful Services",
+      "paragraphs": [
+        "A stateless service treats every request independently. It does not rely on data stored in local memory from a previous request on the same machine. Any instance can handle any request. This property enables horizontal scaling, rolling deployments, and instant recovery from node failure.",
+        "A stateful service remembers context across requests or over time — in-memory session stores, local file caches, embedded databases, or workflow state tied to a specific process. Stateful services require sticky routing, replication, or leader election to scale and survive failures.",
+        "Most production architectures push toward stateless application tiers while concentrating state in specialized, managed stores. The application becomes a thin orchestration layer: validate input, read/write state externally, return a response."
+      ]
+    },
+    {
+      "title": "Where State Should Live",
+      "paragraphs": [
+        "User sessions belong in a distributed cache (Redis, Memcached) or a database — not in JVM heap or Node.js process memory. Redis offers TTL-based expiry, atomic operations, and sub-millisecond latency, making it the default session store for scaled web apps.",
+        "Long-lived domain data lives in the primary database with ACID guarantees. Caches hold derived or hot data with explicit invalidation policies. Workflow and job state goes to durable queues or workflow engines (Temporal, Step Functions). Uploaded files go to object storage (S3), not local disk.",
+        "Configuration and secrets belong in environment variables, config services, or secrets managers — injected at startup, not baked into images. Feature flags live in dedicated flag services so behavior can change without redeployment."
+      ],
+      "bullets": [
+        "Session state → Redis / DynamoDB with TTL",
+        "Domain data → PostgreSQL / MySQL / distributed DB",
+        "Ephemeral hot data → in-memory cache with eviction policy",
+        "Async work state → message queues or workflow engines"
+      ]
+    },
+    {
+      "title": "Sticky Sessions and Their Trade-offs",
+      "paragraphs": [
+        "Sticky sessions (session affinity) route a user to the same server using cookies or load balancer rules. They allow in-memory session storage without immediate externalization — a tempting shortcut during early development.",
+        "The downsides are significant. Uneven load distribution occurs when some users are heavier than others. Node failure drops all sessions pinned to that node unless sessions are replicated (which reintroduces complexity). Rolling deployments require draining sticky connections carefully.",
+        "Sticky sessions are acceptable for WebSocket connections where connection state is inherently tied to a node — but even then, teams use pub/sub backplanes (Redis) to broadcast messages across a cluster. For HTTP APIs, prefer external session stores over stickiness."
+      ]
+    },
+    {
+      "title": "Shared-Nothing Architecture",
+      "paragraphs": [
+        "Shared-nothing means each node is self-sufficient: own CPU, memory, and local disk, with no shared memory or filesystem between application servers. Nodes communicate only through the network via databases, caches, and queues.",
+        "This model maximizes fault isolation. One node's crash does not corrupt another's memory. Scaling is linear: add nodes, update load balancer, done. Google's Bigtable, Cassandra, and most microservice deployments follow shared-nothing principles.",
+        "The trade-off is network round-trips for every state access. Poorly designed systems chatter excessively with Redis and the database. Connection pooling, batching, and local caching (with short TTLs) mitigate latency while preserving statelessness at the service level."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Stateless vs Stateful Services",
+        "paragraphs": [
+          "A stateless service treats every request independently. It does not rely on data stored in local memory from a previous request on the same machine. Any instance can handle any request. This property enables horizontal scaling, rolling deployments, and instant recovery from node failure.",
+          "A stateful service remembers context across requests or over time — in-memory session stores, local file caches, embedded databases, or workflow state tied to a specific process. Stateful services require sticky routing, replication, or leader election to scale and survive failures.",
+          "Most production architectures push toward stateless application tiers while concentrating state in specialized, managed stores. The application becomes a thin orchestration layer: validate input, read/write state externally, return a response."
+        ]
+      },
+      {
+        "title": "Where State Should Live",
+        "paragraphs": [
+          "User sessions belong in a distributed cache (Redis, Memcached) or a database — not in JVM heap or Node.js process memory. Redis offers TTL-based expiry, atomic operations, and sub-millisecond latency, making it the default session store for scaled web apps.",
+          "Long-lived domain data lives in the primary database with ACID guarantees. Caches hold derived or hot data with explicit invalidation policies. Workflow and job state goes to durable queues or workflow engines (Temporal, Step Functions). Uploaded files go to object storage (S3), not local disk.",
+          "Configuration and secrets belong in environment variables, config services, or secrets managers — injected at startup, not baked into images. Feature flags live in dedicated flag services so behavior can change without redeployment."
+        ],
+        "bullets": [
+          "Session state → Redis / DynamoDB with TTL",
+          "Domain data → PostgreSQL / MySQL / distributed DB",
+          "Ephemeral hot data → in-memory cache with eviction policy",
+          "Async work state → message queues or workflow engines"
+        ]
+      },
+      {
+        "title": "Sticky Sessions and Their Trade-offs",
+        "paragraphs": [
+          "Sticky sessions (session affinity) route a user to the same server using cookies or load balancer rules. They allow in-memory session storage without immediate externalization — a tempting shortcut during early development.",
+          "The downsides are significant. Uneven load distribution occurs when some users are heavier than others. Node failure drops all sessions pinned to that node unless sessions are replicated (which reintroduces complexity). Rolling deployments require draining sticky connections carefully.",
+          "Sticky sessions are acceptable for WebSocket connections where connection state is inherently tied to a node — but even then, teams use pub/sub backplanes (Redis) to broadcast messages across a cluster. For HTTP APIs, prefer external session stores over stickiness."
+        ]
+      },
+      {
+        "title": "Shared-Nothing Architecture",
+        "paragraphs": [
+          "Shared-nothing means each node is self-sufficient: own CPU, memory, and local disk, with no shared memory or filesystem between application servers. Nodes communicate only through the network via databases, caches, and queues.",
+          "This model maximizes fault isolation. One node's crash does not corrupt another's memory. Scaling is linear: add nodes, update load balancer, done. Google's Bigtable, Cassandra, and most microservice deployments follow shared-nothing principles.",
+          "The trade-off is network round-trips for every state access. Poorly designed systems chatter excessively with Redis and the database. Connection pooling, batching, and local caching (with short TTLs) mitigate latency while preserving statelessness at the service level."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Stateless Services & State Management — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Stateless Services & State Management: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Stateless Services & State Management — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Stateless Services & State Management: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Stateless service: no request depends on local memory from prior requests",
+    "Stateful service: context persisted in process memory or local storage",
+    "Session externalization: Redis, DynamoDB, or DB-backed sessions",
+    "Sticky sessions (session affinity): load balancer pins users to one node",
+    "Shared-nothing architecture: independent nodes, network-only communication",
+    "Connection pooling: reuse DB/cache connections across requests",
+    "Idempotent handlers: safe retries when state updates may duplicate",
+    "CAP theorem preview: partition tolerance is mandatory in distributed deployments",
+    "Twelve-factor app: treat processes as disposable, store state in backing services"
+  ],
+  "practices": [
+    "Store sessions in Redis with TTL matching your security policy",
+    "Design APIs to be idempotent so retries after failures do not corrupt state",
+    "Use health checks that verify connectivity to state stores, not just HTTP 200",
+    "Avoid local filesystem for anything that must survive pod restarts",
+    "Implement graceful shutdown: finish in-flight requests before SIGTERM timeout",
+    "Partition state by domain — do not put everything in one Redis cluster",
+    "Test failover by killing random nodes during load tests"
+  ],
+  "pitfalls": [
+    "In-memory sessions that work in development but break in multi-instance production",
+    "Using sticky sessions as a permanent substitute for external session storage",
+    "Storing uploaded files on local disk in containerized environments",
+    "Global mutable static variables shared across requests in application code",
+    "Assuming serverless functions maintain state between invocations",
+    "Oversized session payloads that saturate Redis memory"
+  ],
+  "examples": [
+    {
+      "title": "JWT vs server-side sessions",
+      "description": "A mobile API uses signed JWTs for authentication — no server-side session store needed, enabling fully stateless API gateways. A web app with instant logout requirements uses Redis sessions instead, because JWTs cannot be revoked without a blocklist (which reintroduces state)."
+    },
+    {
+      "title": "Shopping cart during peak traffic",
+      "description": "Cart state lives in Redis keyed by user ID with a 7-day TTL. API servers are interchangeable. During a node failure, users retry and hit a different server — cart data is intact. Checkout transitions cart to an order in PostgreSQL atomically."
+    }
+  ],
+  "keyTakeaways": [
+    "Stateless application tiers are prerequisite for elastic horizontal scaling",
+    "Every piece of state needs an explicit, durable home — never accidental local memory",
+    "Sticky sessions are a bridge, not a destination; externalize sessions for resilience",
+    "Shared-nothing architecture isolates failures and simplifies scaling",
+    "Choose JWT for stateless auth; server-side sessions when revocation matters",
+    "Kill nodes in testing to verify your state management actually works"
+  ],
+  "whyItMatters": "Hidden state in application servers is the silent killer of scalability. Teams discover it during the first production scale-out or the first unplanned node restart. Getting state placement right early avoids expensive re-architecture and prevents session-loss incidents that erode user trust.",
+  "reflectionQuestions": [
+    "Where should user session data live in a horizontally scaled application?",
+    "What breaks if you terminate a server holding in-memory session state?",
+    "When would you accept sticky sessions instead of externalizing state?",
+    "How does idempotency interact with state management during retries?"
+  ],
+  "resources": [
+    "The Twelve-Factor App — Processes and Backing Services",
+    "Designing Data-Intensive Applications — Chapter 7 (Transactions)",
+    "Redis documentation — Session management patterns",
+    "AWS Architecture Blog — Scaling session management"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "scale-state-management-overview",
+      "title": "Stateless Services & State Management overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Stateless Services & State Management and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Stateless Services & State Management; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "The Twelve-Factor App — Processes and Backing Services"
+    },
+    {
+      "title": "Designing Data-Intensive Applications — Chapter 7 (Transactions)"
+    },
+    {
+      "title": "Redis documentation — Session management patterns"
+    },
+    {
+      "title": "AWS Architecture Blog — Scaling session management"
+    }
+  ],
+  "relatedLessons": [
+    "fund-estimation",
+    "fund-stateless",
+    "fund-vertical-horizontal"
+  ]
+}

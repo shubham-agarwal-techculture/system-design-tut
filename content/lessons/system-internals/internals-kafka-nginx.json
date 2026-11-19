@@ -1,0 +1,291 @@
+{
+  "id": "internals-kafka-nginx",
+  "title": "Kafka & Nginx Internals",
+  "moduleId": "system-internals",
+  "phaseId": "internal-designs",
+  "durationMinutes": 40,
+  "summary": "Kafka and Nginx are infrastructure workhorses — one moves events at scale, the other terminates HTTP at the edge. Kafka's log-structured partitions and consumer groups enable durable, replayable event streams. Nginx's master/worker event-driven model serves millions of connections with minimal memory. Understanding both internals is essential for designing reliable pipelines and high-throughput web tiers.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "int-redis"
+  ],
+  "tags": [
+    "system-internals",
+    "internal-designs"
+  ],
+  "sections": [
+    {
+      "title": "Kafka: Distributed Commit Log Architecture",
+      "paragraphs": [
+        "Kafka is a distributed, partitioned, replicated commit log. Producers append records to topic partitions — ordered, immutable sequences identified by offset. Unlike traditional message queues that delete messages after consumption, Kafka retains records for a configurable period (or size), allowing replay and multiple independent consumer groups.",
+        "Each partition is an ordered log stored as segment files on disk (index + .log). Sequential disk writes achieve throughput comparable to memory when batching and page cache cooperate. Partitions are the unit of parallelism: more partitions mean more parallel consumers and producers, up to broker and cluster limits.",
+        "Brokers are Kafka server processes. A cluster has many brokers; each partition has one leader broker handling reads/writes and zero or more follower replicas syncing data. ISR (In-Sync Replicas) is the set of followers caught up within a configurable lag. If the leader dies, a follower from ISR is elected — availability and durability depend on replication factor and acks setting.",
+        "ZooKeeper (legacy) or KRaft (Kafka Raft metadata mode) manages cluster metadata: broker registration, partition leadership, consumer group offsets (offsets now stored in internal __consumer_offsets topic). KRaft removes the ZooKeeper dependency, simplifying operations in modern Kafka versions."
+      ],
+      "bullets": [
+        "Topic → partitions → ordered, append-only log segments",
+        "Offset: monotonic position within a partition",
+        "Leader + followers; ISR = replicas eligible for leadership",
+        "Retention by time (log.retention.hours) or size — not consume-and-delete"
+      ]
+    },
+    {
+      "title": "Kafka: Producers, Consumers, and Delivery Semantics",
+      "paragraphs": [
+        "Producers choose a partition via key hash (same key → same partition → per-key ordering) or round-robin. Batching (linger.ms, batch.size) amortizes network overhead. acks=0 fire-and-forget; acks=1 leader ack; acks=all waits for all ISR — the durability vs latency trade-off.",
+        "Consumer groups distribute partitions among group members — each partition consumed by at most one consumer in the group. Rebalance occurs when members join or leave; during rebalance, consumption pauses (unless using cooperative sticky assignors). Scale consumers up to partition count; extra consumers sit idle.",
+        "Delivery semantics: at-most-once (commit offset before process — may lose messages), at-least-once (process then commit — may duplicate), exactly-once (Kafka transactions + idempotent producer — higher overhead, limited to Kafka Streams / specific flows). Production systems almost always implement at-least-once with idempotent consumers.",
+        "Log compaction retains the latest record per key — useful for changelog topics (KTables, config propagation). Tombstone records (null value) delete keys after delete.retention.ms. Compact + delete retention policies can coexist on different topics."
+      ],
+      "bullets": [
+        "Partition key → consistent hashing → per-key ordering guarantee",
+        "Consumer group: one consumer per partition within a group",
+        "Rebalance: partition reassignment on membership change",
+        "Idempotent producer: dedup via PID + sequence number per partition"
+      ]
+    },
+    {
+      "title": "Nginx: Master/Worker and the Event Loop",
+      "paragraphs": [
+        "Nginx uses a master process (reads config, manages workers, binds ports) and one or more worker processes (handle connections). Workers are single-threaded with an event-driven loop — epoll on Linux, kqueue on BSD. Thousands of idle connections cost kilobytes each (connection state), not megabytes per thread.",
+        "The event loop: register socket events (readable, writable), wait via epoll_wait, dispatch handlers. Non-blocking I/O is mandatory — a blocking read in one worker stalls all connections that worker manages. Proxy upstream calls use the same non-blocking model with retry and timeout logic.",
+        "Accept mutex (older versions) or SO_REUSEPORT (modern) distributes incoming connections across workers. SO_REUSEPORT lets each worker bind the same port; the kernel load-balances accepts — better CPU utilization on multi-core hosts.",
+        "Static file serving uses sendfile (zero-copy from disk to socket, bypassing user-space buffer copies). gzip/brotli compression, caching headers, and open_file_cache reduce disk and CPU for repeat assets. These optimizations explain why Nginx dominates static content and reverse proxy roles."
+      ],
+      "bullets": [
+        "Master/worker: workers are single-threaded event loops",
+        "epoll/kqueue: O(1) readiness notification for many connections",
+        "sendfile: zero-copy static file delivery",
+        "SO_REUSEPORT: kernel-level accept load balancing across workers"
+      ]
+    },
+    {
+      "title": "Nginx: Reverse Proxy, Load Balancing, and TLS",
+      "paragraphs": [
+        "As a reverse proxy, Nginx terminates client connections and opens separate upstream connections to backend servers. proxy_pass, upstream blocks, and keepalive connections to upstreams reduce TCP handshake overhead. Health checks (commercial Plus or open-source modules) remove failed backends from rotation.",
+        "Load balancing methods: round-robin (default), least_conn, ip_hash (session stickiness), hash (consistent hashing on URI or custom key). Weighted backends support heterogeneous capacity. For WebSocket and HTTP/2, proxy modules handle protocol upgrade and multiplexing.",
+        "TLS termination at Nginx offloads crypto from application servers. ssl_session_cache (shared across workers) and session tickets reduce handshake cost. HTTP/2 and HTTP/3 (QUIC) modules push protocol handling to the edge. Certificate management (Let's Encrypt, cert-manager sidecars) integrates at this layer.",
+        "Rate limiting (limit_req, limit_conn), WAF integration, and request buffering protect backends from abuse and slow clients. Large upload buffering to disk prevents memory exhaustion when clients send slowly — a classic slowloris mitigation combined with timeouts (client_body_timeout, proxy_read_timeout)."
+      ],
+      "bullets": [
+        "upstream keepalive: reuse backend TCP connections",
+        "least_conn vs round-robin: match algorithm to workload skew",
+        "TLS session cache/tickets: reduce full handshake frequency",
+        "limit_req: token bucket rate limiting per IP or key"
+      ]
+    },
+    {
+      "title": "Kafka and Nginx in System Architecture",
+      "paragraphs": [
+        "A common pattern: Nginx at the edge terminates TLS, serves static assets, load-balances to API servers, and enforces rate limits. API servers publish domain events to Kafka; downstream consumers (search indexer, analytics, email) process independently with at-least-once semantics and idempotent handlers.",
+        "Backpressure flows differently in each system. Nginx returns 502/503 when upstreams are saturated — clients see immediate failure or retry. Kafka absorbs write spikes in the log (disk-bound retention) but slow consumers fall behind (consumer lag metric). Monitor lag, rebalance frequency, and under-replicated partitions as Kafka SLOs.",
+        "Ordering guarantees: Kafka orders within a partition, not across partitions. Design partition keys so related events co-locate (user_id, order_id). Nginx does not guarantee sticky routing unless ip_hash or consistent hash — session state belongs in Redis or JWT, not local worker memory.",
+        "Operational maturity: Kafka needs capacity planning for disk (retention × throughput), partition count, and replication. Nginx needs worker count (usually = CPU cores), connection limits (worker_connections × workers), and upstream timeout tuning aligned with application p99 latency."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Kafka: Distributed Commit Log Architecture",
+        "paragraphs": [
+          "Kafka is a distributed, partitioned, replicated commit log. Producers append records to topic partitions — ordered, immutable sequences identified by offset. Unlike traditional message queues that delete messages after consumption, Kafka retains records for a configurable period (or size), allowing replay and multiple independent consumer groups.",
+          "Each partition is an ordered log stored as segment files on disk (index + .log). Sequential disk writes achieve throughput comparable to memory when batching and page cache cooperate. Partitions are the unit of parallelism: more partitions mean more parallel consumers and producers, up to broker and cluster limits.",
+          "Brokers are Kafka server processes. A cluster has many brokers; each partition has one leader broker handling reads/writes and zero or more follower replicas syncing data. ISR (In-Sync Replicas) is the set of followers caught up within a configurable lag. If the leader dies, a follower from ISR is elected — availability and durability depend on replication factor and acks setting.",
+          "ZooKeeper (legacy) or KRaft (Kafka Raft metadata mode) manages cluster metadata: broker registration, partition leadership, consumer group offsets (offsets now stored in internal __consumer_offsets topic). KRaft removes the ZooKeeper dependency, simplifying operations in modern Kafka versions."
+        ],
+        "bullets": [
+          "Topic → partitions → ordered, append-only log segments",
+          "Offset: monotonic position within a partition",
+          "Leader + followers; ISR = replicas eligible for leadership",
+          "Retention by time (log.retention.hours) or size — not consume-and-delete"
+        ]
+      },
+      {
+        "title": "Kafka: Producers, Consumers, and Delivery Semantics",
+        "paragraphs": [
+          "Producers choose a partition via key hash (same key → same partition → per-key ordering) or round-robin. Batching (linger.ms, batch.size) amortizes network overhead. acks=0 fire-and-forget; acks=1 leader ack; acks=all waits for all ISR — the durability vs latency trade-off.",
+          "Consumer groups distribute partitions among group members — each partition consumed by at most one consumer in the group. Rebalance occurs when members join or leave; during rebalance, consumption pauses (unless using cooperative sticky assignors). Scale consumers up to partition count; extra consumers sit idle.",
+          "Delivery semantics: at-most-once (commit offset before process — may lose messages), at-least-once (process then commit — may duplicate), exactly-once (Kafka transactions + idempotent producer — higher overhead, limited to Kafka Streams / specific flows). Production systems almost always implement at-least-once with idempotent consumers.",
+          "Log compaction retains the latest record per key — useful for changelog topics (KTables, config propagation). Tombstone records (null value) delete keys after delete.retention.ms. Compact + delete retention policies can coexist on different topics."
+        ],
+        "bullets": [
+          "Partition key → consistent hashing → per-key ordering guarantee",
+          "Consumer group: one consumer per partition within a group",
+          "Rebalance: partition reassignment on membership change",
+          "Idempotent producer: dedup via PID + sequence number per partition"
+        ]
+      },
+      {
+        "title": "Nginx: Master/Worker and the Event Loop",
+        "paragraphs": [
+          "Nginx uses a master process (reads config, manages workers, binds ports) and one or more worker processes (handle connections). Workers are single-threaded with an event-driven loop — epoll on Linux, kqueue on BSD. Thousands of idle connections cost kilobytes each (connection state), not megabytes per thread.",
+          "The event loop: register socket events (readable, writable), wait via epoll_wait, dispatch handlers. Non-blocking I/O is mandatory — a blocking read in one worker stalls all connections that worker manages. Proxy upstream calls use the same non-blocking model with retry and timeout logic.",
+          "Accept mutex (older versions) or SO_REUSEPORT (modern) distributes incoming connections across workers. SO_REUSEPORT lets each worker bind the same port; the kernel load-balances accepts — better CPU utilization on multi-core hosts.",
+          "Static file serving uses sendfile (zero-copy from disk to socket, bypassing user-space buffer copies). gzip/brotli compression, caching headers, and open_file_cache reduce disk and CPU for repeat assets. These optimizations explain why Nginx dominates static content and reverse proxy roles."
+        ],
+        "bullets": [
+          "Master/worker: workers are single-threaded event loops",
+          "epoll/kqueue: O(1) readiness notification for many connections",
+          "sendfile: zero-copy static file delivery",
+          "SO_REUSEPORT: kernel-level accept load balancing across workers"
+        ]
+      },
+      {
+        "title": "Nginx: Reverse Proxy, Load Balancing, and TLS",
+        "paragraphs": [
+          "As a reverse proxy, Nginx terminates client connections and opens separate upstream connections to backend servers. proxy_pass, upstream blocks, and keepalive connections to upstreams reduce TCP handshake overhead. Health checks (commercial Plus or open-source modules) remove failed backends from rotation.",
+          "Load balancing methods: round-robin (default), least_conn, ip_hash (session stickiness), hash (consistent hashing on URI or custom key). Weighted backends support heterogeneous capacity. For WebSocket and HTTP/2, proxy modules handle protocol upgrade and multiplexing.",
+          "TLS termination at Nginx offloads crypto from application servers. ssl_session_cache (shared across workers) and session tickets reduce handshake cost. HTTP/2 and HTTP/3 (QUIC) modules push protocol handling to the edge. Certificate management (Let's Encrypt, cert-manager sidecars) integrates at this layer.",
+          "Rate limiting (limit_req, limit_conn), WAF integration, and request buffering protect backends from abuse and slow clients. Large upload buffering to disk prevents memory exhaustion when clients send slowly — a classic slowloris mitigation combined with timeouts (client_body_timeout, proxy_read_timeout)."
+        ],
+        "bullets": [
+          "upstream keepalive: reuse backend TCP connections",
+          "least_conn vs round-robin: match algorithm to workload skew",
+          "TLS session cache/tickets: reduce full handshake frequency",
+          "limit_req: token bucket rate limiting per IP or key"
+        ]
+      },
+      {
+        "title": "Kafka and Nginx in System Architecture",
+        "paragraphs": [
+          "A common pattern: Nginx at the edge terminates TLS, serves static assets, load-balances to API servers, and enforces rate limits. API servers publish domain events to Kafka; downstream consumers (search indexer, analytics, email) process independently with at-least-once semantics and idempotent handlers.",
+          "Backpressure flows differently in each system. Nginx returns 502/503 when upstreams are saturated — clients see immediate failure or retry. Kafka absorbs write spikes in the log (disk-bound retention) but slow consumers fall behind (consumer lag metric). Monitor lag, rebalance frequency, and under-replicated partitions as Kafka SLOs.",
+          "Ordering guarantees: Kafka orders within a partition, not across partitions. Design partition keys so related events co-locate (user_id, order_id). Nginx does not guarantee sticky routing unless ip_hash or consistent hash — session state belongs in Redis or JWT, not local worker memory.",
+          "Operational maturity: Kafka needs capacity planning for disk (retention × throughput), partition count, and replication. Nginx needs worker count (usually = CPU cores), connection limits (worker_connections × workers), and upstream timeout tuning aligned with application p99 latency."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Kafka & Nginx Internals — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Kafka & Nginx Internals: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Kafka & Nginx Internals — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Kafka & Nginx Internals: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Kafka partition: ordered log; unit of parallelism and per-key ordering",
+    "Consumer group: cooperative partition assignment with rebalance on membership change",
+    "ISR and acks=all: durability vs latency trade-off on produce",
+    "At-least-once + idempotent consumer: practical delivery guarantee",
+    "Nginx master/worker: single-threaded event loop per worker process",
+    "epoll event-driven I/O: scale connections without thread-per-connection",
+    "Reverse proxy: TLS termination, load balancing, upstream keepalive",
+    "sendfile: zero-copy static file serving",
+    "Consumer lag: backlog metric — primary Kafka health indicator",
+    "SO_REUSEPORT: kernel distributes accepts across Nginx workers"
+  ],
+  "practices": [
+    "Size Kafka partitions for target parallelism; key by entity ID for ordering",
+    "Use acks=all and min.insync.replicas=2 for durable production produces",
+    "Implement idempotent consumers with dedup keys or upsert semantics",
+    "Monitor consumer lag, under-replicated partitions, and broker disk usage",
+    "Set Nginx worker_processes to CPU count; tune worker_connections for peak load",
+    "Enable upstream keepalive and align proxy timeouts with application p99",
+    "Terminate TLS at Nginx; use limit_req to protect backends from abuse"
+  ],
+  "pitfalls": [
+    "Too few Kafka partitions — cannot scale consumers beyond partition count",
+    "Consumer rebalance storms from frequent pod restarts — tune session.timeout.ms and use cooperative assignor",
+    "Treating Kafka as a task queue with per-message delete — wrong tool; use SQS or dedicated queue",
+    "Blocking operations in Nginx Lua or misconfigured upstreams stalling worker event loops",
+    "No upstream keepalive — TCP handshake overhead dominates short API calls",
+    "Ignoring consumer lag until disk fills or analytics is days behind"
+  ],
+  "examples": [
+    {
+      "title": "Event-driven order pipeline",
+      "description": "Order API (behind Nginx) writes to Postgres and publishes OrderPlaced to Kafka partition keyed by order_id. Inventory, email, and analytics services each consume in separate consumer groups — all receive every event, process at their own pace, and commit offsets after successful handling. Nginx rate-limits checkout endpoints during flash sales."
+    },
+    {
+      "title": "Nginx edge with microservices upstream",
+      "description": "Nginx terminates TLS, applies WAF rules, and routes /api/users to user-service, /api/orders to order-service via location blocks. Upstream keepalive pools 32 connections per backend. least_conn balances skewed request durations. Static assets served via sendfile with 1-year cache headers — 90% of bytes never hit application servers."
+    },
+    {
+      "title": "Kafka replay for bug fix deployment",
+      "description": "A bug in the search indexer corrupted documents for 6 hours. Because Kafka retains 7 days of events, the team resets the consumer group offset to the incident start time and replays OrderPlaced events idempotently (upsert by document ID). Without log retention and idempotent writes, manual backfill would take days."
+    }
+  ],
+  "keyTakeaways": [
+    "Kafka is a replayable commit log — retention and partitions define scale and ordering",
+    "Consumer groups enable parallel processing; max consumers = partition count per group",
+    "At-least-once with idempotent consumers is the production default for delivery semantics",
+    "Nginx scales via event-driven workers — non-blocking I/O and sendfile for efficiency",
+    "Edge proxy handles TLS, load balancing, rate limiting — protect and offload backends",
+    "Monitor Kafka consumer lag and Nginx upstream 5xx/latency as primary health signals",
+    "Partition key design determines ordering scope — choose keys aligned with business invariants"
+  ],
+  "whyItMatters": "Kafka and Nginx form the data plane and control edge of most modern backends. Interview questions about event ordering, consumer lag, and reverse proxy configuration assume you understand internals, not just configuration snippets. Production incidents in both systems trace directly to partition design, rebalance behavior, worker limits, and timeout mismatches.",
+  "reflectionQuestions": [
+    "You need global ordering of all payment events. Can Kafka provide this? How would you redesign if not?",
+    "What happens to in-flight requests when an Nginx worker receives SIGUSR1 reload? What about SIGQUIT shutdown?",
+    "Design partition count and consumer group topology for 100K events/sec with 5 downstream processors.",
+    "When would you bypass Nginx and expose a service directly behind a cloud load balancer?"
+  ],
+  "resources": [
+    "Kafka: The Definitive Guide (Neha Narkhede, Gwen Shapira, Todd Palino)",
+    "Apache Kafka documentation — design, operations, KRaft",
+    "Nginx Admin Guide — connection processing, load balancing, caching",
+    "High Performance Browser Networking — Ch. 14 (Ilya Grigorik)",
+    "Confluent blog — partitioning, consumer lag, exactly-once semantics"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "internals-kafka-nginx-overview",
+      "title": "Kafka & Nginx Internals overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Kafka & Nginx Internals and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Kafka & Nginx Internals; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Kafka: The Definitive Guide (Neha Narkhede, Gwen Shapira, Todd Palino)"
+    },
+    {
+      "title": "Apache Kafka documentation — design, operations, KRaft"
+    },
+    {
+      "title": "Nginx Admin Guide — connection processing, load balancing, caching"
+    },
+    {
+      "title": "High Performance Browser Networking — Ch. 14 (Ilya Grigorik)"
+    },
+    {
+      "title": "Confluent blog — partitioning, consumer lag, exactly-once semantics"
+    }
+  ],
+  "relatedLessons": [
+    "int-cassandra",
+    "int-clickhouse",
+    "int-etcd"
+  ]
+}

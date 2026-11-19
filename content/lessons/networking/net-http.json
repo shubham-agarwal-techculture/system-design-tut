@@ -1,0 +1,273 @@
+{
+  "id": "net-http",
+  "title": "HTTP/1.1, HTTP/2 & HTTP/3",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 42,
+  "summary": "HTTP is the dominant application-layer protocol for web and API communication. Each major version solved specific performance bottlenecks—from connection overhead in HTTP/1.1 to head-of-line blocking in HTTP/2 to TCP-level blocking in HTTP/3. Understanding these evolutions is critical for API design, CDN configuration, and performance tuning.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "net-bgp-anycast"
+  ],
+  "tags": [
+    "networking",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "HTTP/1.1: The Foundation",
+      "paragraphs": [
+        "HTTP/1.1, standardized in 1997 and refined over decades, is a text-based request-response protocol. A client sends a request with a method (GET, POST, etc.), path, headers, and optional body. The server responds with a status code, headers, and body. Each request is independent and semantically meaningful—GET should be safe and idempotent, POST creates resources, PUT replaces, PATCH partially updates, DELETE removes.",
+        "HTTP/1.1 introduced persistent connections (keep-alive), allowing multiple requests over a single TCP connection. Before this, each request required a new TCP handshake. Keep-alive dramatically reduced latency, but HTTP/1.1 still processes responses in order on each connection—if one request is slow, subsequent responses queue behind it (head-of-line blocking at the application layer). Browsers worked around this by opening 6–8 parallel connections per domain, which itself caused congestion.",
+        "Headers carry critical metadata: Content-Type defines the body format, Authorization carries credentials, Cache-Control directs caching behavior, and Set-Cookie establishes session state. Status codes communicate outcomes: 200 OK, 201 Created, 301 Moved Permanently, 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 429 Too Many Requests, 500 Internal Server Error, 503 Service Unavailable. Designing APIs with correct semantics—using the right status codes, methods, and cache headers—is a hallmark of production-quality engineering."
+      ],
+      "bullets": [
+        "Idempotent methods: GET, PUT, DELETE — safe to retry without side effects",
+        "Conditional requests: If-None-Match (ETag) and If-Modified-Since enable efficient caching",
+        "Chunked transfer encoding: stream response bodies without knowing total size upfront"
+      ]
+    },
+    {
+      "title": "HTTP/2: Multiplexing and Binary Framing",
+      "paragraphs": [
+        "HTTP/2, published in 2015, addressed HTTP/1.1's performance limits while maintaining semantic compatibility. The key innovation is multiplexing: many request-response streams share a single TCP connection simultaneously. Streams are independent—slow Stream A doesn't block Stream B. Data is split into binary frames tagged with stream IDs, enabling efficient parsing and eliminating the need for multiple parallel connections.",
+        "HTTP/2 also introduced header compression (HPACK), server push (server proactively sends resources), and stream prioritization. In practice, server push saw limited adoption (browsers deprecated it) because preload hints and HTTP caching proved more effective. Header compression, however, is significant—API requests with large JWT tokens or cookie headers benefit substantially.",
+        "The critical limitation HTTP/2 didn't solve: TCP-level head-of-line blocking. TCP guarantees ordered byte delivery. If one packet is lost, all subsequent packets on that connection stall until retransmission completes—even if they belong to different HTTP/2 streams. On lossy networks (mobile, cross-continent), this can negate HTTP/2's multiplexing benefits. This limitation directly motivated HTTP/3."
+      ],
+      "bullets": [
+        "ALPN negotiation: TLS handshake advertises h2 (HTTP/2) or http/1.1 support",
+        "Single TCP connection per origin reduces handshake overhead and memory",
+        "Flow control at both connection and stream levels prevents receiver overwhelm"
+      ]
+    },
+    {
+      "title": "HTTP/3: QUIC over UDP",
+      "paragraphs": [
+        "HTTP/3 runs over QUIC, a transport protocol built on UDP. QUIC implements its own reliability, congestion control, and encryption (TLS 1.3 is integrated into the handshake, reducing setup to ~1 RTT or 0-RTT for resumed connections). Most importantly, QUIC multiplexes streams independently—packet loss on one stream doesn't block others, solving TCP's head-of-line blocking problem.",
+        "QUIC also enables connection migration: if a client's IP changes (switching from Wi-Fi to cellular), the connection persists via a connection ID rather than breaking on the 4-tuple change. For mobile users, this is transformative. Connection establishment is faster too—QUIC combines transport and TLS handshakes, and 0-RTT resumption allows sending data in the first packet for returning clients.",
+        "Adoption is accelerating: Cloudflare, Google, and major CDNs support HTTP/3. However, some corporate firewalls and middleboxes block or throttle UDP, causing fallback to HTTP/2. In system design, assume HTTP/3 at the edge (CDN to client) and HTTP/2 or gRPC internally (service to service), with graceful fallback mechanisms."
+      ],
+      "bullets": [
+        "0-RTT resumption: faster reconnects but replay attack risk for non-idempotent requests",
+        "UDP port 443: QUIC uses the same port as HTTPS for firewall compatibility",
+        "Alt-Svc header: server advertises HTTP/3 availability; clients upgrade opportunistically"
+      ]
+    },
+    {
+      "title": "Caching, CDNs, and Performance",
+      "paragraphs": [
+        "HTTP caching is one of the most impactful performance optimizations available. Cache-Control headers (max-age, s-maxage, no-cache, no-store, private, public) control how long responses are cached at browsers, CDNs, and reverse proxies. ETags enable conditional requests—clients send If-None-Match and receive 304 Not Modified instead of the full body. For read-heavy APIs serving relatively static data, aggressive caching can reduce origin load by 90%+.",
+        "Content Delivery Networks (CDNs) cache content at edge locations geographically close to users. A user in Tokyo hits a Tokyo edge server instead of your US-based origin. CDNs also terminate TLS, support HTTP/2 and HTTP/3, compress responses, and provide DDoS protection. Cache invalidation strategies—TTL-based expiry, purge APIs, stale-while-revalidate—are essential operational knowledge.",
+        "Performance best practices span all HTTP versions: minimize payload size (gzip/brotli compression), reduce round trips (bundle resources, use HTTP/2 push hints or preload), leverage caching aggressively, and use a CDN for static assets and cacheable API responses. Measure with tools like WebPageTest, Lighthouse, and server-side APM to identify whether latency is in DNS, connection setup, TTFB, or download."
+      ]
+    },
+    {
+      "title": "API Design with HTTP Semantics",
+      "paragraphs": [
+        "RESTful API design maps domain concepts to HTTP resources and methods. Collections use plural nouns (/users, /orders), individual resources use IDs (/users/123). Nested resources express relationships (/users/123/orders). Use query parameters for filtering, sorting, and pagination (?status=active&page=2). Response bodies should be consistent—wrap collections in a standard envelope if your team agrees on a convention.",
+        "Versioning strategies include URL path (/v1/users), headers (Accept: application/vnd.api+json;version=1), or query parameters. URL versioning is simplest and most visible. Rate limiting via 429 status with Retry-After headers protects your service. CORS headers (Access-Control-Allow-Origin) are required for browser-based clients calling APIs on different domains—a common source of frontend integration bugs.",
+        "In microservices, HTTP is often the default inter-service protocol for its simplicity, debuggability (curl, browser dev tools), and universal support. However, for high-throughput internal communication, gRPC (covered in a later lesson) may be preferable. The choice depends on team familiarity, performance requirements, and whether you need browser compatibility."
+      ],
+      "bullets": [
+        "HATEOAS: include links in responses to guide clients (rarely implemented fully)",
+        "Content negotiation: Accept header specifies preferred response format",
+        "Webhook callbacks: POST to client URLs for event-driven integration"
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "HTTP/1.1: The Foundation",
+        "paragraphs": [
+          "HTTP/1.1, standardized in 1997 and refined over decades, is a text-based request-response protocol. A client sends a request with a method (GET, POST, etc.), path, headers, and optional body. The server responds with a status code, headers, and body. Each request is independent and semantically meaningful—GET should be safe and idempotent, POST creates resources, PUT replaces, PATCH partially updates, DELETE removes.",
+          "HTTP/1.1 introduced persistent connections (keep-alive), allowing multiple requests over a single TCP connection. Before this, each request required a new TCP handshake. Keep-alive dramatically reduced latency, but HTTP/1.1 still processes responses in order on each connection—if one request is slow, subsequent responses queue behind it (head-of-line blocking at the application layer). Browsers worked around this by opening 6–8 parallel connections per domain, which itself caused congestion.",
+          "Headers carry critical metadata: Content-Type defines the body format, Authorization carries credentials, Cache-Control directs caching behavior, and Set-Cookie establishes session state. Status codes communicate outcomes: 200 OK, 201 Created, 301 Moved Permanently, 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 429 Too Many Requests, 500 Internal Server Error, 503 Service Unavailable. Designing APIs with correct semantics—using the right status codes, methods, and cache headers—is a hallmark of production-quality engineering."
+        ],
+        "bullets": [
+          "Idempotent methods: GET, PUT, DELETE — safe to retry without side effects",
+          "Conditional requests: If-None-Match (ETag) and If-Modified-Since enable efficient caching",
+          "Chunked transfer encoding: stream response bodies without knowing total size upfront"
+        ]
+      },
+      {
+        "title": "HTTP/2: Multiplexing and Binary Framing",
+        "paragraphs": [
+          "HTTP/2, published in 2015, addressed HTTP/1.1's performance limits while maintaining semantic compatibility. The key innovation is multiplexing: many request-response streams share a single TCP connection simultaneously. Streams are independent—slow Stream A doesn't block Stream B. Data is split into binary frames tagged with stream IDs, enabling efficient parsing and eliminating the need for multiple parallel connections.",
+          "HTTP/2 also introduced header compression (HPACK), server push (server proactively sends resources), and stream prioritization. In practice, server push saw limited adoption (browsers deprecated it) because preload hints and HTTP caching proved more effective. Header compression, however, is significant—API requests with large JWT tokens or cookie headers benefit substantially.",
+          "The critical limitation HTTP/2 didn't solve: TCP-level head-of-line blocking. TCP guarantees ordered byte delivery. If one packet is lost, all subsequent packets on that connection stall until retransmission completes—even if they belong to different HTTP/2 streams. On lossy networks (mobile, cross-continent), this can negate HTTP/2's multiplexing benefits. This limitation directly motivated HTTP/3."
+        ],
+        "bullets": [
+          "ALPN negotiation: TLS handshake advertises h2 (HTTP/2) or http/1.1 support",
+          "Single TCP connection per origin reduces handshake overhead and memory",
+          "Flow control at both connection and stream levels prevents receiver overwhelm"
+        ]
+      },
+      {
+        "title": "HTTP/3: QUIC over UDP",
+        "paragraphs": [
+          "HTTP/3 runs over QUIC, a transport protocol built on UDP. QUIC implements its own reliability, congestion control, and encryption (TLS 1.3 is integrated into the handshake, reducing setup to ~1 RTT or 0-RTT for resumed connections). Most importantly, QUIC multiplexes streams independently—packet loss on one stream doesn't block others, solving TCP's head-of-line blocking problem.",
+          "QUIC also enables connection migration: if a client's IP changes (switching from Wi-Fi to cellular), the connection persists via a connection ID rather than breaking on the 4-tuple change. For mobile users, this is transformative. Connection establishment is faster too—QUIC combines transport and TLS handshakes, and 0-RTT resumption allows sending data in the first packet for returning clients.",
+          "Adoption is accelerating: Cloudflare, Google, and major CDNs support HTTP/3. However, some corporate firewalls and middleboxes block or throttle UDP, causing fallback to HTTP/2. In system design, assume HTTP/3 at the edge (CDN to client) and HTTP/2 or gRPC internally (service to service), with graceful fallback mechanisms."
+        ],
+        "bullets": [
+          "0-RTT resumption: faster reconnects but replay attack risk for non-idempotent requests",
+          "UDP port 443: QUIC uses the same port as HTTPS for firewall compatibility",
+          "Alt-Svc header: server advertises HTTP/3 availability; clients upgrade opportunistically"
+        ]
+      },
+      {
+        "title": "Caching, CDNs, and Performance",
+        "paragraphs": [
+          "HTTP caching is one of the most impactful performance optimizations available. Cache-Control headers (max-age, s-maxage, no-cache, no-store, private, public) control how long responses are cached at browsers, CDNs, and reverse proxies. ETags enable conditional requests—clients send If-None-Match and receive 304 Not Modified instead of the full body. For read-heavy APIs serving relatively static data, aggressive caching can reduce origin load by 90%+.",
+          "Content Delivery Networks (CDNs) cache content at edge locations geographically close to users. A user in Tokyo hits a Tokyo edge server instead of your US-based origin. CDNs also terminate TLS, support HTTP/2 and HTTP/3, compress responses, and provide DDoS protection. Cache invalidation strategies—TTL-based expiry, purge APIs, stale-while-revalidate—are essential operational knowledge.",
+          "Performance best practices span all HTTP versions: minimize payload size (gzip/brotli compression), reduce round trips (bundle resources, use HTTP/2 push hints or preload), leverage caching aggressively, and use a CDN for static assets and cacheable API responses. Measure with tools like WebPageTest, Lighthouse, and server-side APM to identify whether latency is in DNS, connection setup, TTFB, or download."
+        ]
+      },
+      {
+        "title": "API Design with HTTP Semantics",
+        "paragraphs": [
+          "RESTful API design maps domain concepts to HTTP resources and methods. Collections use plural nouns (/users, /orders), individual resources use IDs (/users/123). Nested resources express relationships (/users/123/orders). Use query parameters for filtering, sorting, and pagination (?status=active&page=2). Response bodies should be consistent—wrap collections in a standard envelope if your team agrees on a convention.",
+          "Versioning strategies include URL path (/v1/users), headers (Accept: application/vnd.api+json;version=1), or query parameters. URL versioning is simplest and most visible. Rate limiting via 429 status with Retry-After headers protects your service. CORS headers (Access-Control-Allow-Origin) are required for browser-based clients calling APIs on different domains—a common source of frontend integration bugs.",
+          "In microservices, HTTP is often the default inter-service protocol for its simplicity, debuggability (curl, browser dev tools), and universal support. However, for high-throughput internal communication, gRPC (covered in a later lesson) may be preferable. The choice depends on team familiarity, performance requirements, and whether you need browser compatibility."
+        ],
+        "bullets": [
+          "HATEOAS: include links in responses to guide clients (rarely implemented fully)",
+          "Content negotiation: Accept header specifies preferred response format",
+          "Webhook callbacks: POST to client URLs for event-driven integration"
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "HTTP/1.1, HTTP/2 & HTTP/3 — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of HTTP/1.1, HTTP/2 & HTTP/3: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "HTTP/1.1, HTTP/2 & HTTP/3 — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for HTTP/1.1, HTTP/2 & HTTP/3: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "HTTP methods: GET (read), POST (create), PUT (replace), PATCH (update), DELETE (remove)",
+    "Status codes: 2xx success, 3xx redirect, 4xx client error, 5xx server error",
+    "HTTP/1.1 keep-alive: persistent connections; head-of-line blocking per connection",
+    "HTTP/2: binary framing, multiplexed streams, HPACK header compression, single TCP connection",
+    "HTTP/3: QUIC over UDP, independent stream delivery, 0-RTT, connection migration",
+    "Caching: Cache-Control, ETag, If-None-Match, 304 Not Modified, CDN edge caching",
+    "TLS termination: often at load balancer or CDN; backend may use plain HTTP internally",
+    "CORS: cross-origin resource sharing headers for browser security",
+    "Idempotency: safe to retry GET/PUT/DELETE; POST may need idempotency keys",
+    "TTFB (Time to First Byte): key metric; includes DNS, TCP, TLS, server processing"
+  ],
+  "practices": [
+    "Use correct HTTP status codes and methods—don't return 200 with an error body",
+    "Set Cache-Control headers deliberately; use CDN cache tags for granular invalidation",
+    "Enable HTTP/2 and HTTP/3 at your CDN/load balancer; fall back gracefully for older clients",
+    "Compress responses with gzip or brotli; brotli achieves 15–20% better compression",
+    "Implement rate limiting with 429 and Retry-After; use idempotency keys for POST retries",
+    "Terminate TLS at the edge (CDN/ALB) and use HTTP/2 for backend connections where possible",
+    "Monitor TTFB, connection reuse rate, and cache hit ratio as core HTTP health metrics"
+  ],
+  "pitfalls": [
+    "Returning 200 OK with { error: true } in the body—breaks HTTP semantics and caching",
+    "Ignoring CORS until frontend integration fails in production",
+    "Caching personalized or authenticated responses without Cache-Control: private",
+    "Assuming HTTP/2 automatically makes APIs faster—large payloads and server processing still dominate",
+    "Using 0-RTT QUIC resumption for non-idempotent POST requests (replay attack risk)",
+    "Opening too many parallel HTTP/1.1 connections instead of upgrading to HTTP/2"
+  ],
+  "examples": [
+    {
+      "title": "Shopify's HTTP/3 Rollout",
+      "description": "Shopify enabled HTTP/3 via QUIC on their CDN, reducing connection setup time for mobile shoppers by ~200ms. They implemented Alt-Svc headers for gradual client migration and maintained HTTP/2 fallback. Checkout completion rates improved measurably on high-latency mobile networks where TCP head-of-line blocking was most severe."
+    },
+    {
+      "title": "Stripe API Idempotency Keys",
+      "description": "Stripe's POST /v1/charges accepts an Idempotency-Key header. If a client retries due to a network timeout, the same key returns the original response without double-charging. This pattern—essential for any payment or order API—relies on understanding that HTTP POST is not idempotent and network failures are inevitable."
+    },
+    {
+      "title": "GitHub API Conditional Requests",
+      "description": "GitHub's REST API returns ETag headers on resources. Clients store the ETag and send If-None-Match on subsequent requests. If the resource hasn't changed, GitHub returns 304 with no body—saving bandwidth and processing. Integrations polling GitHub for changes reduced API call volume by 80% using this pattern."
+    }
+  ],
+  "keyTakeaways": [
+    "HTTP/1.1 is text-based with per-connection head-of-line blocking; browsers parallelize with multiple connections",
+    "HTTP/2 multiplexes streams over one TCP connection but still suffers TCP-level packet loss blocking",
+    "HTTP/3 (QUIC) solves transport-level blocking with independent UDP streams and faster handshakes",
+    "Caching with Cache-Control and ETags is the highest-ROI HTTP performance optimization",
+    "Correct status codes, methods, and idempotency design are signs of production-grade APIs",
+    "Terminate TLS at the edge; use CDNs for static content and cacheable API responses",
+    "Always implement graceful fallback across HTTP versions for compatibility"
+  ],
+  "whyItMatters": "HTTP is the lingua franca of web APIs and the protocol your users' browsers speak. Performance tuning, caching strategy, CDN configuration, and API contract design all depend on understanding HTTP semantics and how each version handles connections. In interviews, you'll be asked to design REST APIs, optimize latency, and choose between HTTP and alternatives—this knowledge is the foundation.",
+  "reflectionQuestions": [
+    "Your API serves 1KB JSON responses. Would upgrading from HTTP/1.1 to HTTP/3 significantly reduce latency? What would you measure first?",
+    "How would you design cache invalidation for a product catalog that updates hourly but must never serve stale prices?",
+    "When is returning 202 Accepted preferable to 200 OK for a POST endpoint?",
+    "Why might an enterprise client behind a strict firewall fail to use HTTP/3, and how would you detect this?"
+  ],
+  "resources": [
+    "RFC 9110 — HTTP Semantics (current HTTP specification)",
+    "RFC 9113 — HTTP/2",
+    "RFC 9114 — HTTP/3",
+    "web.dev articles on HTTP/2 and HTTP/3 by Google Chrome team",
+    "MDN HTTP documentation — comprehensive reference for methods, headers, and status codes"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "net-http-overview",
+      "title": "HTTP/1.1, HTTP/2 & HTTP/3 overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain HTTP/1.1, HTTP/2 & HTTP/3 and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on HTTP/1.1, HTTP/2 & HTTP/3; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "RFC 9110 — HTTP Semantics (current HTTP specification)"
+    },
+    {
+      "title": "RFC 9113 — HTTP/2"
+    },
+    {
+      "title": "RFC 9114 — HTTP/3"
+    },
+    {
+      "title": "web.dev articles on HTTP/2 and HTTP/3 by Google Chrome team"
+    },
+    {
+      "title": "MDN HTTP documentation — comprehensive reference for methods, headers, and status codes"
+    }
+  ],
+  "relatedLessons": [
+    "net-bgp-anycast",
+    "net-kernel",
+    "net-lb-proxy"
+  ]
+}

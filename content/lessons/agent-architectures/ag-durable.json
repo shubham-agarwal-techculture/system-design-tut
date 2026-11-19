@@ -1,0 +1,98 @@
+{
+  "id": "ag-durable",
+  "title": "Durable Agent Execution",
+  "moduleId": "agent-architectures",
+  "phaseId": "agentic-systems",
+  "durationMinutes": 30,
+  "summary": "Durable Agent Execution — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "agent-architectures",
+    "living",
+    "agentic-systems"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Durable Agent Execution. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Durable Agent Execution. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Durable Agent Execution — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Durable Agent Execution: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Durable Agent Execution — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Durable Agent Execution: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Durable Agent Execution: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Durable Agent Execution belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding Durable Agent Execution improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Durable Agent Execution in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ag-durable-overview",
+      "title": "Durable Agent Execution overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Durable Agent Execution and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Durable Agent Execution; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ag-multiagent",
+    "ag-tools"
+  ]
+}

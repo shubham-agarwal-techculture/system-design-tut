@@ -1,0 +1,263 @@
+{
+  "id": "db-indexes-replication",
+  "title": "Indexes, Replication & Sharding",
+  "moduleId": "databases",
+  "phaseId": "foundations",
+  "durationMinutes": 40,
+  "summary": "Indexes accelerate queries at the cost of write overhead and storage. Replication provides availability, fault tolerance, and read scaling. Sharding partitions data across nodes for write scaling — but introduces cross-shard query complexity and hot spot risk. These three mechanisms are the primary toolkit for scaling databases.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "db-cdc"
+  ],
+  "tags": [
+    "databases",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Indexes: How Queries Find Data Fast",
+      "paragraphs": [
+        "Without an index, finding a row by email requires a full table scan — O(n) pages read. A B+ tree index on email reduces this to O(log n) — typically 3–4 page reads for billions of rows. Indexes are separate data structures (usually B+ trees) storing indexed columns plus a pointer to the row (primary key or physical location).",
+        "Composite indexes (a, b, c) support queries filtering on prefix columns — useful for WHERE a = ? AND b = ? but not WHERE b = ? alone (left-prefix rule). Column order matters: put equality filters first, range filters last.",
+        "Covering index: the index contains all columns needed by the query — the engine satisfies the query from the index alone (index-only scan), avoiding heap/table lookups. CREATE INDEX ... INCLUDE (col) in PostgreSQL adds non-key columns to leaf pages.",
+        "Index trade-offs: every INSERT/UPDATE/DELETE must update affected indexes — more indexes = slower writes and more storage. Partial indexes (WHERE active = true) and expression indexes (LOWER(email)) target specific query patterns efficiently."
+      ],
+      "bullets": [
+        "Primary key index: unique, often clustered (InnoDB) or separate (PostgreSQL)",
+        "Secondary index: non-unique, points to PK or row location",
+        "Hash index: O(1) equality only, no range scans (PostgreSQL hash, Redis)",
+        "GIN/GiST: specialized indexes for full-text, JSON, geospatial (PostgreSQL)"
+      ]
+    },
+    {
+      "title": "Query Planning and Index Selection",
+      "paragraphs": [
+        "The query optimizer (planner) estimates cost of execution plans — seq scan vs index scan vs bitmap scan — using statistics (row counts, value distribution, index correlation). Outdated statistics cause bad plans; ANALYZE (PostgreSQL) or AUTO ANALYZE keeps them fresh.",
+        "Index scan: walk B+ tree to find matching keys, fetch rows. Bitmap index scan: collect TID bitmap from index, sort by physical location, fetch in batch — reduces random I/O for moderate selectivity. Seq scan: read all pages — often faster for large fraction of table (optimizer threshold ~5–30% depending on config).",
+        "EXPLAIN ANALYZE is your diagnostic tool — shows actual vs estimated rows, index usage, and sort methods. 'Seq Scan on users' on a 10M row table for a high-selectivity query means missing or unused index.",
+        "Anti-patterns: indexing every column, redundant indexes (a,b) when (a,b,c) suffices for prefix queries, functions on indexed columns without expression index (WHERE LOWER(email) = ? bypasses index on email)."
+      ]
+    },
+    {
+      "title": "Replication: Availability and Read Scaling",
+      "paragraphs": [
+        "Replication copies data from a leader (primary) to followers (replicas). Purposes: failover when leader dies, read scaling by routing SELECTs to replicas, geographic distribution for low-latency reads.",
+        "Synchronous replication: leader waits for follower acknowledgment before commit — no data loss on failover but higher write latency and availability risk if follower is slow. Asynchronous: leader commits immediately, replicates in background — lower latency but possible data loss if leader fails before replication (RPO > 0).",
+        "Leader-follower (primary-replica) is most common: PostgreSQL streaming replication, MySQL binlog replication, Redis replication. Multi-leader: writes to any node, conflict resolution needed — rare, used in multi-datacenter (CouchDB, some CRDT systems). Leaderless (Dynamo-style): write to W of N nodes, read from R of N; R + W > N gives read-your-writes consistency.",
+        "Replication lag: async replicas fall behind under write load. Reading stale data from replica causes 'post redirect GET shows old profile' bugs. Monitor lag (seconds behind primary); route consistency-sensitive reads to primary or use quorum reads."
+      ],
+      "bullets": [
+        "Failover: promote replica to leader — manual or automatic (Patroni, Orchestrator)",
+        "Split-brain: two nodes think they are leader — use fencing, quorum, or STONITH",
+        "Read replica: scale reads, not writes — all writes still go to leader",
+        "Chain replication: A → B → C reduces leader fan-out"
+      ]
+    },
+    {
+      "title": "Sharding: Horizontal Partitioning for Write Scale",
+      "paragraphs": [
+        "When a single node cannot handle write throughput or storage, partition data across shards — each shard is an independent database holding a subset of keys. Application or proxy layer routes queries by shard key.",
+        "Shard key choice is the most critical decision. Good key: high cardinality, even distribution, aligns with query patterns (most queries filter by shard key). Bad key: low cardinality (country=US for 95% of users), monotonically increasing (timestamp — all writes hit last shard), or unrelated to access pattern (causes cross-shard joins).",
+        "Cross-shard queries are expensive: aggregating across all shards, JOINs between sharded tables, global secondary indexes (maintained asynchronously). Design schemas so co-located data shares a shard key — user_id shards user profile, orders, and settings together.",
+        "Resharding: when adding nodes, remapping keys requires moving data. Consistent hashing minimizes remapping — only K/n keys move when adding K nodes to n existing. Virtual nodes improve balance. Tools: Vitess, Citus, MongoDB sharding, application-level routing."
+      ]
+    },
+    {
+      "title": "Putting It Together in Production",
+      "paragraphs": [
+        "Typical evolution: single PostgreSQL with indexes → add read replicas for analytics and read-heavy endpoints → cache hot data in Redis → shard when write/storage limits hit. Each step adds operational complexity — do not shard prematurely.",
+        "Hot spots: even with good shard key, celebrity users or viral content concentrate load on one shard. Mitigations: sub-sharding hot keys, read replicas for hot shard, application-level fan-out, or splitting hot entity across synthetic keys.",
+        "Global systems combine replication (availability, geo-reads) and sharding (write scale). CockroachDB and Spanner shard automatically with distributed consensus. Application-level sharding (Vitess, custom) offers control at the cost of routing logic.",
+        "For interviews: articulate index strategy for access patterns, replication mode for RPO/RTO requirements, and shard key with awareness of hot spots and cross-shard query cost. Draw the data flow: write → leader → async replica → cache invalidation."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Indexes: How Queries Find Data Fast",
+        "paragraphs": [
+          "Without an index, finding a row by email requires a full table scan — O(n) pages read. A B+ tree index on email reduces this to O(log n) — typically 3–4 page reads for billions of rows. Indexes are separate data structures (usually B+ trees) storing indexed columns plus a pointer to the row (primary key or physical location).",
+          "Composite indexes (a, b, c) support queries filtering on prefix columns — useful for WHERE a = ? AND b = ? but not WHERE b = ? alone (left-prefix rule). Column order matters: put equality filters first, range filters last.",
+          "Covering index: the index contains all columns needed by the query — the engine satisfies the query from the index alone (index-only scan), avoiding heap/table lookups. CREATE INDEX ... INCLUDE (col) in PostgreSQL adds non-key columns to leaf pages.",
+          "Index trade-offs: every INSERT/UPDATE/DELETE must update affected indexes — more indexes = slower writes and more storage. Partial indexes (WHERE active = true) and expression indexes (LOWER(email)) target specific query patterns efficiently."
+        ],
+        "bullets": [
+          "Primary key index: unique, often clustered (InnoDB) or separate (PostgreSQL)",
+          "Secondary index: non-unique, points to PK or row location",
+          "Hash index: O(1) equality only, no range scans (PostgreSQL hash, Redis)",
+          "GIN/GiST: specialized indexes for full-text, JSON, geospatial (PostgreSQL)"
+        ]
+      },
+      {
+        "title": "Query Planning and Index Selection",
+        "paragraphs": [
+          "The query optimizer (planner) estimates cost of execution plans — seq scan vs index scan vs bitmap scan — using statistics (row counts, value distribution, index correlation). Outdated statistics cause bad plans; ANALYZE (PostgreSQL) or AUTO ANALYZE keeps them fresh.",
+          "Index scan: walk B+ tree to find matching keys, fetch rows. Bitmap index scan: collect TID bitmap from index, sort by physical location, fetch in batch — reduces random I/O for moderate selectivity. Seq scan: read all pages — often faster for large fraction of table (optimizer threshold ~5–30% depending on config).",
+          "EXPLAIN ANALYZE is your diagnostic tool — shows actual vs estimated rows, index usage, and sort methods. 'Seq Scan on users' on a 10M row table for a high-selectivity query means missing or unused index.",
+          "Anti-patterns: indexing every column, redundant indexes (a,b) when (a,b,c) suffices for prefix queries, functions on indexed columns without expression index (WHERE LOWER(email) = ? bypasses index on email)."
+        ]
+      },
+      {
+        "title": "Replication: Availability and Read Scaling",
+        "paragraphs": [
+          "Replication copies data from a leader (primary) to followers (replicas). Purposes: failover when leader dies, read scaling by routing SELECTs to replicas, geographic distribution for low-latency reads.",
+          "Synchronous replication: leader waits for follower acknowledgment before commit — no data loss on failover but higher write latency and availability risk if follower is slow. Asynchronous: leader commits immediately, replicates in background — lower latency but possible data loss if leader fails before replication (RPO > 0).",
+          "Leader-follower (primary-replica) is most common: PostgreSQL streaming replication, MySQL binlog replication, Redis replication. Multi-leader: writes to any node, conflict resolution needed — rare, used in multi-datacenter (CouchDB, some CRDT systems). Leaderless (Dynamo-style): write to W of N nodes, read from R of N; R + W > N gives read-your-writes consistency.",
+          "Replication lag: async replicas fall behind under write load. Reading stale data from replica causes 'post redirect GET shows old profile' bugs. Monitor lag (seconds behind primary); route consistency-sensitive reads to primary or use quorum reads."
+        ],
+        "bullets": [
+          "Failover: promote replica to leader — manual or automatic (Patroni, Orchestrator)",
+          "Split-brain: two nodes think they are leader — use fencing, quorum, or STONITH",
+          "Read replica: scale reads, not writes — all writes still go to leader",
+          "Chain replication: A → B → C reduces leader fan-out"
+        ]
+      },
+      {
+        "title": "Sharding: Horizontal Partitioning for Write Scale",
+        "paragraphs": [
+          "When a single node cannot handle write throughput or storage, partition data across shards — each shard is an independent database holding a subset of keys. Application or proxy layer routes queries by shard key.",
+          "Shard key choice is the most critical decision. Good key: high cardinality, even distribution, aligns with query patterns (most queries filter by shard key). Bad key: low cardinality (country=US for 95% of users), monotonically increasing (timestamp — all writes hit last shard), or unrelated to access pattern (causes cross-shard joins).",
+          "Cross-shard queries are expensive: aggregating across all shards, JOINs between sharded tables, global secondary indexes (maintained asynchronously). Design schemas so co-located data shares a shard key — user_id shards user profile, orders, and settings together.",
+          "Resharding: when adding nodes, remapping keys requires moving data. Consistent hashing minimizes remapping — only K/n keys move when adding K nodes to n existing. Virtual nodes improve balance. Tools: Vitess, Citus, MongoDB sharding, application-level routing."
+        ]
+      },
+      {
+        "title": "Putting It Together in Production",
+        "paragraphs": [
+          "Typical evolution: single PostgreSQL with indexes → add read replicas for analytics and read-heavy endpoints → cache hot data in Redis → shard when write/storage limits hit. Each step adds operational complexity — do not shard prematurely.",
+          "Hot spots: even with good shard key, celebrity users or viral content concentrate load on one shard. Mitigations: sub-sharding hot keys, read replicas for hot shard, application-level fan-out, or splitting hot entity across synthetic keys.",
+          "Global systems combine replication (availability, geo-reads) and sharding (write scale). CockroachDB and Spanner shard automatically with distributed consensus. Application-level sharding (Vitess, custom) offers control at the cost of routing logic.",
+          "For interviews: articulate index strategy for access patterns, replication mode for RPO/RTO requirements, and shard key with awareness of hot spots and cross-shard query cost. Draw the data flow: write → leader → async replica → cache invalidation."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Indexes, Replication & Sharding — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Indexes, Replication & Sharding: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Indexes, Replication & Sharding — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Indexes, Replication & Sharding: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "B+ tree index: logarithmic lookup, supports range scans",
+    "Composite index left-prefix rule: (a,b) helps WHERE a=?, not WHERE b=? alone",
+    "Covering index: query satisfied from index without table access",
+    "Query optimizer: cost-based plan selection using statistics",
+    "Leader-follower replication: single write leader, async/sync followers",
+    "Replication lag: stale reads from async replicas",
+    "Shard key: determines data distribution and query routing",
+    "Consistent hashing: minimal key remapping when nodes added/removed",
+    "Hot spot: uneven load on one shard despite good average distribution",
+    "RPO/RTO: recovery point/time objectives drive sync vs async replication"
+  ],
+  "practices": [
+    "Index columns used in WHERE, JOIN, ORDER BY — verify with EXPLAIN ANALYZE",
+    "Choose shard key matching dominant query filter — co-locate related data",
+    "Monitor replication lag; route consistency-critical reads to primary",
+    "Use partial and composite indexes deliberately — avoid indexing low-selectivity columns alone",
+    "Plan failover: automated promotion, connection string updates, split-brain prevention",
+    "Add shards before hitting 70–80% capacity on largest node — resharding under fire is painful",
+    "Cache invalidation on write — replicas alone do not solve cache consistency"
+  ],
+  "pitfalls": [
+    "Bad shard key (timestamp, boolean, low-cardinality enum) — hot shards and uneven growth",
+    "Assuming read replicas scale writes — they do not; all writes hit the leader",
+    "Ignoring replication lag — users see stale data after their own writes",
+    "Over-indexing — write path slows, storage bloats, optimizer may choose wrong plan",
+    "Cross-shard JOINs in application without performance budget — N shard queries per request",
+    "Automatic failover without fencing — split-brain corrupts data with dual writes"
+  ],
+  "examples": [
+    {
+      "title": "Twitter/X user timeline shard key",
+      "description": "User-centric data (profile, tweets by user, followers) shards by user_id — most reads are 'get user' or 'get user's tweets.' Global trending is harder — separate service aggregates, or fan-out on write to follower timelines (write amplification vs read optimization). Celebrity tweets create hot spots — dedicated caching and async fan-out pipelines handle disproportionate follower counts."
+    },
+    {
+      "title": "PostgreSQL read replica for reporting",
+      "description": "Production app writes to primary. Nightly analytics and admin dashboards query read replica. Async lag of 1–5 seconds is acceptable for reports but not for 'did my payment go through' — those reads hit primary. Connection pooler (PgBouncer) routes by query type or separate connection strings per role."
+    },
+    {
+      "title": "Vitess sharding at YouTube scale",
+      "description": "Vitess sits in front of many MySQL shards, providing SQL routing, resharding, and connection pooling. Shard key (e.g., user_id) embedded in schema. VSchema defines routing rules. Cross-shard queries supported but discouraged for hot paths. Demonstrates managed sharding layer vs application DIY routing."
+    }
+  ],
+  "keyTakeaways": [
+    "Indexes speed reads, slow writes — design for query patterns, verify with EXPLAIN",
+    "Replication provides failover and read scale; async lag means stale replica reads",
+    "Sharding enables write scale but shard key choice is hard to change later",
+    "Co-locate related data on the same shard to avoid cross-shard joins",
+    "Consistent hashing eases resharding; hot spots need application-level mitigation",
+    "Evolve gradually: indexes → replicas → cache → shard when metrics demand it",
+    "RPO/RTO requirements determine sync vs async replication — not one-size-fits-all"
+  ],
+  "whyItMatters": "Database scaling questions dominate system design interviews and production incidents. 'How would you scale this DB' expects indexes for query paths, replicas for read/failover trade-offs, and sharding for write limits — with explicit awareness of hot spots and consistency. Teams that shard too early drown in ops; teams that shard too late face painful migrations under load.",
+  "reflectionQuestions": [
+    "Design indexes for a query: SELECT * FROM orders WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 20.",
+    "Your async replica lag spikes to 30 seconds during peak. Which user-facing features break, and how do you mitigate?",
+    "Choose a shard key for a multi-tenant SaaS app (tenants, users, documents). Justify and describe one cross-shard query you'd avoid.",
+    "When would you choose sync replication over async despite the latency cost?"
+  ],
+  "resources": [
+    "Designing Data-Intensive Applications — Chapters 5, 6, 9 (Martin Kleppmann)",
+    "Use The Index, Luke — Practical index and SQL tuning guide",
+    "Vitess documentation — Sharding and VSchema design",
+    "PostgreSQL EXPLAIN documentation and pg_stat_replication monitoring"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "db-indexes-replication-overview",
+      "title": "Indexes, Replication & Sharding overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Indexes, Replication & Sharding and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Indexes, Replication & Sharding; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Chapters 5, 6, 9 (Martin Kleppmann)"
+    },
+    {
+      "title": "Use The Index, Luke — Practical index and SQL tuning guide"
+    },
+    {
+      "title": "Vitess documentation — Sharding and VSchema design"
+    },
+    {
+      "title": "PostgreSQL EXPLAIN documentation and pg_stat_replication monitoring"
+    }
+  ],
+  "relatedLessons": [
+    "db-cdc",
+    "db-modeling",
+    "db-replication-sharding"
+  ]
+}

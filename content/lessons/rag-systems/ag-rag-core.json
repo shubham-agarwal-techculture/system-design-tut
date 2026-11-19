@@ -1,0 +1,103 @@
+{
+  "id": "ag-rag-core",
+  "title": "Chunking, Hybrid Search & Reranking",
+  "moduleId": "rag-systems",
+  "phaseId": "agentic-systems",
+  "durationMinutes": 30,
+  "summary": "RAG quality is dominated by retrieval design: how you chunk, what you index, how you fuse lexical and dense signals, and how you rerank before generation.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "ag-graphrag"
+  ],
+  "tags": [
+    "rag-systems",
+    "living",
+    "agentic-systems"
+  ],
+  "sections": [
+    {
+      "title": "Chunking is an API contract",
+      "paragraphs": [
+        "Chunk size, overlap, and metadata (title, section path, ACLs, timestamps) determine what the model can cite. Over-long chunks dilute embeddings; over-short chunks lose context. Structure-aware chunking (headings, tables) usually beats fixed character windows."
+      ]
+    },
+    {
+      "title": "Hybrid retrieval and reranking",
+      "paragraphs": [
+        "Lexical search (BM25) handles rare identifiers; dense vectors handle paraphrase. Fuse candidates (e.g. reciprocal rank fusion) then apply a cross-encoder or LLM reranker on a shortlist. Always enforce document ACLs before the prompt is built."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Chunking is an API contract",
+        "paragraphs": [
+          "Chunk size, overlap, and metadata (title, section path, ACLs, timestamps) determine what the model can cite. Over-long chunks dilute embeddings; over-short chunks lose context. Structure-aware chunking (headings, tables) usually beats fixed character windows."
+        ]
+      },
+      {
+        "title": "Hybrid retrieval and reranking",
+        "paragraphs": [
+          "Lexical search (BM25) handles rare identifiers; dense vectors handle paraphrase. Fuse candidates (e.g. reciprocal rank fusion) then apply a cross-encoder or LLM reranker on a shortlist. Always enforce document ACLs before the prompt is built."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Chunking, Hybrid Search & Reranking — Deep Dive",
+        "paragraphs": [
+          "Operational detail for Chunking, Hybrid Search & Reranking: metrics to watch, capacity knobs, and failure injection ideas."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Chunking, Hybrid Search & Reranking — Expert Notes",
+        "paragraphs": [
+          "Edge cases and multi-tenant considerations for Chunking, Hybrid Search & Reranking."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Hybrid search = lexical + dense",
+    "Rerankers trade latency for precision on a shortlist",
+    "ACL filtering belongs in retrieval, not only in the UI"
+  ],
+  "practices": [
+    "Build an eval set before tuning chunk size",
+    "Log retrieved chunk IDs with every answer for debugging"
+  ],
+  "pitfalls": [
+    "Prompting a larger model to compensate for bad retrieval",
+    "Embedding without metadata filters"
+  ],
+  "examples": [
+    {
+      "title": "Production pattern",
+      "description": "Teams operating chunking, hybrid search & reranking treat measurement and budgets as part of the design, not an afterthought."
+    }
+  ],
+  "keyTakeaways": [
+    "RAG is an information-retrieval system with an LLM on top"
+  ],
+  "whyItMatters": "Most production RAG failures are retrieval and permissioning failures, not model failures.",
+  "reflectionQuestions": [
+    "How would you detect a retrieval regression in CI?"
+  ],
+  "numbersToKnow": [],
+  "diagrams": [],
+  "caseStudies": [],
+  "interviewQuestions": [],
+  "exercises": [],
+  "sources": [],
+  "relatedLessons": [
+    "ag-graphrag",
+    "ag-vector-internals"
+  ]
+}

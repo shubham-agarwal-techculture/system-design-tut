@@ -1,4 +1,6 @@
 export type Difficulty = "beginner" | "intermediate" | "advanced" | "expert";
+export type ContentKind = "evergreen" | "living";
+export type ContentStatus = "draft" | "reviewed" | "published";
 
 export interface LessonSection {
   title: string;
@@ -11,6 +13,38 @@ export interface LessonExample {
   description: string;
 }
 
+export interface Diagram {
+  id: string;
+  title: string;
+  mermaid: string;
+  caption?: string;
+}
+
+export interface CaseStudy {
+  title: string;
+  company?: string;
+  summary: string;
+  takeaways?: string[];
+}
+
+export interface Source {
+  title: string;
+  url?: string;
+  note?: string;
+}
+
+export interface GeneratedBy {
+  provider: string;
+  model: string;
+  at?: string;
+}
+
+export interface DepthTiers {
+  core: LessonSection[];
+  deepDive: LessonSection[];
+  expert: LessonSection[];
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -18,7 +52,15 @@ export interface Lesson {
   phaseId: string;
   durationMinutes: number;
   summary: string;
+  kind?: ContentKind;
+  difficulty?: Difficulty;
+  status?: ContentStatus;
+  version?: string;
+  lastReviewed?: string;
+  prerequisites?: string[];
+  tags?: string[];
   sections: LessonSection[];
+  depth?: DepthTiers;
   concepts: string[];
   practices: string[];
   pitfalls: string[];
@@ -27,6 +69,14 @@ export interface Lesson {
   whyItMatters: string;
   reflectionQuestions: string[];
   resources?: string[];
+  numbersToKnow?: string[];
+  diagrams?: Diagram[];
+  caseStudies?: CaseStudy[];
+  interviewQuestions?: string[];
+  exercises?: string[];
+  sources?: Source[];
+  generatedBy?: GeneratedBy;
+  relatedLessons?: string[];
 }
 
 export interface Module {
@@ -55,6 +105,13 @@ export interface DesignChallenge {
   hints: string[];
   checklist: string[];
   estimatedMinutes: number;
+  rubric?: string[];
+  referenceSolution?: string;
+  scaleVariants?: string[];
+  moduleId?: string;
+  phaseId?: string;
+  tags?: string[];
+  status?: ContentStatus;
 }
 
 export interface GlobalResource {

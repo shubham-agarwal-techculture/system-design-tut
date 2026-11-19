@@ -1,0 +1,101 @@
+{
+  "id": "net-quic",
+  "title": "QUIC Internals",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 30,
+  "summary": "QUIC Internals — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "net-load-balancing"
+  ],
+  "tags": [
+    "networking",
+    "living",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers QUIC Internals. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers QUIC Internals. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "QUIC Internals — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of QUIC Internals: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "QUIC Internals — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for QUIC Internals: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "QUIC Internals: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "QUIC Internals belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding QUIC Internals improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for QUIC Internals in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "net-quic-overview",
+      "title": "QUIC Internals overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain QUIC Internals and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on QUIC Internals; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "net-bgp-anycast",
+    "net-http",
+    "net-kernel"
+  ]
+}

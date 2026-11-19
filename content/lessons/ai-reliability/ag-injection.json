@@ -1,0 +1,100 @@
+{
+  "id": "ag-injection",
+  "title": "Prompt Injection Defense",
+  "moduleId": "ai-reliability",
+  "phaseId": "agentic-systems",
+  "durationMinutes": 30,
+  "summary": "Prompt Injection Defense — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "ag-evals"
+  ],
+  "tags": [
+    "ai-reliability",
+    "living",
+    "agentic-systems"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Prompt Injection Defense. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Prompt Injection Defense. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Prompt Injection Defense — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Prompt Injection Defense: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Prompt Injection Defense — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Prompt Injection Defense: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Prompt Injection Defense: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Prompt Injection Defense belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding Prompt Injection Defense improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Prompt Injection Defense in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "ag-injection-overview",
+      "title": "Prompt Injection Defense overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Prompt Injection Defense and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Prompt Injection Defense; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ag-budgets",
+    "ag-evals"
+  ]
+}

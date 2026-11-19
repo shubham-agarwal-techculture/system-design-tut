@@ -1,0 +1,224 @@
+{
+  "id": "storage-types",
+  "title": "SQL, NoSQL & Specialized Storage",
+  "moduleId": "storage",
+  "phaseId": "fundamentals",
+  "durationMinutes": 42,
+  "summary": "Different data shapes, access patterns, and consistency requirements demand different storage engines. Modern systems use polyglot persistence — SQL for transactional records, document stores for flexible schemas, key-value for speed, column-family for write-heavy workloads, time-series for metrics, and object storage for blobs.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-vector-db"
+  ],
+  "tags": [
+    "storage",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Relational Databases (SQL)",
+      "paragraphs": [
+        "Relational databases (PostgreSQL, MySQL, SQL Server) store data in tables with defined schemas, relationships, and constraints. SQL provides a powerful query language for joins, aggregations, filtering, and transactions spanning multiple rows.",
+        "ACID transactions make relational databases the default for financial records, inventory, user accounts, and any domain where consistency and integrity are non-negotiable. PostgreSQL in particular offers JSON columns, full-text search, and extensions that blur the line with document stores.",
+        "Scaling relational databases vertically is straightforward; horizontal scaling requires read replicas, partitioning, or sharding — each adding operational complexity. Schema migrations must be planned carefully in large teams."
+      ]
+    },
+    {
+      "title": "Document and Key-Value Stores",
+      "paragraphs": [
+        "Document databases (MongoDB, Couchbase) store JSON-like documents with flexible schemas. They excel when entities are self-contained, schema evolves frequently, or nested structures avoid expensive joins. Indexing on nested fields requires thoughtful design.",
+        "Key-value stores (Redis, DynamoDB, etcd) optimize for simple get/put/delete by key with predictable latency. Redis adds rich data structures (sorted sets, hashes) and optional persistence. DynamoDB offers managed, partition-key-driven scale with configurable consistency.",
+        "Choose document stores when your access pattern is 'fetch entity by ID with all related fields.' Choose key-value when access is strictly by key and you need extreme speed or horizontal scale without joins."
+      ]
+    },
+    {
+      "title": "Column-Family and Wide-Column Stores",
+      "paragraphs": [
+        "Column-family databases (Cassandra, HBase, ScyllaDB) organize data by partition key into wide rows with many columns. They optimize for high write throughput, geographic distribution, and time-ordered data within a partition.",
+        "Cassandra's tunable consistency and peer-to-peer architecture suit write-heavy workloads: IoT telemetry, activity feeds, messaging metadata. Queries must be designed around partition keys — ad-hoc analytics require separate pipelines.",
+        "These stores trade flexible querying for write scalability and availability. They are poor fits for workloads needing multi-row transactions or arbitrary ad-hoc joins."
+      ]
+    },
+    {
+      "title": "Time-Series and Object Storage",
+      "paragraphs": [
+        "Time-series databases (InfluxDB, TimescaleDB, QuestDB) optimize for timestamped metrics: compression, downsampling, retention policies, and time-range queries. They power observability stacks, IoT analytics, and financial tick data.",
+        "Object storage (Amazon S3, Google Cloud Storage, Azure Blob) stores unstructured blobs — images, videos, backups, data lake files. It offers durability (11 nines for S3), low cost per GB, and eventual consistency for overwrites. It is not a database: listing, querying, and small-object latency are weak points.",
+        "Use time-series DBs for metrics and monitoring data that grows unbounded. Use object storage as the durable, cheap layer for anything that does not need millisecond random access."
+      ]
+    },
+    {
+      "title": "Polyglot Persistence in Practice",
+      "paragraphs": [
+        "Real systems rarely use one database. An e-commerce platform might use PostgreSQL for orders and users, Redis for carts and rate limiting, Elasticsearch for product search, S3 for product images, and ClickHouse for analytics.",
+        "Each store syncs through application code or change-data-capture (CDC) pipelines. The challenge is keeping derived views consistent and handling failures during multi-store writes. Saga patterns and outbox tables help coordinate without distributed transactions across heterogeneous stores.",
+        "Choose storage based on access patterns, consistency needs, query flexibility, operational expertise, and cost — not hype. The best database is the one your team can operate reliably."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Relational Databases (SQL)",
+        "paragraphs": [
+          "Relational databases (PostgreSQL, MySQL, SQL Server) store data in tables with defined schemas, relationships, and constraints. SQL provides a powerful query language for joins, aggregations, filtering, and transactions spanning multiple rows.",
+          "ACID transactions make relational databases the default for financial records, inventory, user accounts, and any domain where consistency and integrity are non-negotiable. PostgreSQL in particular offers JSON columns, full-text search, and extensions that blur the line with document stores.",
+          "Scaling relational databases vertically is straightforward; horizontal scaling requires read replicas, partitioning, or sharding — each adding operational complexity. Schema migrations must be planned carefully in large teams."
+        ]
+      },
+      {
+        "title": "Document and Key-Value Stores",
+        "paragraphs": [
+          "Document databases (MongoDB, Couchbase) store JSON-like documents with flexible schemas. They excel when entities are self-contained, schema evolves frequently, or nested structures avoid expensive joins. Indexing on nested fields requires thoughtful design.",
+          "Key-value stores (Redis, DynamoDB, etcd) optimize for simple get/put/delete by key with predictable latency. Redis adds rich data structures (sorted sets, hashes) and optional persistence. DynamoDB offers managed, partition-key-driven scale with configurable consistency.",
+          "Choose document stores when your access pattern is 'fetch entity by ID with all related fields.' Choose key-value when access is strictly by key and you need extreme speed or horizontal scale without joins."
+        ]
+      },
+      {
+        "title": "Column-Family and Wide-Column Stores",
+        "paragraphs": [
+          "Column-family databases (Cassandra, HBase, ScyllaDB) organize data by partition key into wide rows with many columns. They optimize for high write throughput, geographic distribution, and time-ordered data within a partition.",
+          "Cassandra's tunable consistency and peer-to-peer architecture suit write-heavy workloads: IoT telemetry, activity feeds, messaging metadata. Queries must be designed around partition keys — ad-hoc analytics require separate pipelines.",
+          "These stores trade flexible querying for write scalability and availability. They are poor fits for workloads needing multi-row transactions or arbitrary ad-hoc joins."
+        ]
+      },
+      {
+        "title": "Time-Series and Object Storage",
+        "paragraphs": [
+          "Time-series databases (InfluxDB, TimescaleDB, QuestDB) optimize for timestamped metrics: compression, downsampling, retention policies, and time-range queries. They power observability stacks, IoT analytics, and financial tick data.",
+          "Object storage (Amazon S3, Google Cloud Storage, Azure Blob) stores unstructured blobs — images, videos, backups, data lake files. It offers durability (11 nines for S3), low cost per GB, and eventual consistency for overwrites. It is not a database: listing, querying, and small-object latency are weak points.",
+          "Use time-series DBs for metrics and monitoring data that grows unbounded. Use object storage as the durable, cheap layer for anything that does not need millisecond random access."
+        ]
+      },
+      {
+        "title": "Polyglot Persistence in Practice",
+        "paragraphs": [
+          "Real systems rarely use one database. An e-commerce platform might use PostgreSQL for orders and users, Redis for carts and rate limiting, Elasticsearch for product search, S3 for product images, and ClickHouse for analytics.",
+          "Each store syncs through application code or change-data-capture (CDC) pipelines. The challenge is keeping derived views consistent and handling failures during multi-store writes. Saga patterns and outbox tables help coordinate without distributed transactions across heterogeneous stores.",
+          "Choose storage based on access patterns, consistency needs, query flexibility, operational expertise, and cost — not hype. The best database is the one your team can operate reliably."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "SQL, NoSQL & Specialized Storage — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of SQL, NoSQL & Specialized Storage: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "SQL, NoSQL & Specialized Storage — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for SQL, NoSQL & Specialized Storage: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "ACID transactions: Atomicity, Consistency, Isolation, Durability",
+    "SQL relational model: tables, joins, foreign keys, indexes",
+    "Document store: flexible schema, nested JSON documents",
+    "Key-value store: O(1) lookup by key, partition-key design",
+    "Column-family: partition key + clustering columns, write-optimized",
+    "Time-series: compression, retention, downsampling, range queries",
+    "Object storage: durable blobs, high latency for small objects",
+    "Polyglot persistence: multiple specialized stores in one system",
+    "CAP/PACELC trade-offs vary by storage engine",
+    "Change-data-capture (CDC) for syncing between stores"
+  ],
+  "practices": [
+    "Model access patterns first, then choose the storage engine",
+    "Use PostgreSQL until proven otherwise — it handles most workloads well",
+    "Design DynamoDB/Cassandra partition keys to avoid hot partitions",
+    "Store files and large blobs in object storage, not database BLOB columns",
+    "Define retention and archival policies for time-series and log data",
+    "Use read replicas or materialized views for analytics without overloading primary DB",
+    "Document which store is source of truth for each entity type"
+  ],
+  "pitfalls": [
+    "Choosing MongoDB for relational data requiring complex joins and transactions",
+    "Storing multi-GB videos in PostgreSQL instead of S3",
+    "Hot partition keys in DynamoDB causing throttling on a single shard",
+    "Running analytics queries on the production OLTP primary",
+    "Assuming eventual consistency is acceptable without defining convergence time",
+    "Operating five databases when the team can reliably run one"
+  ],
+  "examples": [
+    {
+      "title": "Social media post storage",
+      "description": "Posts and user profiles live in Cassandra partitioned by user_id for fast timeline writes. Media files upload to S3. Search indexes sync to Elasticsearch via CDC. Follower counts are cached in Redis with periodic reconciliation from Cassandra."
+    },
+    {
+      "title": "SaaS billing platform",
+      "description": "PostgreSQL holds subscriptions, invoices, and payment records with strict ACID. Stripe webhooks write to an outbox table; a worker publishes events to Kafka. Usage metrics land in TimescaleDB for billing aggregation and dashboards."
+    }
+  ],
+  "keyTakeaways": [
+    "Match storage to access patterns — there is no universal best database",
+    "SQL remains the default for transactional, relational data",
+    "NoSQL stores trade query flexibility for scale and schema flexibility",
+    "Object storage is for blobs; time-series DBs are for metrics",
+    "Polyglot persistence is normal — coordinate with CDC, sagas, and clear ownership",
+    "Operational capability matters as much as theoretical performance"
+  ],
+  "whyItMatters": "Storage choice is one of the hardest decisions to reverse. Wrong choices cause performance cliffs, data inconsistency, and runaway costs. Interviewers expect you to justify storage per component, and production systems fail when teams treat all data as rows in one MySQL instance.",
+  "reflectionQuestions": [
+    "When would you choose a document store over SQL for a product catalog?",
+    "Why store images in S3 instead of a database?",
+    "What access pattern would lead you to Cassandra over PostgreSQL?",
+    "How do you keep search indexes consistent with the primary database?"
+  ],
+  "resources": [
+    "Designing Data-Intensive Applications — Chapters 2-3 (Data Models, Storage Engines)",
+    "Amazon DynamoDB Developer Guide — Data modeling",
+    "PostgreSQL documentation — When not to use PostgreSQL",
+    "Martin Kleppmann — Turning the database inside out"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "storage-types-overview",
+      "title": "SQL, NoSQL & Specialized Storage overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain SQL, NoSQL & Specialized Storage and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on SQL, NoSQL & Specialized Storage; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Chapters 2-3 (Data Models, Storage Engines)"
+    },
+    {
+      "title": "Amazon DynamoDB Developer Guide — Data modeling"
+    },
+    {
+      "title": "PostgreSQL documentation — When not to use PostgreSQL"
+    },
+    {
+      "title": "Martin Kleppmann — Turning the database inside out"
+    }
+  ],
+  "relatedLessons": [
+    "fund-olap",
+    "fund-search",
+    "fund-storage-types"
+  ]
+}

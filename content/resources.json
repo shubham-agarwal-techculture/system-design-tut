@@ -1,0 +1,76 @@
+[
+  {
+    "title": "Designing Data-Intensive Applications",
+    "type": "book",
+    "note": "The single most important book for system design. Read it cover to cover."
+  },
+  {
+    "title": "System Design Interview – An Insider's Guide",
+    "type": "book",
+    "note": "Practical interview-focused designs with clear diagrams."
+  },
+  {
+    "title": "Database Internals",
+    "type": "book",
+    "note": "Deep dive into storage engines and distributed database architecture."
+  },
+  {
+    "title": "Building Microservices",
+    "type": "book",
+    "note": "Sam Newman's guide to microservice architecture decisions."
+  },
+  {
+    "title": "Site Reliability Engineering",
+    "type": "book",
+    "note": "Google's SRE practices — reliability as an engineering discipline."
+  },
+  {
+    "title": "Release It!",
+    "type": "book",
+    "note": "Production-ready patterns: circuit breakers, bulkheads, stability."
+  },
+  {
+    "title": "Netflix Engineering Blog",
+    "type": "blog",
+    "url": "https://netflixtechblog.com"
+  },
+  {
+    "title": "Uber Engineering Blog",
+    "type": "blog",
+    "url": "https://eng.uber.com"
+  },
+  {
+    "title": "Cloudflare Blog",
+    "type": "blog",
+    "url": "https://blog.cloudflare.com"
+  },
+  {
+    "title": "Stripe Engineering Blog",
+    "type": "blog",
+    "url": "https://stripe.com/blog/engineering"
+  },
+  {
+    "title": "Redis",
+    "type": "opensource",
+    "url": "https://github.com/redis/redis",
+    "note": "In-memory data structure store — study the single-threaded event model."
+  },
+  {
+    "title": "Apache Kafka",
+    "type": "opensource",
+    "url": "https://github.com/apache/kafka",
+    "note": "Distributed commit log — study partition and consumer group design."
+  },
+  {
+    "title": "PostgreSQL",
+    "type": "opensource",
+    "url": "https://github.com/postgres/postgres",
+    "note": "Full-featured RDBMS — study MVCC, query planner, and WAL."
+  },
+  {
+    "title": "etcd",
+    "type": "opensource",
+    "url": "https://github.com/etcd-io/etcd",
+    "note": "Distributed key-value store using Raft — powers Kubernetes."
+  }
+]

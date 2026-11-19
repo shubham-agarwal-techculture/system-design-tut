@@ -1,0 +1,101 @@
+{
+  "id": "fund-vector-db",
+  "title": "Vector Databases",
+  "moduleId": "storage",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "Vector Databases — draft awaiting generation and review.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-storage-types"
+  ],
+  "tags": [
+    "storage",
+    "living",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Vector Databases. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Vector Databases. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Vector Databases — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Vector Databases: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Vector Databases — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Vector Databases: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Vector Databases: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Vector Databases belongs in the curriculum as living content"
+  ],
+  "whyItMatters": "Understanding Vector Databases improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Vector Databases in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-vector-db-overview",
+      "title": "Vector Databases overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Vector Databases and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Vector Databases; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-olap",
+    "fund-search",
+    "fund-storage-types"
+  ]
+}

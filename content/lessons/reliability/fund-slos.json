@@ -1,0 +1,101 @@
+{
+  "id": "fund-slos",
+  "title": "SLOs & Error Budgets",
+  "moduleId": "reliability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "SLOs & Error Budgets — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-reliability"
+  ],
+  "tags": [
+    "reliability",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers SLOs & Error Budgets. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers SLOs & Error Budgets. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "SLOs & Error Budgets — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of SLOs & Error Budgets: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "SLOs & Error Budgets — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for SLOs & Error Budgets: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "SLOs & Error Budgets: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "SLOs & Error Budgets belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding SLOs & Error Budgets improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for SLOs & Error Budgets in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-slos-overview",
+      "title": "SLOs & Error Budgets overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain SLOs & Error Budgets and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on SLOs & Error Budgets; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-chaos",
+    "fund-incidents",
+    "fund-reliability"
+  ]
+}

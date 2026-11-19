@@ -3,6 +3,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useProgressContext } from "@/context/ProgressContext";
 import { buildSessionPlan, formatMinutes } from "@/utils/session";
 import type { SessionDuration } from "@/types";
+import { Button } from "@/design/components/Button";
+import { SegmentedControl } from "@/design/components/SegmentedControl";
+import { Tag } from "@/design/components/Tag";
 
 const durations: SessionDuration[] = [5, 15, 30, 60];
 
@@ -14,7 +17,6 @@ export default function SessionPage() {
   );
   const [started, setStarted] = useState(false);
   const [completedInSession, setCompletedInSession] = useState<string[]>([]);
-
   const { progress, markLessonComplete } = useProgressContext();
 
   const plan = useMemo(
@@ -27,162 +29,102 @@ export default function SessionPage() {
     [selected, progress.completedLessons, progress.completedChallenges, completedInSession],
   );
 
-  const handleDurationChange = (d: SessionDuration) => {
-    setSelected(d);
-    setSearchParams({ duration: String(d) });
+  const handleDurationChange = (d: string) => {
+    const next = Number(d) as SessionDuration;
+    setSelected(next);
+    setSearchParams({ duration: String(next) });
     setStarted(false);
     setCompletedInSession([]);
   };
 
-  const handleLessonDone = (lessonId: string, minutes: number) => {
-    markLessonComplete(lessonId, minutes);
-    setCompletedInSession((prev) => [...prev, lessonId]);
-  };
-
-  const allDone =
-    plan.lessons.every((l) => completedInSession.includes(l.id)) &&
-    (!plan.challenge || progress.completedChallenges.includes(plan.challenge.id));
-
   return (
-    <div className="mx-auto max-w-3xl px-8 py-10 animate-fade-in">
-      <header className="mb-8">
-        <h1 className="heading-xl">Study Session</h1>
-        <p className="mt-2 text-muted">
-          Tell us how much time you have. We'll build a focused plan from your current
-          progress.
-        </p>
-        <div className="divider-ornate mt-6" />
-      </header>
+    <div className="mx-auto max-w-3xl px-8 py-10">
+      <h1 className="text-3xl" style={{ fontFamily: "var(--font-heading)" }}>
+        Study session
+      </h1>
+      <p className="mt-2 mb-6 text-[var(--color-ink-muted)]">
+        Choose a duration. The plan is built from your remaining curriculum.
+      </p>
 
-      <div className="mb-8 grid grid-cols-4 gap-3">
-        {durations.map((d) => (
-          <button
-            key={d}
-            onClick={() => handleDurationChange(d)}
-            className={`card gothic-arch py-3 text-center font-serif transition-all ${
-              selected === d
-                ? "session-active"
-                : "text-muted hover:border-[var(--color-burgundy)]/25"
-            }`}
-          >
-            {d < 60 ? `${d} min` : "1 hour"}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        ariaLabel="Duration"
+        options={durations.map((d) => ({
+          value: String(d),
+          label: d === 60 ? "60m" : `${d}m`,
+        }))}
+        value={String(selected)}
+        onChange={handleDurationChange}
+      />
 
-      <div className="card-lifted mb-6 p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="heading-lg">Your session plan</h2>
-          <span className="text-sm text-subtle">~{formatMinutes(plan.totalMinutes)}</span>
+      <div className="mt-8 border border-[var(--color-rule)] bg-[var(--color-surface-raised)] p-4">
+        <div
+          className="mb-3 text-xs uppercase tracking-wider text-[var(--color-ink-muted)]"
+          style={{ fontFamily: "var(--font-label)" }}
+        >
+          Plan · {formatMinutes(plan.totalMinutes)}
         </div>
-
         {plan.lessons.length === 0 && !plan.challenge ? (
-          <p className="text-sm text-muted">
-            You've completed the entire curriculum! Head to{" "}
-            <Link to="/challenges" className="link-accent">
-              design challenges
-            </Link>{" "}
-            to keep practicing.
+          <p className="text-sm text-[var(--color-ink-muted)]">
+            Nothing left in this window — try a longer session or a challenge.
           </p>
         ) : (
-          <ol className="space-y-3">
-            {plan.lessons.map((lesson, i) => {
-              const done =
-                completedInSession.includes(lesson.id) ||
-                progress.completedLessons.includes(lesson.id);
-              return (
-                <li
-                  key={lesson.id}
-                  className={`flex items-center gap-3 rounded-lg px-4 py-3 ${
-                    done ? "lesson-row-done" : "lesson-row"
-                  }`}
-                >
-                  <span className="w-4 text-xs text-[var(--color-ink-faint)]">{i + 1}.</span>
-                  <div className="flex-1">
-                    <div className="text-sm text-[var(--color-ink-soft)]">{lesson.title}</div>
-                    <div className="text-xs text-subtle">
-                      {formatMinutes(lesson.durationMinutes)}
-                    </div>
-                  </div>
-                  {done ? (
-                    <span className="text-xs text-[var(--color-forest)]">✓</span>
-                  ) : started ? (
-                    <Link
-                      to={`/lesson/${lesson.id}`}
-                      onClick={() => handleLessonDone(lesson.id, lesson.durationMinutes)}
-                      className="link-accent text-xs"
-                    >
-                      Open →
-                    </Link>
-                  ) : null}
-                </li>
-              );
-            })}
-            {plan.challenge && (
-              <li className="flex items-center gap-3 rounded-lg border border-amber-800/25 bg-amber-900/5 px-4 py-3">
-                <span className="w-4 text-xs text-[var(--color-ink-faint)]">
-                  {plan.lessons.length + 1}.
+          <ul className="space-y-2">
+            {plan.lessons.map((l) => (
+              <li
+                key={l.id}
+                className="flex items-center justify-between border-t border-[var(--color-rule-subtle)] pt-2 text-sm"
+              >
+                <span>{l.title}</span>
+                <span style={{ fontFamily: "var(--font-mono)" }} className="text-xs text-[var(--color-ink-subtle)]">
+                  {formatMinutes(l.durationMinutes)}
                 </span>
-                <div className="flex-1">
-                  <div className="text-sm text-[var(--color-ink-soft)]">
-                    Design: {plan.challenge.title}
-                  </div>
-                  <div className="text-xs text-subtle">
-                    {formatMinutes(plan.challenge.estimatedMinutes)} ·{" "}
-                    {plan.challenge.difficulty}
-                  </div>
-                </div>
-                {started && (
-                  <Link
-                    to={`/challenge/${plan.challenge.id}`}
-                    className="text-xs text-[var(--color-brass)] hover:text-[var(--color-gold)]"
-                  >
-                    Open →
-                  </Link>
-                )}
+              </li>
+            ))}
+            {plan.challenge && (
+              <li className="flex items-center justify-between border-t border-[var(--color-rule-subtle)] pt-2 text-sm">
+                <span>
+                  Challenge: {plan.challenge.title} <Tag>{plan.challenge.difficulty}</Tag>
+                </span>
               </li>
             )}
-          </ol>
+          </ul>
         )}
       </div>
 
-      {!started && plan.lessons.length > 0 && (
-        <button
-          onClick={() => setStarted(true)}
-          className="btn-primary pulse-ring w-full py-3.5"
-        >
-          Start {selected < 60 ? `${selected}-minute` : "1-hour"} session
-        </button>
-      )}
-
-      {started && allDone && (
-        <div className="card-complete rounded-xl p-6 text-center">
-          <div className="mb-2 font-serif text-2xl text-[var(--color-gold)]">✦</div>
-          <h3 className="heading-md mb-1">Session complete!</h3>
-          <p className="mb-4 text-sm text-muted">
-            Well done, scholar. Consistency beats intensity — see you next time.
-          </p>
-          <Link to="/" className="btn-success">
-            Back to home
-          </Link>
-        </div>
-      )}
-
-      {started && !allDone && plan.lessons.length > 0 && (
-        <div className="mt-4 text-center">
-          <p className="mb-3 text-xs text-subtle">
-            Open each item above, learn, then mark it complete.
-          </p>
-          {!plan.lessons.every((l) => completedInSession.includes(l.id)) && (
-            <Link
-              to={`/lesson/${plan.lessons.find((l) => !completedInSession.includes(l.id))?.id}`}
-              className="btn-primary"
-            >
-              Continue with next lesson →
-            </Link>
-          )}
-        </div>
-      )}
+      <div className="mt-6 flex gap-2">
+        {!started ? (
+          <Button onClick={() => setStarted(true)} disabled={plan.lessons.length === 0}>
+            Start session
+          </Button>
+        ) : (
+          <div className="w-full space-y-3">
+            {plan.lessons.map((l) => (
+              <div
+                key={l.id}
+                className="flex items-center justify-between border border-[var(--color-rule)] px-3 py-2"
+              >
+                <Link to={`/lesson/${l.id}`} className="text-[var(--color-signal)]">
+                  {l.title}
+                </Link>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    markLessonComplete(l.id, l.durationMinutes);
+                    setCompletedInSession((prev) => [...prev, l.id]);
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            ))}
+            {plan.challenge && (
+              <Link to={`/challenge/${plan.challenge.id}`}>
+                <Button variant="secondary">Open challenge</Button>
+              </Link>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

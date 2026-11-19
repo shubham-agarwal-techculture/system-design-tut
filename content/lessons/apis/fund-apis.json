@@ -1,0 +1,99 @@
+{
+  "id": "fund-apis",
+  "title": "REST, GraphQL, gRPC & Streaming APIs",
+  "moduleId": "apis",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "REST, GraphQL, gRPC & Streaming APIs — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "api-styles"
+  ],
+  "tags": [
+    "apis",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers REST, GraphQL, gRPC & Streaming APIs. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers REST, GraphQL, gRPC & Streaming APIs. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "REST, GraphQL, gRPC & Streaming APIs — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of REST, GraphQL, gRPC & Streaming APIs: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "REST, GraphQL, gRPC & Streaming APIs — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for REST, GraphQL, gRPC & Streaming APIs: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "REST, GraphQL, gRPC & Streaming APIs: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "REST, GraphQL, gRPC & Streaming APIs belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding REST, GraphQL, gRPC & Streaming APIs improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for REST, GraphQL, gRPC & Streaming APIs in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-apis-overview",
+      "title": "REST, GraphQL, gRPC & Streaming APIs overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain REST, GraphQL, gRPC & Streaming APIs and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on REST, GraphQL, gRPC & Streaming APIs; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "api-styles"
+  ]
+}

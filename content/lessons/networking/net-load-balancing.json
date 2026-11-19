@@ -1,0 +1,283 @@
+{
+  "id": "net-load-balancing",
+  "title": "Load Balancing & Reverse Proxies",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 40,
+  "summary": "Load balancers distribute incoming traffic across multiple backend servers, enabling horizontal scaling and high availability. Reverse proxies sit in front of backends to terminate TLS, route requests, cache responses, and enforce security policies. Together they form the entry point of virtually every production architecture.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "net-lb-proxy"
+  ],
+  "tags": [
+    "networking",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "Why Load Balancing Matters",
+      "paragraphs": [
+        "A single server has finite capacity—CPU, memory, network bandwidth, and connection limits. Load balancing distributes traffic across a pool of servers so no single machine bears the full load. If one server fails, the load balancer routes traffic to healthy instances, providing high availability. This is the foundation of horizontal scaling: add more servers behind the load balancer instead of upgrading one machine vertically.",
+        "Load balancers also simplify operations. You can deploy new code to a subset of backends (canary/rolling deployment), drain connections from servers being decommissioned, and perform maintenance without downtime. SSL/TLS termination at the load balancer offloads cryptographic work from application servers. Health checks continuously probe backends and automatically remove unhealthy instances from the pool.",
+        "In cloud environments, load balancers are managed services: AWS ALB/NLB, GCP Cloud Load Balancing, Azure Load Balancer, Cloudflare. On-premises, NGINX, HAProxy, and Envoy are popular. The choice between managed and self-hosted depends on operational capacity, required features, and cost at scale."
+      ],
+      "bullets": [
+        "Horizontal scaling: add instances to the pool; load balancer distributes automatically",
+        "High availability: health checks detect failures; traffic reroutes in seconds",
+        "Zero-downtime deploys: rolling updates drain old instances while new ones join"
+      ]
+    },
+    {
+      "title": "Layer 4 vs. Layer 7 Load Balancing",
+      "paragraphs": [
+        "Layer 4 (L4) load balancers operate at the transport layer, routing based on IP address and TCP/UDP port. They don't inspect packet contents—just forward connections. L4 balancers are extremely fast (millions of connections per second), simple, and protocol-agnostic. AWS Network Load Balancer (NLB) and HAProxy in TCP mode are L4 examples. Use L4 when you need raw throughput, WebSocket passthrough, or non-HTTP protocols.",
+        "Layer 7 (L7) load balancers operate at the application layer, inspecting HTTP headers, URLs, cookies, and request content. This enables intelligent routing: send /api/* to API servers, /static/* to a CDN, route by header values (X-Version: v2 → canary pool), and implement A/B testing. L7 balancers can modify requests/responses (add headers, redirect, rewrite URLs), terminate TLS, and cache responses. AWS Application Load Balancer (ALB) and NGINX in HTTP mode are L7 examples.",
+        "The trade-off: L4 is faster and simpler but dumber; L7 is feature-rich but adds processing overhead. Many architectures use both: an L4 load balancer (NLB) for extreme throughput at the edge, and L7 load balancers (ALB/NGINX) behind it for routing logic. For gRPC, which runs over HTTP/2, you need an L7 balancer that understands HTTP/2—or a dedicated gRPC-aware proxy like Envoy."
+      ],
+      "bullets": [
+        "L4: routes by IP:port; supports any TCP/UDP protocol; ultra-low latency",
+        "L7: routes by URL, headers, cookies; TLS termination, caching, WAF integration",
+        "Dual-stack: NLB (L4) → ALB (L7) → application servers is a common AWS pattern"
+      ]
+    },
+    {
+      "title": "Load Balancing Algorithms",
+      "paragraphs": [
+        "Round-robin distributes requests sequentially across backends. Simple and effective when servers are homogeneous and requests have similar cost. Weighted round-robin assigns more traffic to powerful servers (weight 3 gets three times the requests of weight 1). Round-robin fails when requests vary wildly in processing time or servers have different capacities—one slow request blocks the next assignment to that server.",
+        "Least connections routes to the backend with the fewest active connections. Better than round-robin when requests have variable duration (long-polling, WebSocket, database-heavy queries). Least response time (used by some ADCs) routes to the server with lowest average latency. IP hash (source IP hashing) maps each client IP to a specific backend, providing session affinity without cookies.",
+        "Consistent hashing maps requests to backends using a hash ring. When a backend is added or removed, only a fraction of requests are remapped (unlike modulo hashing, which remaps almost everything). This is critical for caches and stateful services: each key consistently maps to the same server, minimizing cache misses during scaling events. Memcached clients and CDNs use consistent hashing extensively."
+      ],
+      "bullets": [
+        "Round-robin: simple, even distribution; poor fit for variable request costs",
+        "Least connections: adapts to slow backends; ideal for long-lived connections",
+        "Consistent hashing: minimal remapping on scale events; essential for distributed caches"
+      ]
+    },
+    {
+      "title": "Reverse Proxies: NGINX, HAProxy, Envoy",
+      "paragraphs": [
+        "A reverse proxy sits between clients and backend servers, forwarding client requests and returning server responses. Unlike a forward proxy (which clients configure to access the internet), a reverse proxy is deployed by the server operator. Clients don't know backends exist—they only see the proxy. Every load balancer is a reverse proxy; the terms are often used interchangeably.",
+        "NGINX is the most widely deployed reverse proxy and web server. It excels at serving static files, TLS termination, HTTP/2, gzip compression, and simple upstream load balancing. Configuration is declarative via nginx.conf. HAProxy specializes in load balancing with sophisticated health checks, ACL-based routing, and detailed metrics. It's common in high-availability setups where HAProxy fronts a pool of NGINX or application servers.",
+        "Envoy is a modern, cloud-native proxy designed for service meshes (Istio, Linkerd). It supports HTTP/2, gRPC, dynamic configuration via xDS APIs, circuit breaking, retries, timeouts, and distributed tracing integration. Envoy sidecars deploy alongside each microservice, handling all ingress/egress traffic. For Kubernetes, Ingress controllers (NGINX Ingress, Traefik, AWS ALB Ingress) automate reverse proxy configuration from Kubernetes resources."
+      ],
+      "bullets": [
+        "NGINX: static files, TLS termination, simple LB; battle-tested, huge community",
+        "HAProxy: advanced health checks, ACLs, metrics; common in HA architectures",
+        "Envoy: dynamic config, gRPC-native, observability; foundation of service meshes"
+      ]
+    },
+    {
+      "title": "Session Affinity, Health Checks, and Production Patterns",
+      "paragraphs": [
+        "Session affinity (sticky sessions) routes the same client to the same backend across requests. Implemented via cookies (AWS ALB sticky sessions), source IP hashing, or JWT claims. Sticky sessions simplify stateful applications (shopping carts in memory) but complicate scaling—adding/removing servers disrupts sessions, and uneven client distribution causes hot spots. Prefer externalizing state (Redis, database) and running stateless backends when possible.",
+        "Health checks are how load balancers detect unhealthy backends. HTTP health checks probe an endpoint (GET /health) expecting 200. TCP checks verify port openness. Custom checks can validate database connectivity or dependency health. Configure check interval, timeout, healthy/unhealthy thresholds, and grace periods for new instances. A misconfigured health check—too aggressive (flapping) or too lenient (routing to dead servers)—is a common production issue.",
+        "Production patterns: blue-green deployment uses two identical environments, switching the load balancer target group atomically. Canary deployment routes 5% of traffic to a new version, monitoring error rates before full rollout. Connection draining (deregistration delay) allows in-flight requests to complete before removing a backend. Auto-scaling groups register/deregister instances with the load balancer automatically based on CPU, memory, or custom metrics."
+      ],
+      "bullets": [
+        "Sticky sessions: convenient for stateful apps but hinder even load distribution",
+        "Health check endpoint: return 200 only when all critical dependencies are healthy",
+        "Connection draining: 30–300s deregistration delay prevents dropped in-flight requests"
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Why Load Balancing Matters",
+        "paragraphs": [
+          "A single server has finite capacity—CPU, memory, network bandwidth, and connection limits. Load balancing distributes traffic across a pool of servers so no single machine bears the full load. If one server fails, the load balancer routes traffic to healthy instances, providing high availability. This is the foundation of horizontal scaling: add more servers behind the load balancer instead of upgrading one machine vertically.",
+          "Load balancers also simplify operations. You can deploy new code to a subset of backends (canary/rolling deployment), drain connections from servers being decommissioned, and perform maintenance without downtime. SSL/TLS termination at the load balancer offloads cryptographic work from application servers. Health checks continuously probe backends and automatically remove unhealthy instances from the pool.",
+          "In cloud environments, load balancers are managed services: AWS ALB/NLB, GCP Cloud Load Balancing, Azure Load Balancer, Cloudflare. On-premises, NGINX, HAProxy, and Envoy are popular. The choice between managed and self-hosted depends on operational capacity, required features, and cost at scale."
+        ],
+        "bullets": [
+          "Horizontal scaling: add instances to the pool; load balancer distributes automatically",
+          "High availability: health checks detect failures; traffic reroutes in seconds",
+          "Zero-downtime deploys: rolling updates drain old instances while new ones join"
+        ]
+      },
+      {
+        "title": "Layer 4 vs. Layer 7 Load Balancing",
+        "paragraphs": [
+          "Layer 4 (L4) load balancers operate at the transport layer, routing based on IP address and TCP/UDP port. They don't inspect packet contents—just forward connections. L4 balancers are extremely fast (millions of connections per second), simple, and protocol-agnostic. AWS Network Load Balancer (NLB) and HAProxy in TCP mode are L4 examples. Use L4 when you need raw throughput, WebSocket passthrough, or non-HTTP protocols.",
+          "Layer 7 (L7) load balancers operate at the application layer, inspecting HTTP headers, URLs, cookies, and request content. This enables intelligent routing: send /api/* to API servers, /static/* to a CDN, route by header values (X-Version: v2 → canary pool), and implement A/B testing. L7 balancers can modify requests/responses (add headers, redirect, rewrite URLs), terminate TLS, and cache responses. AWS Application Load Balancer (ALB) and NGINX in HTTP mode are L7 examples.",
+          "The trade-off: L4 is faster and simpler but dumber; L7 is feature-rich but adds processing overhead. Many architectures use both: an L4 load balancer (NLB) for extreme throughput at the edge, and L7 load balancers (ALB/NGINX) behind it for routing logic. For gRPC, which runs over HTTP/2, you need an L7 balancer that understands HTTP/2—or a dedicated gRPC-aware proxy like Envoy."
+        ],
+        "bullets": [
+          "L4: routes by IP:port; supports any TCP/UDP protocol; ultra-low latency",
+          "L7: routes by URL, headers, cookies; TLS termination, caching, WAF integration",
+          "Dual-stack: NLB (L4) → ALB (L7) → application servers is a common AWS pattern"
+        ]
+      },
+      {
+        "title": "Load Balancing Algorithms",
+        "paragraphs": [
+          "Round-robin distributes requests sequentially across backends. Simple and effective when servers are homogeneous and requests have similar cost. Weighted round-robin assigns more traffic to powerful servers (weight 3 gets three times the requests of weight 1). Round-robin fails when requests vary wildly in processing time or servers have different capacities—one slow request blocks the next assignment to that server.",
+          "Least connections routes to the backend with the fewest active connections. Better than round-robin when requests have variable duration (long-polling, WebSocket, database-heavy queries). Least response time (used by some ADCs) routes to the server with lowest average latency. IP hash (source IP hashing) maps each client IP to a specific backend, providing session affinity without cookies.",
+          "Consistent hashing maps requests to backends using a hash ring. When a backend is added or removed, only a fraction of requests are remapped (unlike modulo hashing, which remaps almost everything). This is critical for caches and stateful services: each key consistently maps to the same server, minimizing cache misses during scaling events. Memcached clients and CDNs use consistent hashing extensively."
+        ],
+        "bullets": [
+          "Round-robin: simple, even distribution; poor fit for variable request costs",
+          "Least connections: adapts to slow backends; ideal for long-lived connections",
+          "Consistent hashing: minimal remapping on scale events; essential for distributed caches"
+        ]
+      },
+      {
+        "title": "Reverse Proxies: NGINX, HAProxy, Envoy",
+        "paragraphs": [
+          "A reverse proxy sits between clients and backend servers, forwarding client requests and returning server responses. Unlike a forward proxy (which clients configure to access the internet), a reverse proxy is deployed by the server operator. Clients don't know backends exist—they only see the proxy. Every load balancer is a reverse proxy; the terms are often used interchangeably.",
+          "NGINX is the most widely deployed reverse proxy and web server. It excels at serving static files, TLS termination, HTTP/2, gzip compression, and simple upstream load balancing. Configuration is declarative via nginx.conf. HAProxy specializes in load balancing with sophisticated health checks, ACL-based routing, and detailed metrics. It's common in high-availability setups where HAProxy fronts a pool of NGINX or application servers.",
+          "Envoy is a modern, cloud-native proxy designed for service meshes (Istio, Linkerd). It supports HTTP/2, gRPC, dynamic configuration via xDS APIs, circuit breaking, retries, timeouts, and distributed tracing integration. Envoy sidecars deploy alongside each microservice, handling all ingress/egress traffic. For Kubernetes, Ingress controllers (NGINX Ingress, Traefik, AWS ALB Ingress) automate reverse proxy configuration from Kubernetes resources."
+        ],
+        "bullets": [
+          "NGINX: static files, TLS termination, simple LB; battle-tested, huge community",
+          "HAProxy: advanced health checks, ACLs, metrics; common in HA architectures",
+          "Envoy: dynamic config, gRPC-native, observability; foundation of service meshes"
+        ]
+      },
+      {
+        "title": "Session Affinity, Health Checks, and Production Patterns",
+        "paragraphs": [
+          "Session affinity (sticky sessions) routes the same client to the same backend across requests. Implemented via cookies (AWS ALB sticky sessions), source IP hashing, or JWT claims. Sticky sessions simplify stateful applications (shopping carts in memory) but complicate scaling—adding/removing servers disrupts sessions, and uneven client distribution causes hot spots. Prefer externalizing state (Redis, database) and running stateless backends when possible.",
+          "Health checks are how load balancers detect unhealthy backends. HTTP health checks probe an endpoint (GET /health) expecting 200. TCP checks verify port openness. Custom checks can validate database connectivity or dependency health. Configure check interval, timeout, healthy/unhealthy thresholds, and grace periods for new instances. A misconfigured health check—too aggressive (flapping) or too lenient (routing to dead servers)—is a common production issue.",
+          "Production patterns: blue-green deployment uses two identical environments, switching the load balancer target group atomically. Canary deployment routes 5% of traffic to a new version, monitoring error rates before full rollout. Connection draining (deregistration delay) allows in-flight requests to complete before removing a backend. Auto-scaling groups register/deregister instances with the load balancer automatically based on CPU, memory, or custom metrics."
+        ],
+        "bullets": [
+          "Sticky sessions: convenient for stateful apps but hinder even load distribution",
+          "Health check endpoint: return 200 only when all critical dependencies are healthy",
+          "Connection draining: 30–300s deregistration delay prevents dropped in-flight requests"
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Load Balancing & Reverse Proxies — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Load Balancing & Reverse Proxies: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Load Balancing & Reverse Proxies — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Load Balancing & Reverse Proxies: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "L4 load balancing: routes by IP and port; fast, protocol-agnostic (NLB, HAProxy TCP)",
+    "L7 load balancing: routes by URL, headers, cookies; TLS termination (ALB, NGINX HTTP)",
+    "Algorithms: round-robin, weighted round-robin, least connections, IP hash, consistent hashing",
+    "Reverse proxy: client-facing intermediary that forwards to backend servers",
+    "Health checks: HTTP/TCP probes that remove unhealthy backends from rotation",
+    "Sticky sessions: route same client to same backend via cookie or IP hash",
+    "TLS termination: decrypt at load balancer; backends receive plain HTTP",
+    "Connection draining: graceful removal of backends during deploys or scale-down",
+    "Consistent hashing: minimal key remapping when backends are added/removed",
+    "Service mesh: Envoy sidecars per pod handle LB, retries, circuit breaking, tracing"
+  ],
+  "practices": [
+    "Prefer stateless backends with externalized session state over sticky sessions",
+    "Implement a dedicated /health endpoint that checks database, cache, and critical dependencies",
+    "Use consistent hashing for cache layers and stateful services to minimize disruption on scaling",
+    "Terminate TLS at the load balancer; re-encrypt to backends if required by compliance",
+    "Set connection draining delay longer than your longest expected request duration",
+    "Use L7 load balancing for HTTP/gRPC; reserve L4 for extreme throughput or non-HTTP protocols",
+    "Monitor load balancer metrics: request count, latency percentiles, healthy host count, 5xx rate"
+  ],
+  "pitfalls": [
+    "Using round-robin when requests have vastly different processing times—causes uneven load",
+    "Sticky sessions causing hot spots when a few power users dominate traffic",
+    "Health checks that only verify the process is running, not that dependencies are reachable",
+    "Setting health check intervals too short, causing flapping during brief CPU spikes",
+    "Forgetting connection draining—killing backends mid-request during deploys",
+    "Running TLS on every application server instead of terminating at the load balancer—wastes CPU"
+  ],
+  "examples": [
+    {
+      "title": "AWS ALB with Auto Scaling Group",
+      "description": "A web application runs on EC2 instances in an Auto Scaling Group (min 2, max 20). An ALB distributes HTTPS traffic using least-outstanding-requests algorithm. Health checks probe /health every 15 seconds. During deploys, CodeDeploy performs rolling updates—new instances pass health checks before old ones are drained. Scale-out triggers when average CPU exceeds 70% for 3 minutes."
+    },
+    {
+      "title": "Cloudflare as Global Load Balancer",
+      "description": "An API uses Cloudflare as a reverse proxy and CDN. DNS points to Cloudflare's anycast IPs. Cloudflare terminates TLS, caches static responses, applies WAF rules, and routes dynamic requests to origin servers in three regions. During an origin outage, Cloudflare automatically fails over to the next healthy origin within seconds—faster than DNS TTL-based failover."
+    },
+    {
+      "title": "Consistent Hashing in Memcached",
+      "description": "A caching layer with 10 Memcached nodes uses consistent hashing via client-side library. Each cache key maps to a specific node. When scaling from 10 to 12 nodes, only ~17% of keys remap (vs. ~83% with simple modulo hashing). This minimizes cache miss storms during scaling events—a critical detail for high-traffic services where cache warmth directly impacts database load."
+    }
+  ],
+  "keyTakeaways": [
+    "Load balancers enable horizontal scaling and high availability—they are the entry point of production architectures",
+    "L4 balances by IP:port (fast, simple); L7 balances by HTTP content (smart routing, TLS termination)",
+    "Choose algorithms based on workload: least connections for variable duration, consistent hashing for caches",
+    "Reverse proxies (NGINX, HAProxy, Envoy) terminate TLS, route, cache, and enforce security at the edge",
+    "Prefer stateless backends; externalize session state instead of relying on sticky sessions",
+    "Health checks and connection draining are essential for zero-downtime deployments",
+    "Monitor healthy host count and 5xx rates—load balancer metrics reveal backend health instantly"
+  ],
+  "whyItMatters": "You cannot build a highly available, horizontally scaled system without a load balancer. It's the first component in every architecture diagram and the operational hub for deployments, failover, and TLS. Understanding L4 vs. L7, algorithm trade-offs, and reverse proxy capabilities is essential for both system design interviews and production engineering.",
+  "reflectionQuestions": [
+    "Your API has endpoints ranging from 5ms (cache hit) to 30s (report generation). Which load balancing algorithm do you choose and why?",
+    "When would you reject sticky sessions even though your app stores session data in memory?",
+    "How would you implement a zero-downtime deployment with a load balancer and health checks?",
+    "Why might you place an L4 load balancer in front of an L7 load balancer in a high-traffic architecture?"
+  ],
+  "resources": [
+    "NGINX documentation — reverse proxy, load balancing, and caching configuration",
+    "HAProxy Configuration Manual — ACLs, health checks, and balancing algorithms",
+    "Envoy Proxy documentation — xDS, circuit breaking, and observability features",
+    "AWS ELB documentation — ALB vs. NLB decision guide",
+    "Google SRE Book — Chapter on load balancing and frontend serving"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "net-load-balancing-overview",
+      "title": "Load Balancing & Reverse Proxies overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Load Balancing & Reverse Proxies and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Load Balancing & Reverse Proxies; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "NGINX documentation — reverse proxy, load balancing, and caching configuration"
+    },
+    {
+      "title": "HAProxy Configuration Manual — ACLs, health checks, and balancing algorithms"
+    },
+    {
+      "title": "Envoy Proxy documentation — xDS, circuit breaking, and observability features"
+    },
+    {
+      "title": "AWS ELB documentation — ALB vs. NLB decision guide"
+    },
+    {
+      "title": "Google SRE Book — Chapter on load balancing and frontend serving"
+    }
+  ],
+  "relatedLessons": [
+    "net-bgp-anycast",
+    "net-http",
+    "net-kernel"
+  ]
+}

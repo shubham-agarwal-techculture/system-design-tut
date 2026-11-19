@@ -1,0 +1,101 @@
+{
+  "id": "fund-stateless",
+  "title": "Stateless Services & State Management",
+  "moduleId": "scalability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "Stateless Services & State Management — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-estimation"
+  ],
+  "tags": [
+    "scalability",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers Stateless Services & State Management. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers Stateless Services & State Management. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Stateless Services & State Management — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of Stateless Services & State Management: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Stateless Services & State Management — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for Stateless Services & State Management: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Stateless Services & State Management: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "Stateless Services & State Management belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding Stateless Services & State Management improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for Stateless Services & State Management in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-stateless-overview",
+      "title": "Stateless Services & State Management overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Stateless Services & State Management and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on Stateless Services & State Management; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-estimation",
+    "fund-vertical-horizontal",
+    "scale-state-management"
+  ]
+}

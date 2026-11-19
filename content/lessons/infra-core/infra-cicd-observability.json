@@ -1,0 +1,298 @@
+{
+  "id": "infra-cicd-observability",
+  "title": "CI/CD & Observability",
+  "moduleId": "infra-core",
+  "phaseId": "infrastructure",
+  "durationMinutes": 40,
+  "summary": "CI/CD automates the path from code commit to production deployment. Observability — metrics, logs, and traces — tells you what your system is actually doing under load. Together they form the feedback loop that makes reliable, fast-moving engineering teams possible. This lesson covers pipeline design, deployment strategies, the three pillars of observability, and SRE-inspired alerting practices.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "infra-core",
+    "infrastructure"
+  ],
+  "sections": [
+    {
+      "title": "Continuous Integration: Fast, Reliable Feedback",
+      "paragraphs": [
+        "Continuous Integration (CI) means every code change triggers an automated pipeline that builds, tests, and validates the change before it merges. The goal is fast feedback: if a developer breaks the build, they know within minutes, not days.",
+        "A well-designed CI pipeline runs in stages ordered by cost: lint and format check (seconds) → unit tests (seconds to minutes) → integration tests with test containers (minutes) → build artifact (minutes) → security scan (minutes). Fail fast — don't run expensive integration tests if unit tests already failed.",
+        "Cache aggressively: dependency downloads (npm, Maven, Go modules), Docker layer caches, and test result caches cut pipeline time dramatically. Target under 10 minutes for CI on a typical change. Longer pipelines discourage small, frequent commits."
+      ],
+      "bullets": [
+        "CI triggers: pull request opened/updated, merge to main, scheduled nightly builds",
+        "Artifact registry: store built Docker images, JARs, or binaries with immutable tags",
+        "Branch protection: require CI pass + code review before merge",
+        "Flaky test quarantine: isolate unreliable tests rather than ignoring red builds"
+      ]
+    },
+    {
+      "title": "Continuous Delivery and Deployment Strategies",
+      "paragraphs": [
+        "Continuous Delivery (CD) extends CI: every merge to main produces a deployable artifact that passes all tests. Continuous Deployment goes further — every merge auto-deploys to production. Most teams use CD with manual approval for production; true continuous deployment suits high-test-coverage, low-blast-radius systems.",
+        "Deployment strategies control risk. Rolling update replaces instances incrementally (K8s default). Blue-green deploys a parallel environment, switches traffic, and keeps the old version for instant rollback. Canary releases route a small percentage of traffic (1–5%) to the new version, monitor error rates and latency, then gradually increase.",
+        "Feature flags decouple deployment from release: deploy code to production dark (flag off), then enable for internal users, then 1% of customers, then everyone. If something breaks, flip the flag off — no redeployment needed. This is the safest way to ship risky changes."
+      ],
+      "bullets": [
+        "Rolling update: incremental replacement — simple but slow rollback",
+        "Blue-green: instant traffic switch with immediate rollback capability",
+        "Canary: gradual traffic shift with automated promotion or rollback on metric thresholds",
+        "Feature flags: control feature visibility independently of deployment",
+        "Database migrations: backward-compatible changes first, then code deploy, then cleanup"
+      ]
+    },
+    {
+      "title": "Metrics: Measuring What Matters",
+      "paragraphs": [
+        "Metrics are numeric measurements over time: request rate, error rate, latency, CPU usage, queue depth. They power dashboards, alerts, and autoscaling decisions. The RED method covers request-driven services: Rate (requests/sec), Errors (failed requests/sec), Duration (latency distribution). The USE method covers resources: Utilization, Saturation, Errors.",
+        "Histograms and percentiles matter more than averages. Average latency of 50ms can hide the fact that 1% of requests take 5 seconds. Track p50, p95, and p99 latency. Alert on p99, not mean — users experience tail latency, not averages.",
+        "Prometheus is the dominant open-source metrics system: pull-based scraping, PromQL query language, Grafana for visualization. OpenTelemetry provides vendor-neutral instrumentation that exports to Prometheus, Datadog, or CloudWatch. Define SLIs (Service Level Indicators) from metrics and set SLOs (Service Level Objectives) with error budgets."
+      ],
+      "bullets": [
+        "RED: Rate, Errors, Duration — for request/response services",
+        "USE: Utilization, Saturation, Errors — for CPU, memory, disk, network",
+        "SLI: quantified measure of service reliability (e.g., '99.9% of requests succeed')",
+        "SLO: target for an SLI (e.g., '99.9% availability over 30 days')",
+        "Error budget: allowed unreliability before pausing feature work for reliability"
+      ]
+    },
+    {
+      "title": "Logs and Distributed Tracing",
+      "paragraphs": [
+        "Structured logging replaces free-text log lines with JSON objects containing consistent fields: timestamp, level, service, traceId, spanId, message, and contextual key-value pairs. Structured logs are searchable, filterable, and correlatable across services.",
+        "Correlation IDs (trace IDs) link logs across services. When a request enters your system, generate or propagate a trace ID. Every log line, metric, and span includes it. When debugging a failed request, search by trace ID to see the complete journey across 15 microservices.",
+        "Distributed tracing (Jaeger, Zipkin, Tempo via OpenTelemetry) records the path of a request through every service it touches. Each service creates spans (timed operations) nested under the trace. Traces reveal which service added 800ms of latency, where errors originated, and whether retries caused duplicate work."
+      ],
+      "bullets": [
+        "Structured logging: JSON with consistent fields — never printf-style free text in production",
+        "Correlation/trace ID: propagated through every service call and log line",
+        "Span: a single timed operation within a trace (HTTP call, DB query, cache lookup)",
+        "OpenTelemetry: vendor-neutral SDK for metrics, logs, and traces",
+        "Log aggregation: ELK stack (Elasticsearch, Logstash, Kibana), Loki, or cloud-native (CloudWatch, Datadog)"
+      ]
+    },
+    {
+      "title": "Alerting, On-Call, and the Observability Culture",
+      "paragraphs": [
+        "Alert on symptoms, not causes. 'Error rate > 1% for 5 minutes' is actionable. 'CPU > 80%' is not — high CPU might be fine during a traffic spike. Every alert should require human action; if it doesn't, it's a dashboard metric, not an alert.",
+        "Reduce alert fatigue: aggregate related alerts, use escalation policies, and review alert effectiveness monthly. If an alert fires and nobody acts on it, delete or downgrade it. On-call engineers should trust that every page is a real problem.",
+        "Observability is a culture, not a tool. Instrument code during development, not as an afterthought. Run game days (chaos engineering) to validate that your metrics, logs, and traces actually help you diagnose injected failures. Post-incident reviews (blameless postmortems) feed improvements back into monitoring and architecture."
+      ],
+      "bullets": [
+        "Symptom-based alerting: error rate, latency SLO breach, availability drop",
+        "Runbooks: documented response steps linked from every alert",
+        "Blameless postmortem: focus on systemic fixes, not individual fault",
+        "Game days: inject failures (kill pods, add latency) to test observability and response",
+        "Dashboard hierarchy: service overview → service detail → infrastructure detail"
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Continuous Integration: Fast, Reliable Feedback",
+        "paragraphs": [
+          "Continuous Integration (CI) means every code change triggers an automated pipeline that builds, tests, and validates the change before it merges. The goal is fast feedback: if a developer breaks the build, they know within minutes, not days.",
+          "A well-designed CI pipeline runs in stages ordered by cost: lint and format check (seconds) → unit tests (seconds to minutes) → integration tests with test containers (minutes) → build artifact (minutes) → security scan (minutes). Fail fast — don't run expensive integration tests if unit tests already failed.",
+          "Cache aggressively: dependency downloads (npm, Maven, Go modules), Docker layer caches, and test result caches cut pipeline time dramatically. Target under 10 minutes for CI on a typical change. Longer pipelines discourage small, frequent commits."
+        ],
+        "bullets": [
+          "CI triggers: pull request opened/updated, merge to main, scheduled nightly builds",
+          "Artifact registry: store built Docker images, JARs, or binaries with immutable tags",
+          "Branch protection: require CI pass + code review before merge",
+          "Flaky test quarantine: isolate unreliable tests rather than ignoring red builds"
+        ]
+      },
+      {
+        "title": "Continuous Delivery and Deployment Strategies",
+        "paragraphs": [
+          "Continuous Delivery (CD) extends CI: every merge to main produces a deployable artifact that passes all tests. Continuous Deployment goes further — every merge auto-deploys to production. Most teams use CD with manual approval for production; true continuous deployment suits high-test-coverage, low-blast-radius systems.",
+          "Deployment strategies control risk. Rolling update replaces instances incrementally (K8s default). Blue-green deploys a parallel environment, switches traffic, and keeps the old version for instant rollback. Canary releases route a small percentage of traffic (1–5%) to the new version, monitor error rates and latency, then gradually increase.",
+          "Feature flags decouple deployment from release: deploy code to production dark (flag off), then enable for internal users, then 1% of customers, then everyone. If something breaks, flip the flag off — no redeployment needed. This is the safest way to ship risky changes."
+        ],
+        "bullets": [
+          "Rolling update: incremental replacement — simple but slow rollback",
+          "Blue-green: instant traffic switch with immediate rollback capability",
+          "Canary: gradual traffic shift with automated promotion or rollback on metric thresholds",
+          "Feature flags: control feature visibility independently of deployment",
+          "Database migrations: backward-compatible changes first, then code deploy, then cleanup"
+        ]
+      },
+      {
+        "title": "Metrics: Measuring What Matters",
+        "paragraphs": [
+          "Metrics are numeric measurements over time: request rate, error rate, latency, CPU usage, queue depth. They power dashboards, alerts, and autoscaling decisions. The RED method covers request-driven services: Rate (requests/sec), Errors (failed requests/sec), Duration (latency distribution). The USE method covers resources: Utilization, Saturation, Errors.",
+          "Histograms and percentiles matter more than averages. Average latency of 50ms can hide the fact that 1% of requests take 5 seconds. Track p50, p95, and p99 latency. Alert on p99, not mean — users experience tail latency, not averages.",
+          "Prometheus is the dominant open-source metrics system: pull-based scraping, PromQL query language, Grafana for visualization. OpenTelemetry provides vendor-neutral instrumentation that exports to Prometheus, Datadog, or CloudWatch. Define SLIs (Service Level Indicators) from metrics and set SLOs (Service Level Objectives) with error budgets."
+        ],
+        "bullets": [
+          "RED: Rate, Errors, Duration — for request/response services",
+          "USE: Utilization, Saturation, Errors — for CPU, memory, disk, network",
+          "SLI: quantified measure of service reliability (e.g., '99.9% of requests succeed')",
+          "SLO: target for an SLI (e.g., '99.9% availability over 30 days')",
+          "Error budget: allowed unreliability before pausing feature work for reliability"
+        ]
+      },
+      {
+        "title": "Logs and Distributed Tracing",
+        "paragraphs": [
+          "Structured logging replaces free-text log lines with JSON objects containing consistent fields: timestamp, level, service, traceId, spanId, message, and contextual key-value pairs. Structured logs are searchable, filterable, and correlatable across services.",
+          "Correlation IDs (trace IDs) link logs across services. When a request enters your system, generate or propagate a trace ID. Every log line, metric, and span includes it. When debugging a failed request, search by trace ID to see the complete journey across 15 microservices.",
+          "Distributed tracing (Jaeger, Zipkin, Tempo via OpenTelemetry) records the path of a request through every service it touches. Each service creates spans (timed operations) nested under the trace. Traces reveal which service added 800ms of latency, where errors originated, and whether retries caused duplicate work."
+        ],
+        "bullets": [
+          "Structured logging: JSON with consistent fields — never printf-style free text in production",
+          "Correlation/trace ID: propagated through every service call and log line",
+          "Span: a single timed operation within a trace (HTTP call, DB query, cache lookup)",
+          "OpenTelemetry: vendor-neutral SDK for metrics, logs, and traces",
+          "Log aggregation: ELK stack (Elasticsearch, Logstash, Kibana), Loki, or cloud-native (CloudWatch, Datadog)"
+        ]
+      },
+      {
+        "title": "Alerting, On-Call, and the Observability Culture",
+        "paragraphs": [
+          "Alert on symptoms, not causes. 'Error rate > 1% for 5 minutes' is actionable. 'CPU > 80%' is not — high CPU might be fine during a traffic spike. Every alert should require human action; if it doesn't, it's a dashboard metric, not an alert.",
+          "Reduce alert fatigue: aggregate related alerts, use escalation policies, and review alert effectiveness monthly. If an alert fires and nobody acts on it, delete or downgrade it. On-call engineers should trust that every page is a real problem.",
+          "Observability is a culture, not a tool. Instrument code during development, not as an afterthought. Run game days (chaos engineering) to validate that your metrics, logs, and traces actually help you diagnose injected failures. Post-incident reviews (blameless postmortems) feed improvements back into monitoring and architecture."
+        ],
+        "bullets": [
+          "Symptom-based alerting: error rate, latency SLO breach, availability drop",
+          "Runbooks: documented response steps linked from every alert",
+          "Blameless postmortem: focus on systemic fixes, not individual fault",
+          "Game days: inject failures (kill pods, add latency) to test observability and response",
+          "Dashboard hierarchy: service overview → service detail → infrastructure detail"
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "CI/CD & Observability — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of CI/CD & Observability: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "CI/CD & Observability — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for CI/CD & Observability: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "CI pipeline: automated build, test, and validate on every code change",
+    "CD: every merge produces a deployable artifact; deployment may be manual or automatic",
+    "Canary deployment: route small traffic percentage to new version, monitor, then promote",
+    "Feature flags: decouple code deployment from feature release visibility",
+    "RED metrics: Rate, Errors, Duration for request-driven services",
+    "USE metrics: Utilization, Saturation, Errors for infrastructure resources",
+    "SLI/SLO: Service Level Indicator (measurement) and Objective (target threshold)",
+    "Structured logging: machine-parseable JSON logs with consistent field names",
+    "Distributed tracing: end-to-end request path visibility across services via spans",
+    "OpenTelemetry: open standard for collecting metrics, logs, and traces"
+  ],
+  "practices": [
+    "Keep CI pipeline under 10 minutes; fail fast with cheap checks first",
+    "Use canary or blue-green deployments for production — never big-bang deploy",
+    "Deploy database migrations separately and make them backward-compatible",
+    "Instrument the four golden signals: latency, traffic, errors, and saturation",
+    "Use structured JSON logging with trace IDs in every service from day one",
+    "Alert on user-facing symptoms (error rate, p99 latency) not infrastructure causes (CPU)",
+    "Write a runbook for every alert; if you can't write one, the alert isn't actionable"
+  ],
+  "pitfalls": [
+    "No CI: manual testing and deployment leads to fear-driven release cycles",
+    "Alert fatigue: too many non-actionable alerts cause on-call engineers to ignore real pages",
+    "Logging PII or secrets: structured logs in aggregators become compliance liabilities",
+    "Average latency monitoring: hides tail latency that ruins user experience for 1% of requests",
+    "Observability as afterthought: retrofitting instrumentation after launch misses critical early data",
+    "No rollback plan: deploying without tested rollback is gambling, not engineering"
+  ],
+  "examples": [
+    {
+      "title": "Google's SRE and Error Budgets",
+      "description": "Google's Site Reliability Engineering team defines SLOs with error budgets: if a service has 99.9% availability SLO, it gets 43 minutes of downtime per month. When the budget is exhausted, feature launches pause until reliability improves. This aligns product velocity with operational stability."
+    },
+    {
+      "title": "Etsy's CI/CD and Feature Flags",
+      "description": "Etsy deploys to production dozens of times daily using continuous deployment with strong CI (thousands of tests), feature flags for gradual rollouts, and comprehensive observability. Their deployment pipeline includes automatic rollback when error rates exceed thresholds during canary phases."
+    },
+    {
+      "title": "OpenTelemetry at Honeycomb",
+      "description": "Honeycomb pioneered observability-driven debugging using high-cardinality events (not just pre-aggregated metrics). OpenTelemetry instrumentation sends rich span data to their platform, enabling engineers to ask arbitrary questions about production behavior without pre-defining dashboards."
+    }
+  ],
+  "keyTakeaways": [
+    "CI provides fast feedback; CD ensures every merge is deployable",
+    "Canary deployments and feature flags minimize the blast radius of bad releases",
+    "Metrics (RED/USE), structured logs, and traces form the three pillars of observability",
+    "Track p99 latency and error rates — averages hide the problems users actually feel",
+    "Alert on symptoms that need human action; eliminate alerts that don't",
+    "SLOs and error budgets balance feature velocity with reliability investment",
+    "Observability must be built in from the start — retrofitting is expensive and incomplete"
+  ],
+  "whyItMatters": "You cannot operate what you cannot see. CI/CD enables teams to ship quickly and safely; observability tells you whether what you shipped actually works. In system design, proposing a architecture without a deployment strategy or monitoring plan is incomplete — interviewers and production systems both demand this feedback loop.",
+  "reflectionQuestions": [
+    "Design a CI pipeline for a microservice with unit tests, integration tests, and Docker build. What runs in which order and why?",
+    "Your canary deployment shows 0.5% error rate (baseline is 0.1%). Walk through your decision: promote, hold, or rollback?",
+    "What SLIs and SLOs would you define for a payment processing API?",
+    "A user reports a slow checkout experience. How do trace IDs and structured logs help you diagnose which service is responsible?"
+  ],
+  "resources": [
+    "Site Reliability Engineering (Google SRE Book)",
+    "The DevOps Handbook (Gene Kim et al.)",
+    "Observability Engineering (Charity Majors et al.)",
+    "OpenTelemetry documentation (opentelemetry.io)",
+    "Continuous Delivery (Jez Humble & David Farley)"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "infra-cicd-observability-overview",
+      "title": "CI/CD & Observability overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain CI/CD & Observability and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on CI/CD & Observability; list 3 trade-offs."
+  ],
+  "sources": [
+    {
+      "title": "Site Reliability Engineering (Google SRE Book)"
+    },
+    {
+      "title": "The DevOps Handbook (Gene Kim et al.)"
+    },
+    {
+      "title": "Observability Engineering (Charity Majors et al.)"
+    },
+    {
+      "title": "OpenTelemetry documentation (opentelemetry.io)"
+    },
+    {
+      "title": "Continuous Delivery (Jez Humble & David Farley)"
+    }
+  ],
+  "relatedLessons": [
+    "infra-containers-k8s",
+    "infra-iac"
+  ]
+}

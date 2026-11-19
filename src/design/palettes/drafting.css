@@ -1,0 +1,90 @@
+/* ═══════════════════════════════════════════════════════════════
+   DRAFTING SKIN — Technical drawing / blueprinting aesthetic
+   Colorways: vermilion | verdigris | cobalt
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Light mode (default) ── */
+[data-skin="drafting"],
+[data-skin="drafting"][data-mode="light"] {
+  --palette-surface:        #EDEAE2;
+  --palette-surface-raised: #F5F2EC;
+  --palette-surface-sunken: #E2DED5;
+  --palette-ink:            #23241F;
+  --palette-ink-soft:       #3B3C35;
+  --palette-ink-muted:      #6B6C63;
+  --palette-ink-subtle:     #9B9C93;
+  --palette-rule:           #B9B4A6;
+  --palette-rule-subtle:    #D1CEC5;
+  --palette-signal:         #D9431E;
+  --palette-signal-hover:   #C03518;
+
+  /* Skin-specific font assignments */
+  --skin-font-heading:      "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --skin-font-body:         "Source Serif 4", "Georgia", ui-serif, serif;
+  --skin-font-mono:         "IBM Plex Mono", "Courier New", ui-monospace, monospace;
+  --skin-font-label:        "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+}
+
+/* ── Dark mode (Cyanotype) ── */
+[data-skin="drafting"][data-mode="dark"] {
+  --palette-surface:        #14212B;
+  --palette-surface-raised: #1C2D39;
+  --palette-surface-sunken: #0E1820;
+  --palette-ink:            #E6E2D6;
+  --palette-ink-soft:       #D0CCB8;
+  --palette-ink-muted:      #9C9A8A;
+  --palette-ink-subtle:     #6E6C5E;
+  --palette-rule:           #2D4455;
+  --palette-rule-subtle:    #1E3040;
+  --palette-signal:         #FF6B3D;
+  --palette-signal-hover:   #FF8458;
+
+  --skin-font-heading:      "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --skin-font-body:         "Source Serif 4", "Georgia", ui-serif, serif;
+  --skin-font-mono:         "IBM Plex Mono", "Courier New", ui-monospace, monospace;
+  --skin-font-label:        "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+}
+
+/* ── Colorway: vermilion (default) ── */
+[data-skin="drafting"][data-colorway="vermilion"],
+[data-skin="drafting"]:not([data-colorway]) {
+  --palette-accent:         #D9431E;
+  --palette-accent-hover:   #C03518;
+  --palette-accent-subtle:  rgba(217, 67, 30, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+[data-skin="drafting"][data-mode="dark"][data-colorway="vermilion"],
+[data-skin="drafting"][data-mode="dark"]:not([data-colorway]) {
+  --palette-accent:         #FF6B3D;
+  --palette-accent-hover:   #FF8458;
+  --palette-accent-subtle:  rgba(255, 107, 61, 0.15);
+  --palette-accent-fg:      #14212B;
+}
+
+/* ── Colorway: verdigris ── */
+[data-skin="drafting"][data-colorway="verdigris"] {
+  --palette-accent:         #2F7D6D;
+  --palette-accent-hover:   #266A5C;
+  --palette-accent-subtle:  rgba(47, 125, 109, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+[data-skin="drafting"][data-mode="dark"][data-colorway="verdigris"] {
+  --palette-accent:         #4BA896;
+  --palette-accent-hover:   #62BAA9;
+  --palette-accent-subtle:  rgba(75, 168, 150, 0.15);
+  --palette-accent-fg:      #14212B;
+}
+
+/* ── Colorway: cobalt ── */
+[data-skin="drafting"][data-colorway="cobalt"] {
+  --palette-accent:         #2747A8;
+  --palette-accent-hover:   #1F3D92;
+  --palette-accent-subtle:  rgba(39, 71, 168, 0.12);
+  --palette-accent-fg:      #FFFFFF;
+}
+[data-skin="drafting"][data-mode="dark"][data-colorway="cobalt"] {
+  --palette-accent:         #5B7FD4;
+  --palette-accent-hover:   #7498E0;
+  --palette-accent-subtle:  rgba(91, 127, 212, 0.15);
+  --palette-accent-fg:      #14212B;
+}

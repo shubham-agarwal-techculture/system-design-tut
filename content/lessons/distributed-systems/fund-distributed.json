@@ -1,0 +1,101 @@
+{
+  "id": "fund-distributed",
+  "title": "CAP, Consensus & Consistency",
+  "moduleId": "distributed-systems",
+  "phaseId": "fundamentals",
+  "durationMinutes": 30,
+  "summary": "CAP, Consensus & Consistency — draft awaiting generation and review.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "draft",
+  "version": "0.1.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-crdts"
+  ],
+  "tags": [
+    "distributed-systems",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Overview",
+      "paragraphs": [
+        "This draft covers CAP, Consensus & Consistency. Run content:generate to expand it with a model provider, or edit manually."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Overview",
+        "paragraphs": [
+          "This draft covers CAP, Consensus & Consistency. Run content:generate to expand it with a model provider, or edit manually."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "CAP, Consensus & Consistency — Deep Dive",
+        "paragraphs": [
+          "Extended treatment of CAP, Consensus & Consistency: internals, operational knobs, and failure domains.",
+          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+        ],
+        "bullets": [
+          "Define SLIs before optimizing",
+          "Know amplification costs (read/write/space/network)",
+          "Document blast radius for each failure mode"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "CAP, Consensus & Consistency — Expert Notes",
+        "paragraphs": [
+          "Expert considerations for CAP, Consensus & Consistency: multi-region behavior, cost envelopes, and edge cases under overload."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "CAP, Consensus & Consistency: core idea"
+  ],
+  "practices": [
+    "Start from requirements and constraints before choosing tools"
+  ],
+  "pitfalls": [
+    "Treating tooling fashion as architecture"
+  ],
+  "examples": [],
+  "keyTakeaways": [
+    "CAP, Consensus & Consistency belongs in the curriculum as evergreen content"
+  ],
+  "whyItMatters": "Understanding CAP, Consensus & Consistency improves design judgment for production systems.",
+  "reflectionQuestions": [
+    "When would you reach for CAP, Consensus & Consistency in a real design?"
+  ],
+  "numbersToKnow": [
+    "Define p50/p99 latency and error budget before scaling"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-distributed-overview",
+      "title": "CAP, Consensus & Consistency overview",
+      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain CAP, Consensus & Consistency and the main trade-offs in 3 minutes."
+  ],
+  "exercises": [
+    "Design a small system that depends on CAP, Consensus & Consistency; list 3 trade-offs."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "dist-cap-consensus",
+    "fund-clocks",
+    "fund-consistency-models"
+  ]
+}
