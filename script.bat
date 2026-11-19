@@ -4,7 +4,7 @@ set "PROJECT=D:\projects-shubham\02.06.2026\cursor_projects\system_design_guide"
 
 wt ^
 new-tab --title "Server" cmd /k "cd /d %PROJECT% && serve -s dist" ^
-; new-tab --title "Browser" cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:3000"
+; new-tab --title "Browser" cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:4000"
 
 
 
