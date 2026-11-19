@@ -1,204 +1,237 @@
 {
   "id": "mind-requirements",
-  "title": "Requirements & Capacity Estimation",
+  "title": "Requirements Clarification Mindmap",
   "moduleId": "design-framework",
-  "phaseId": "designer-mindset",
+  "phaseId": "design-framework",
   "durationMinutes": 35,
-  "summary": "Requirements & Capacity Estimation is a core topic in modern system design. This lesson builds a first-principles model around a repeatable design process, then connects that model to capacity, failure modes, and operational practice so you can use it in real architectures.",
+  "summary": "Requirements clarification is the most underrated phase of a system design interview and the most underpracticed skill in production system design. Asking the right questions before drawing a single box converts a vague prompt into a concrete, bounded problem. This lesson provides a structured mental model for decomposing requirements into functional requirements, non-functional requirements, constraints, and scale parameters—the information needed to make defensible architectural decisions.",
   "kind": "evergreen",
   "difficulty": "intermediate",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "mind-apis-data"
-  ],
-  "tags": [
-    "design-framework",
-    "evergreen",
-    "designer-mindset"
-  ],
+  "prerequisites": [],
+  "tags": ["design-framework", "requirements", "interview", "system-design"],
   "sections": [
     {
-      "title": "What Requirements & Capacity Estimation is solving",
+      "title": "Why Requirements Come First",
       "paragraphs": [
-        "Requirements & Capacity Estimation exists because naive designs around a repeatable design process break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-        "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map Requirements & Capacity Estimation onto those constraints.",
-        "A useful mental model separates the control plane (how you configure and observe Requirements & Capacity Estimation) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-      ]
-    },
-    {
-      "title": "Core mechanics",
-      "paragraphs": [
-        "Mechanically, Requirements & Capacity Estimation involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-        "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-        "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand Requirements & Capacity Estimation."
+        "In a system design interview, the prompt is intentionally vague: 'Design Twitter.' This vagueness is the test. An engineer who immediately starts drawing boxes has failed to demonstrate the most important real-world skill: understanding what you're actually building before deciding how to build it. In production, requirements misalignment is the leading cause of engineering waste—teams build features the business didn't need, in ways that don't scale to the actual load, with consistency guarantees the product doesn't require.",
+        "Requirements drive architecture. A social feed with 100 users and a social feed with 100 million users have fundamentally different architectures. A payment system that can tolerate occasional double charges (bad design, but hypothetically) has very different consistency requirements from one that cannot. A real-time chat system and a batch reporting system use entirely different data models despite potentially sharing a 'messages' concept. Without clarifying these before designing, you're solving an arbitrary problem—not the actual one.",
+        "The goal of requirements clarification is not to gather all requirements—it's to gather the requirements that change the architecture. Some requirements don't matter for the design: whether the UI shows green or blue buttons doesn't affect the backend architecture. But scale (10K vs 10M users), consistency (eventual vs. strong), availability SLA (99% vs. 99.99%), and core features (send messages vs. send messages + voice + video + file transfer) fundamentally change what you build. Train yourself to identify which requirements are architecturally significant."
       ],
       "bullets": [
-        "Inputs → state/protocol → outputs/side effects",
-        "Name consistency and delivery guarantees",
-        "Identify the bottleneck resource early"
+        "Vagueness is intentional: the interview tests whether you ask the right questions",
+        "Requirements-driven architecture: scale, consistency, and core features change the whole design",
+        "Architecturally significant requirements: those that change what technology, topology, or pattern you choose",
+        "Spend 5-10 minutes on requirements in a 45-minute interview; it's time well invested"
       ]
     },
     {
-      "title": "Designing with it",
+      "title": "Functional Requirements: What the System Does",
       "paragraphs": [
-        "When incorporating Requirements & Capacity Estimation into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-        "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to Requirements & Capacity Estimation.",
-        "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of Requirements & Capacity Estimation should be observable on day one."
+        "Functional requirements define the core operations the system must support. For a URL shortener: create a short URL from a long URL, redirect a short URL to its long URL, optionally track click analytics. For a chat system: send a message, receive messages in real time, see message history. Identify the 3-5 core operations that constitute the minimum viable system—the essentials that the system cannot function without. Everything else is enhancement.",
+        "Distinguish must-have from nice-to-have features explicitly. 'Should the system support message editing?' might fundamentally change the data model (immutable events vs. mutable state). 'Do URLs expire?' changes the storage model and cleanup strategy. Ask what's in scope for this design conversation. A good approach: 'Let me list the core features I'll design for: X, Y, Z. I'll flag where other features would change the design but won't design them in depth. Does that scope work for you?'",
+        "Identify the read/write ratio and the dominant operation. Is this a read-heavy system (social feed, catalog) or write-heavy system (logging, IoT sensors, analytics events)? Is it real-time (chat, notifications) or batch (reports, billing)? These patterns determine storage choice, caching strategy, and data model. 'Most users read their timeline; very few post content—estimate 100:1 read/write ratio' is an important functional context that shapes the entire design."
+      ],
+      "bullets": [
+        "Enumerate 3-5 core operations: the system cannot function without these",
+        "Explicitly scope: 'I'll design X, Y, Z; will note where W changes the design'",
+        "Read/write ratio: 100:1 or 10:1 or 1:1? Determines storage, caching, replication strategy",
+        "Real-time vs. batch: determines whether you need WebSockets/Kafka or cron jobs"
       ]
     },
     {
-      "title": "Operations and failure modes",
+      "title": "Non-Functional Requirements: Quality Attributes",
       "paragraphs": [
-        "Operate Requirements & Capacity Estimation with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-        "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-        "Chaos and game days should include slow dependencies and network delay, not only hard kills. Requirements & Capacity Estimation often fails in the gray area."
+        "Non-functional requirements (NFRs) define the quality attributes of the system: performance, availability, consistency, durability, scalability, security, and cost. These are often the most architecturally consequential requirements and the most neglected in requirements discussions. 'The system must be fast' is not a non-functional requirement. 'API p99 latency must be under 200ms, with 99.9% availability, and reads may be up to 5 seconds stale' is a non-functional requirement that immediately constrains your design choices.",
+        "Availability SLA drives your redundancy and failover design. 99.9% availability means 8.7 hours of downtime per year—acceptable for internal tools. 99.99% means 52 minutes/year—requires multi-AZ deployment, automated failover, and zero-downtime deployments. 99.999% means 5 minutes/year—requires active-active multi-region, global load balancing, and rigorous chaos engineering. Each 'nine' costs approximately 10x more in infrastructure and operational complexity. Ask explicitly: what's the target availability, and who is the user affected by downtime?",
+        "Consistency requirements determine your data model and storage choice. 'Users must immediately see their own posts after posting' requires read-your-own-writes consistency—different from eventual consistency. 'A financial transfer must be atomic—debit and credit must both succeed or both fail' requires ACID transactions. 'A stock ticker can display a price that's up to 1 second stale' accepts eventual consistency for reads. Explicitly ask: for each core operation, is strong consistency required, or can the system tolerate eventual consistency? The answer should come from the business requirement, not engineering preference.",
+        "Durability requirements determine your storage, backup, and replication strategy. For user-generated content (posts, photos), data loss is unacceptable—S3 (11 nines durability) for media, RDBMS with synchronous replication for metadata. For ephemeral session data, losing it on server crash is acceptable—Redis without AOF is fine. For financial transactions, every record must be durable—Postgres with WAL + synchronous standbys. Ask: what is the acceptable data loss window (RPO) if the system fails?"
+      ],
+      "bullets": [
+        "Latency SLO: 'p99 < 200ms' not 'fast'; p50 vs p99 vs p999 matter differently",
+        "Availability SLA: each 9 costs 10x; 99.99% = multi-AZ + automated failover",
+        "Consistency: strong (ACID), read-your-own-writes, monotonic read, or eventual?",
+        "Durability: RPO (how much data loss is acceptable?), RTO (how fast must you recover?)"
+      ]
+    },
+    {
+      "title": "Scale Parameters: The Numbers That Drive Architecture",
+      "paragraphs": [
+        "Scale parameters are the quantitative inputs to your capacity planning and architectural choices. Without them, you're designing in a vacuum. The key scale questions: How many users total? How many daily active users? What is the peak request rate? How much data will be stored? How large is each object? For a file storage system, '100 GB average file' and '100 KB average file' require completely different architectures.",
+        "Derive scale numbers through estimation, not memorization. 'Design YouTube': ~2 billion users, ~500 million daily active, 500 hours of video uploaded per minute, 1 billion hours watched per day. These numbers lead directly to architectural decisions: CDN is non-negotiable (you cannot serve 1 billion hours of video from origin servers), video transcoding is a massive compute challenge (500 hours/minute × processing time), and storage requires petabytes (500 hours × 60 min × 100MB/min = 3TB/hour of raw upload). The estimation shows what the hard problems are.",
+        "Back-of-envelope calculation should take 2-3 minutes and cover: storage required (data size × retention period × replication factor), throughput required (DAU × operations per user per day / 86400 seconds), bandwidth required (throughput × average request size), and cache size (working set size for effective caching). Present these numbers before designing—they validate your design choices. A cache that fits 20% of data in 16GB RAM serves 80% of requests (Zipf law), which may be sufficient."
+      ],
+      "bullets": [
+        "Users: total, DAU, peak concurrent—each drives different architecture decisions",
+        "Data: total volume, per-item size, growth rate, retention—drives storage tier choice",
+        "Throughput: QPS at peak—derives from DAU × ops/user / 86400",
+        "Back-of-envelope: spend 2-3 minutes on storage, throughput, bandwidth, cache estimates"
+      ]
+    },
+    {
+      "title": "Constraints and Assumptions",
+      "paragraphs": [
+        "Constraints are facts about the environment that your design must work within: existing technology choices, team expertise, budget, compliance requirements, and time-to-market. 'The team only uses AWS' is a constraint that rules out GCP-specific solutions. 'The system must be HIPAA compliant' constrains logging (no PII in logs), encryption (data at rest and in transit), and access control. 'This must ship in 3 months' constrains architectural ambition—a custom distributed transaction system is off the table.",
+        "Assumptions fill the gaps where requirements are genuinely unknown. Making assumptions explicit (and stating them aloud in an interview) demonstrates mature engineering thinking: 'I'll assume the system must support 100M users globally, with 90% in North America—if this changes to multi-region global, the architecture needs geo-distributed caching and potentially a CDN edge-first design.' Assumptions should be reasonable, clearly stated, and revisited if contradicting information emerges.",
+        "One powerful technique: enumerate the decisions that your requirements should determine, then fill them in from the requirements you've gathered. 'Based on what I've heard: scale = 10M DAU (medium), availability = 99.99% (high), consistency = eventual OK for feed (relaxed), latency = p99 < 500ms (moderate). This maps to: distributed architecture needed, strong caching for read-heavy feed, async writes acceptable, eventually consistent storage with async replication.' This explicit mapping from requirements to architectural decisions is the clearest demonstration of requirements-driven design thinking."
+      ],
+      "bullets": [
+        "Technology constraints: existing stack, team expertise, cloud provider, budget",
+        "Compliance constraints: HIPAA, GDPR, PCI-DSS—non-negotiable architecture gates",
+        "Explicit assumptions: state them clearly; enables interviewer/stakeholder to correct them",
+        "Requirements → decisions map: explicitly show how each requirement drives each architectural choice"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "What Requirements & Capacity Estimation is solving",
+        "title": "Requirements First, Architecture Second",
         "paragraphs": [
-          "Requirements & Capacity Estimation exists because naive designs around a repeatable design process break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-          "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map Requirements & Capacity Estimation onto those constraints.",
-          "A useful mental model separates the control plane (how you configure and observe Requirements & Capacity Estimation) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-        ]
-      },
-      {
-        "title": "Core mechanics",
-        "paragraphs": [
-          "Mechanically, Requirements & Capacity Estimation involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-          "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-          "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand Requirements & Capacity Estimation."
+          "Requirements clarification is not a formality—it's the information gathering that makes or breaks an architectural decision. Scale, consistency, and availability requirements fundamentally change the design.",
+          "Functional requirements: 3-5 core operations, read/write ratio, real-time vs. batch. Non-functional: latency SLOs, availability SLA, consistency model, durability (RPO/RTO).",
+          "Scale parameters: users (DAU, peak), data size, throughput—derive from estimation, state explicitly."
         ],
         "bullets": [
-          "Inputs → state/protocol → outputs/side effects",
-          "Name consistency and delivery guarantees",
-          "Identify the bottleneck resource early"
+          "Architecturally significant requirements: those that change technology or topology",
+          "5-10 minutes on requirements in a 45-minute interview is well invested",
+          "Make assumptions explicit and revisitable"
         ]
       },
       {
-        "title": "Designing with it",
+        "title": "The Requirements Checklist",
         "paragraphs": [
-          "When incorporating Requirements & Capacity Estimation into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-          "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to Requirements & Capacity Estimation.",
-          "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of Requirements & Capacity Estimation should be observable on day one."
-        ]
-      },
-      {
-        "title": "Operations and failure modes",
-        "paragraphs": [
-          "Operate Requirements & Capacity Estimation with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-          "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-          "Chaos and game days should include slow dependencies and network delay, not only hard kills. Requirements & Capacity Estimation often fails in the gray area."
+          "Functional: core operations, features in/out of scope, primary actors, read/write ratio.",
+          "Non-functional: latency (p50, p99), availability (% or nines), consistency (strong/eventual/RYOW), durability (RPO/RTO).",
+          "Scale: users (DAU, peak), storage (size, growth, retention), throughput (QPS), geography (single/multi-region)."
+        ],
+        "bullets": [
+          "Latency: 'under 200ms p99' not 'fast'",
+          "Consistency: per operation—reads and writes may have different requirements",
+          "Geography: single region vs. multi-region = fundamentally different architecture"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Requirements & Capacity Estimation — deeper internals",
+        "title": "Requirements for Common System Types",
         "paragraphs": [
-          "Under the hood, Requirements & Capacity Estimation typically exposes knobs for batching, buffering, concurrency, retention, and timeouts. Each knob trades latency, throughput, and cost. Change one at a time and measure.",
-          "Instrumentation should include high-signal histograms and exemplars that jump to traces. For data systems, watch amplification and compaction/GC; for RPC systems, watch queue time and saturation; for ML systems, watch memory and tokens/s."
+          "For social feeds (Twitter, Instagram): clarify unidirectional (follow) vs. bidirectional (friend) graph. Write amplification question: 50M followers on a celebrity → fan-out on write (pre-compute feeds) vs. fan-out on read (compute at query time). Media storage (images, video) vs. text only. Soft real-time (<5s delivery) vs. real-time push. Recommendation algorithm integration (affects data model).",
+          "For chat/messaging systems: group chat size limit (affects fan-out strategy). Read receipts and typing indicators (requires real-time, affects infrastructure). Media support (storage, CDN requirements). Message retention (delete after N days or forever). Encryption (end-to-end vs. server-side). Offline delivery (push notifications, unread count management). These each have distinct architectural implications.",
+          "For payment/financial systems: idempotency requirement (all mutations must be idempotent for retry safety). Transaction atomicity (what operations must be atomic—debit + credit, or just debit, with async credit). Consistency (ACID required for most financial operations). Audit log (every transaction must be persisted with metadata). Fraud detection latency (synchronous in payment path vs. async). Regulatory requirements (PCI-DSS for card payments, AML for large transactions). The requirements here are almost entirely non-negotiable—they come from legal and regulatory constraints."
         ],
         "bullets": [
-          "One knob at a time with a hypothesis",
-          "Histograms > averages",
-          "Tie dashboards to runbooks"
-        ]
-      },
-      {
-        "title": "Requirements & Capacity Estimation — integration patterns",
-        "paragraphs": [
-          "Integrate via stable contracts: schemas, idempotency keys, and versioned APIs. Dual-write carefully or prefer CDC/outbox patterns when crossing storage and messaging.",
-          "Boundary tests should prove behavior under duplicate delivery, reordering, and clock skew where relevant to Requirements & Capacity Estimation."
+          "Social feed: fan-out strategy depends on follower distribution; celebrity problem",
+          "Chat: group size limit, end-to-end encryption, offline delivery—each changes architecture",
+          "Payments: idempotency, atomicity, audit log, compliance are non-negotiable NFRs",
+          "Every system type has domain-specific requirements that experienced engineers know to ask"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Requirements & Capacity Estimation — multi-region and cost",
+        "title": "Requirements Engineering in Production",
         "paragraphs": [
-          "Across regions, RTT and quorum placement dominate. Keep user-critical paths region-local when invariants allow; replicate asynchronously otherwise. Spell out the conflict/staleness model.",
-          "Track unit economics for Requirements & Capacity Estimation: cost per million requests, per GB stored, or per million tokens. Many scalability projects are cost projects — make the objective explicit."
+          "In production system design (beyond interviews), requirements engineering is an ongoing process. Requirements change as the business evolves, as usage patterns differ from forecasts, and as new stakeholders are onboarded. Architecture Decision Records (ADRs) document the requirements-to-decision mapping at the time of each architectural choice—when requirements change, the ADR shows which prior assumptions were invalidated and why a new decision is warranted.",
+          "Non-functional requirements are frequently underspecified in production. 'The system must be fast and reliable' is a business requirement; 'p99 latency < 200ms with 99.99% availability, RPO < 1 minute, and eventual consistency acceptable for read path' is an engineering SLO. Translating vague business requirements into measurable SLOs (Service Level Objectives) is a critical skill: it makes requirements testable, creates accountability, and enables informed architectural trade-off discussions with stakeholders who understand what they're trading off.",
+          "Requirements triaging: not all requirements are equal. MoSCoW method (Must have, Should have, Could have, Won't have) prioritizes requirements for delivery planning. For architectural decisions, focus on Must-have requirements—they're the constraints that the architecture cannot violate. Should-have requirements should be achievable with the chosen architecture but can be deferred. Won't-have requirements should explicitly not influence architecture (the dreaded 'we might want this someday' that leads to premature generalization)."
         ]
       }
     ]
   },
   "concepts": [
-    "Requirements & Capacity Estimation: problem framing and constraints",
-    "Control plane vs data plane",
-    "Amplification, locality, contention",
-    "Failure observations for clients",
-    "SLIs and capacity headroom",
-    "Versioned contracts / idempotency"
+    "Functional requirements: core operations the system must perform",
+    "Non-functional requirements: quality attributes (latency, availability, consistency, durability)",
+    "SLO (Service Level Objective): measurable target for a non-functional requirement",
+    "Availability SLA: percentage uptime; each 9 costs ~10x more in operational complexity",
+    "RPO (Recovery Point Objective): maximum acceptable data loss window",
+    "RTO (Recovery Time Objective): maximum acceptable time to restore service after failure",
+    "Consistency model: strong, read-your-own-writes, monotonic reads, eventual",
+    "Scale parameters: DAU, peak QPS, data volume, object size, geographic distribution",
+    "Back-of-envelope estimation: derive scale numbers from first principles in 2-3 minutes",
+    "Assumptions: explicitly stated gaps filled with reasonable estimates",
+    "Architecture Decision Record (ADR): document mapping requirements to architectural decisions",
+    "Architecturally significant requirement: a requirement that changes technology or topology choice"
   ],
   "practices": [
-    "Start from constraints before selecting a Requirements & Capacity Estimation approach",
-    "Define SLIs and dashboards with the feature",
-    "Make retries idempotent and budgeted",
-    "Roll out reversibly with measurement"
+    "Open every system design interview with 5-10 minutes of requirements clarification",
+    "Convert vague NFRs ('fast', 'reliable') into measurable SLOs ('p99 < 200ms', '99.99% availability')",
+    "Explicitly scope the design: state what's in scope, what you'll note but not design, and what's out of scope",
+    "State assumptions explicitly—they can be corrected; unspoken assumptions create silent design flaws",
+    "Derive scale numbers through estimation; present them before designing to validate architectural choices",
+    "Map requirements to decisions: 'because X requires Y, I'll use Z'—make the reasoning chain explicit",
+    "Document architectural decisions with the requirements context that justified them (ADRs)"
   ],
   "pitfalls": [
-    "Tool-first design without invariants",
-    "Ignoring brownout/slow dependency behavior",
-    "Unbounded retries and queues",
-    "Missing ownership for ops/runbooks"
+    "Starting the design before clarifying scale—architecture for 10K users is fundamentally different from 100M users",
+    "Treating all requirements as must-haves—this leads to overengineering; explicitly prioritize",
+    "Forgetting non-functional requirements—latency and availability requirements change the architecture as much as features do",
+    "Single-region assumption for all systems—global user base requires geo-distribution considerations from the start",
+    "Consistency confusion—designing with ACID everywhere when eventual consistency is acceptable is unnecessary complexity",
+    "No back-of-envelope calculation—making architectural choices without validating scale assumptions",
+    "Requirements scope creep—adding features mid-design that weren't in scope; changing requirements after the design is set"
   ],
   "examples": [
     {
-      "title": "Production pattern",
-      "description": "Teams that succeed with Requirements & Capacity Estimation treat measurement, failure drills, and contracts as part of the design — not afterthoughts."
+      "title": "'Design a Rate Limiter' Requirements Clarification",
+      "description": "Starting prompt: 'Design a rate limiter.' Good clarifying questions: What is being rate limited—API calls, login attempts, or message sends? What is the rate limit type—per user, per IP, per API key, or global? What algorithm—token bucket (burst allowed), leaky bucket (smooth), or fixed window? What action on rate limit exceeded—hard block (429) or soft queue? What scale—10M API requests/second? Single service or shared across 100 microservices? What consistency—is it OK if two requests to different instances briefly both pass the limit? Each answer changes the design significantly."
     },
     {
-      "title": "Common review question",
-      "description": "In design reviews, expect to explain what breaks first when load spikes 10× and how Requirements & Capacity Estimation sheds or scales."
+      "title": "Production Requirements for a Ride-Hailing Dispatch",
+      "description": "A ride-hailing company asks for a dispatch system. Requirements surfaced: Functional: match driver to rider within 15 seconds, track driver location every 5 seconds, surge pricing calculation. NFRs: p99 match time < 10s (latency SLO), 99.99% availability (high availability), location data may be 10 seconds stale (eventual consistency OK), trip data must be durable with zero loss (RPO = 0). Scale: 5M rides/day, 500K concurrent drivers, 10K requests/second peak. Geography: 50 cities globally but each city is relatively independent. These requirements immediately suggest: geospatial index (R-tree or S2 cells), independent-per-city dispatch services, global Cassandra for trip data, Redis for real-time driver locations."
     }
   ],
   "keyTakeaways": [
-    "Requirements & Capacity Estimation should be chosen from constraints, not fashion",
-    "Mechanics + failure model + capacity math are the core",
-    "Operations and contracts decide long-term success"
+    "Requirements clarification before design is the difference between solving the actual problem and an arbitrary one",
+    "Non-functional requirements (latency, availability, consistency) are as architecturally important as functional ones",
+    "Scale parameters must be quantified through back-of-envelope estimation before choosing architecture",
+    "Explicit scoping (what's in/out) and explicit assumptions are professional habits that prevent misaligned designs",
+    "Each 9 of availability costs ~10x more—ask about availability SLA before recommending multi-region active-active",
+    "Consistency requirement is per-operation, not per-system—some operations need strong consistency, most don't",
+    "Map requirements to decisions explicitly: show why each architectural choice follows from a specific requirement"
   ],
-  "whyItMatters": "Without a solid model of Requirements & Capacity Estimation, designs either overbuild or fail in production in ways that are hard to debug. This lesson gives a working framework you can reuse across systems involving a repeatable design process.",
+  "whyItMatters": "Requirements clarification is the foundation of all good system design. In interviews, it demonstrates seniority—junior engineers jump to solutions; senior engineers first understand the problem. In production, it prevents building systems that solve the wrong problem at the wrong scale with the wrong consistency guarantees. The 10 minutes spent clarifying requirements can save months of rework.",
   "reflectionQuestions": [
-    "What invariant does Requirements & Capacity Estimation protect in your system?",
-    "What is the scarcest resource when you apply Requirements & Capacity Estimation?",
-    "How would you rehearse the top failure mode for Requirements & Capacity Estimation?"
+    "You're asked to 'design WhatsApp' in a 45-minute interview. Write out 10 requirements clarification questions, explaining what architectural decision each question would inform.",
+    "A product manager says 'the system must be highly available.' How do you translate this into a measurable, architecturally-actionable SLO?",
+    "Name five systems where the read/write ratio changes the architecture significantly. What read/write ratio would you assume for each, and what architectural pattern does it suggest?",
+    "You're designing a message queue system and the interviewer says 'messages must not be lost.' What clarifying questions would you ask to determine whether you need Kafka (at-least-once + idempotent consumer), a transactional queue (exactly-once), or just Redis with persistence?"
   ],
   "numbersToKnow": [
-    "Plan 2–3× headroom above peak for incidents and rebalancing",
-    "Cross-region RTT often ~50–150ms one way",
-    "p99 matters more than average for user-facing paths"
+    "Availability: 99.9%=8.7h/yr downtime, 99.99%=52min/yr, 99.999%=5min/yr",
+    "DAU-to-QPS conversion: 100M DAU × 10 ops/day / 86,400s = ~11,500 QPS average",
+    "Peak multiplier: peak is typically 3-10x average QPS; design for peak",
+    "Storage estimate: 100M users × 1KB/user/day × 365 days = ~36TB/year",
+    "Bandwidth: 10K QPS × 10KB average response = 100MB/s = 0.8Gbps",
+    "Interview time allocation: 5-10 min requirements, 5 min estimation, 20-25 min design, 5-10 min deep dive"
   ],
   "diagrams": [
     {
-      "id": "mind-requirements-overview",
-      "title": "Requirements & Capacity Estimation context",
-      "mermaid": "flowchart LR\n  Client --> Boundary\n  Boundary --> Requirements___Capacity_\n  Requirements___Capacity_ --> Dependency"
+      "id": "mind-requirements-framework",
+      "title": "Requirements Framework Mindmap",
+      "mermaid": "mindmap\n  root(System Design Requirements)\n    Functional\n      Core Operations\n      Read/Write Ratio\n      Real-time vs Batch\n      Features In/Out of Scope\n    Non-Functional\n      Latency SLO p99\n      Availability SLA\n      Consistency Model\n      Durability RPO/RTO\n    Scale\n      Users: DAU, Peak\n      Storage: Size, Growth\n      Throughput: QPS\n      Geography: Regions\n    Constraints\n      Technology Stack\n      Compliance\n      Budget\n      Timeline\n    Assumptions\n      Explicitly Stated\n      Revisitable"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Requirements & Capacity Estimation and the main trade-offs.",
-    "How does Requirements & Capacity Estimation behave under overload or partition?",
-    "What would you measure after changing a Requirements & Capacity Estimation-related knob?"
+    "You're asked to 'design Instagram.' What are the first 5 questions you would ask before drawing a single box?",
+    "What is the difference between availability SLA and latency SLO? Give an example of each for a payment API.",
+    "How do you estimate the QPS for a system with 50 million daily active users who each make 20 requests per day?",
+    "What requirements would lead you to choose eventual consistency over strong consistency for a social media feed?"
   ],
   "exercises": [
-    "Sketch an architecture that depends on Requirements & Capacity Estimation; estimate capacity and list three failure modes.",
-    "Write a one-page runbook for the most likely Requirements & Capacity Estimation outage."
+    "Take the prompt 'Design a notification system.' Write a full requirements document: functional requirements (3-5 core operations), non-functional requirements with specific SLOs, scale estimates (derive from first principles assuming 100M users), and 5 explicit assumptions.",
+    "For each of the following systems, identify the single most architecturally-significant non-functional requirement and explain what architectural decision it drives: (a) stock trading platform, (b) video streaming service, (c) ride-sharing app, (d) hospital medical records system.",
+    "Given a requirement for 99.999% availability (5 nines), calculate: the maximum allowed downtime per year, what this means for planned maintenance windows, and what architectural components are required (compare to what's needed for 99.9%)."
   ],
   "sources": [
-    {
-      "title": "Designing Data-Intensive Applications (concepts)"
-    }
+    {"title": "Alex Xu — System Design Interview: An Insider's Guide, Vol. 1 & 2"},
+    {"title": "Google SRE Book — Chapter 4: Service Level Objectives (sre.google/sre-book)"},
+    {"title": "Martin Fowler — Non-Functional Requirements (martinfowler.com)"},
+    {"title": "IEEE Software Requirements Engineering standard — IEEE 830"},
+    {"title": "Gregor Hohpe — The Software Architect Elevator (O'Reilly, 2020)"}
   ],
-  "relatedLessons": [
-    "framework-architecture",
-    "framework-iteration",
-    "framework-requirements"
-  ]
+  "relatedLessons": ["framework-requirements", "mind-tradeoffs", "mind-apis-data", "fund-estimation"]
 }

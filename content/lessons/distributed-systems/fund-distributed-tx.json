@@ -1,162 +1,234 @@
 {
   "id": "fund-distributed-tx",
-  "title": "Distributed Transactions (2PC, Sagas)",
+  "title": "Distributed Transactions",
   "moduleId": "distributed-systems",
   "phaseId": "fundamentals",
-  "durationMinutes": 45,
-  "summary": "Cross-service atomicity is hard. Two-phase commit coordinates strong atomicity at high cost; sagas use sequenced local transactions with compensations for practical workflows.",
+  "durationMinutes": 42,
+  "summary": "Distributed transactions coordinate writes across multiple independent storage systems atomically—either all succeed or all fail. Two-phase commit (2PC) is the foundational protocol; Saga is the alternative for long-running business processes. Understanding the failure modes, limitations, and practical alternatives to distributed transactions is essential for designing correct multi-service systems.",
   "kind": "evergreen",
   "difficulty": "advanced",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "fund-distributed"
-  ],
-  "tags": [
-    "distributed-systems",
-    "evergreen",
-    "fundamentals"
-  ],
+  "prerequisites": ["fund-distributed", "fund-consistency-models"],
+  "tags": ["distributed-systems", "transactions", "consistency", "evergreen", "fundamentals"],
   "sections": [
     {
-      "title": "2PC mechanics",
+      "title": "Why Distributed Transactions Are Hard",
       "paragraphs": [
-        "Prepare then commit. Blocking on coordinator failure is the classic weakness. XA works in narrow environments; across microservices and heterogeneous stores it is painful."
+        "In a single-node database, ACID transactions are straightforward: the database manages a lock table and write-ahead log on a single machine. In a distributed system, an operation must span multiple nodes—a payment must debit one account and credit another, potentially on different database shards or even different services. Each individual node can commit or fail independently; coordinating them to commit or fail atomically is the challenge.",
+        "The fundamental problem: once node A has committed its part of the transaction, node B might fail before committing its part. The partial commit leaves the system in an inconsistent state. Undoing node A's commit retroactively is a 'compensating transaction'—feasible for some operations (reverse a debit with a credit) but impossible for others (can you un-send an email?). The distributed transaction problem is therefore: how do you ensure all-or-nothing atomicity across nodes that can fail independently?",
+        "Distributed transactions are expensive. They require multiple round trips between participants and a coordinator, hold locks across nodes during the commit process, and are blocked by node failures—the coordinator or any participant going down during the protocol can leave the system in a blocked state for extended periods. For high-throughput systems, the latency and scalability cost of distributed transactions is often unacceptable. This is why the industry has largely moved to the Saga pattern for business-level atomicity."
+      ],
+      "bullets": [
+        "Partial commit problem: node A commits, node B fails before committing—inconsistent state",
+        "Compensating transactions: reverse node A's commit retroactively; only possible for reversible operations",
+        "2PC is expensive: multiple round trips, cross-node locks, blocks on participant failure",
+        "Industry trend: Saga pattern for business atomicity, not 2PC, for most applications"
       ]
     },
     {
-      "title": "Sagas",
+      "title": "Two-Phase Commit (2PC) Protocol",
       "paragraphs": [
-        "Each step commits locally; on failure, run compensations. Orchestration vs choreography styles. Idempotency is mandatory."
+        "Two-phase commit has a coordinator and N participants. Phase 1 (prepare/voting): the coordinator sends 'prepare' to all participants; each participant executes the transaction locally, writes to its WAL (write-ahead log), and responds 'vote YES' (can commit) or 'vote NO' (must abort). Phase 2 (commit/abort): if all voted YES, coordinator sends 'commit' to all participants; each participant commits and releases locks. If any voted NO, coordinator sends 'abort' to all; each participant rolls back. The coordinator records the final decision in its own WAL before sending the phase-2 message.",
+        "The blocking failure of 2PC: if the coordinator crashes after sending 'prepare' (phase 1) but before sending 'commit' or 'abort' (phase 2), participants are in a 'prepared' state—they have voted but cannot proceed without the coordinator's decision. They hold locks and cannot accept new operations on the locked rows. Recovery requires the coordinator to restart and replay its WAL to determine what decision it had made (or would have made). If the coordinator's WAL is lost, the decision is unknown, and the system is blocked until manual intervention. This blocking property is 2PC's fundamental limitation.",
+        "Three-phase commit (3PC) was designed to fix 2PC's blocking problem by adding a 'prepare to commit' phase that allows participants to infer the coordinator's decision even if it crashes. 3PC is non-blocking but requires a synchronous network (no network partitions)—a condition that doesn't hold in practice. As a result, 3PC is rarely used in production. Practical systems use 2PC with timeout-based recovery or coordinator high-availability (Paxos-coordinated 2PC as used in Spanner and CockroachDB)."
+      ],
+      "bullets": [
+        "2PC Phase 1: coordinator sends 'prepare'; each participant votes YES or NO",
+        "2PC Phase 2: if all YES → commit; any NO → abort; coordinator logs decision before sending",
+        "Blocking failure: coordinator crashes after phase 1; participants hold locks indefinitely",
+        "3PC: non-blocking but requires synchronous network; impractical for real distributed systems"
       ]
     },
     {
-      "title": "Outbox pairing",
+      "title": "Saga Pattern: Long-Running Business Transactions",
       "paragraphs": [
-        "Transactional outbox starts reliable saga messages. Without it, dual writes reopen the original consistency hole."
+        "The Saga pattern (Hector Garcia-Molina and Kenneth Salem, 1987) decomposes a long-running transaction into a sequence of local transactions, each with a corresponding compensating transaction. If step N fails, steps N-1, N-2, ... 1 are compensated (rolled back using compensating transactions) in reverse order. Unlike 2PC, there is no two-phase locking—each local transaction commits immediately. This makes Sagas highly available and scalable, at the cost of intermediate inconsistent states being visible between steps.",
+        "Choreography-based Sagas: each service listens for events and publishes the next event in the sequence. 'OrderCreated' event triggers PaymentService to charge, which publishes 'PaymentProcessed', which triggers InventoryService to reserve, which publishes 'InventoryReserved', which triggers ShippingService to schedule. If PaymentService fails, it publishes 'PaymentFailed', triggering a compensating event chain: 'OrderCancelled'. This is event-driven and loosely coupled but hard to understand holistically—the saga's control flow is distributed across all services.",
+        "Orchestration-based Sagas: a central saga orchestrator explicitly commands each step. 'OrderSaga' commands PaymentService to charge, waits for the result, then commands InventoryService to reserve, waits, then commands ShippingService to schedule. If any step fails, the orchestrator explicitly sends compensating commands to previously completed steps. This is easier to understand and debug (control flow in one place) but introduces a central coordination point. Netflix Conductor and Temporal.io are production workflow orchestration systems implementing this pattern."
+      ],
+      "bullets": [
+        "Saga: sequence of local transactions; each with a compensating transaction for rollback",
+        "Choreography: event-driven; each service listens and publishes; loosely coupled but complex to follow",
+        "Orchestration: central orchestrator commands each step; easier to understand; Temporal, Conductor",
+        "Intermediate inconsistency: other services may read partial state between saga steps; design accordingly"
       ]
     },
     {
-      "title": "Choosing",
+      "title": "Outbox Pattern and Exactly-Once Semantics",
       "paragraphs": [
-        "Prefer single-service transactions when possible. Use sagas for long business workflows. Reserve 2PC for tightly controlled homogeneous systems."
+        "The outbox pattern solves the dual-write problem that is a prerequisite for Sagas: a service must atomically update its local database AND publish an event to a message queue to trigger the next saga step. If the database write succeeds but the event publish fails (or vice versa), the saga is broken. The outbox pattern writes both the database change and the event to the same local database transaction (the event goes to an 'outbox' table). A separate outbox relay reads and publishes events from the outbox, then marks them as published. The database transaction guarantees atomicity; the relay provides eventual delivery.",
+        "Change Data Capture (CDC) is a more scalable alternative to polling-based outbox relays. CDC reads the database's write-ahead log (PostgreSQL WAL, MySQL binlog) and publishes changes as events to Kafka or another message bus. Debezium is the leading open-source CDC tool. With CDC, there is no need for an explicit outbox table—all database writes automatically become events. The challenge: CDC events include all changes to all tables; filtering and transforming them into domain events adds complexity.",
+        "Exactly-once processing in a Saga requires that each step is idempotent (processing the same event twice produces the same result). With at-least-once event delivery, duplicate events will be delivered (e.g., after service restart during processing). Idempotency keys stored in the database (the event ID) allow duplicate detection: if the event ID is already in the processed_events table, skip processing and republish the same response. This pattern—idempotency key deduplication—is the standard for Saga-based at-least-once + idempotent = effectively-exactly-once semantics."
+      ],
+      "bullets": [
+        "Outbox pattern: write DB change + event to same local transaction; relay publishes events",
+        "CDC (Debezium): read WAL; all writes become events; no outbox table needed",
+        "Idempotency key: deduplicate at handler; skip if already processed; store event_id in DB",
+        "At-least-once + idempotent consumer = effectively-exactly-once end-to-end semantics"
+      ]
+    },
+    {
+      "title": "When to Use Distributed Transactions vs Sagas",
+      "paragraphs": [
+        "Use distributed transactions (2PC or NewSQL global transactions) when: the operations are on a single database (even if distributed across shards—CockroachDB and Spanner handle this), the duration is short (seconds, not minutes), isolation between intermediate states is required (other transactions cannot see the partial state), and the number of participating nodes is small (2–10). CockroachDB and Spanner implement 2PC with Paxos-coordinated coordinators, making them highly available without the classic 2PC blocking failure.",
+        "Use Sagas when: the transaction spans independently owned microservices, the duration is long (minutes to hours—order fulfillment, travel booking), the number of participating services is large, or when intermediate states are acceptable (the user can see 'payment processing' before seeing 'confirmed'). Temporal.io implements Sagas with durable workflow state: even if your orchestration service crashes, Temporal replays the workflow history and continues from where it left off. This makes long-running Sagas as reliable as ACID transactions.",
+        "Avoid distributed transactions entirely by redesigning the domain model. The fact that you need a distributed transaction often indicates that you've drawn service boundaries in the wrong place. If 'transfer funds' requires a distributed transaction across two services, consider whether both accounts should live in the same database, or whether the transfer can be modeled as a first-class entity (a Transfer object) that is updated atomically in one service. Domain-driven design often reveals that distributed transaction requirements are symptoms of incorrect aggregation boundaries."
+      ],
+      "bullets": [
+        "Use 2PC/global tx: single DB (sharded or not), short duration, isolation required, few nodes",
+        "Use Saga: cross-microservice, long duration, large participant count, intermediate states OK",
+        "Temporal.io: durable workflow orchestration; Sagas survive service crashes via event replay",
+        "Alternative: redesign domain model to avoid distributed transactions—often the correct answer"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "2PC mechanics",
+        "title": "2PC Protocol",
         "paragraphs": [
-          "Prepare then commit. Blocking on coordinator failure is the classic weakness. XA works in narrow environments; across microservices and heterogeneous stores it is painful."
+          "Phase 1 (Prepare): coordinator asks all participants to vote. Phase 2 (Commit/Abort): coordinator commits if all YES, aborts if any NO.",
+          "Blocking failure: coordinator crash after phase 1 leaves participants holding locks indefinitely. Recovery requires coordinator WAL.",
+          "CockroachDB/Spanner use Paxos-coordinated 2PC: coordinator is itself replicated, eliminating single-point-of-failure blocking."
         ]
       },
       {
-        "title": "Sagas",
+        "title": "Saga Pattern",
         "paragraphs": [
-          "Each step commits locally; on failure, run compensations. Orchestration vs choreography styles. Idempotency is mandatory."
+          "Decompose long transaction into local steps + compensating transactions. No distributed locks; each step commits immediately.",
+          "Choreography: event-driven; each service publishes next event. Orchestration: central orchestrator commands each step (Temporal, Conductor).",
+          "Intermediate inconsistency is unavoidable; design other services to handle partial saga state."
         ]
       },
       {
-        "title": "Outbox pairing",
+        "title": "Outbox and Idempotency",
         "paragraphs": [
-          "Transactional outbox starts reliable saga messages. Without it, dual writes reopen the original consistency hole."
-        ]
-      },
-      {
-        "title": "Choosing",
-        "paragraphs": [
-          "Prefer single-service transactions when possible. Use sagas for long business workflows. Reserve 2PC for tightly controlled homogeneous systems."
+          "Outbox pattern: DB change + event in same local transaction. Relay publishes events from outbox table.",
+          "CDC (Debezium): WAL-based event publication; no outbox table needed.",
+          "Idempotency key: skip duplicate events; at-least-once + idempotent = effectively-exactly-once."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Distributed Transactions (2PC, Sagas) — Operations",
+        "title": "Temporal.io: Durable Workflow Execution",
         "paragraphs": [
-          "Operating Distributed Transactions (2PC, Sagas) in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
-          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
-        ],
-        "bullets": [
-          "Define capacity from the scarcest resource",
-          "Document blast radius per dependency",
-          "Keep rollback cheaper than forward repair when possible"
+          "Temporal.io implements durable execution: a workflow function that calls external services, runs for hours, and survives service crashes. Temporal persists the entire workflow event history to its database (Cassandra or MySQL). When a workflow worker crashes, Temporal replays the event history to reconstruct the workflow's state and continues execution from the last committed point. This is essentially automatic crash recovery for distributed business processes.",
+          "Temporal activities (the individual steps of a Saga) are executed with configurable retry policies, timeouts, and backoff. If an activity fails, Temporal retries according to the policy. If it fails permanently, Temporal invokes the workflow's compensation logic. The developer writes compensation logic in a normal programming language (Go, Java, Python, TypeScript), not a configuration language—making complex multi-step compensations straightforward to implement and test.",
+          "Temporal's execution model decouples workflow state from worker processes. Workers are stateless executors that pull tasks from Temporal's task queues. Scaling workers horizontally adds execution capacity without affecting workflow correctness. This combination—durable state in Temporal + stateless workers—enables Saga orchestration at significant scale (Stripe processes millions of payments daily via Temporal)."
         ]
       },
       {
-        "title": "Distributed Transactions (2PC, Sagas) — Failure modes",
+        "title": "NewSQL Distributed Transactions",
         "paragraphs": [
-          "Common failures around Distributed Transactions (2PC, Sagas) include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
-          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+          "CockroachDB implements serializable distributed transactions using a combination of 2PC, MVCC, and the Raft consensus protocol. Each shard is a Raft group; the transaction coordinator uses 2PC to commit across multiple Raft groups. The coordinator writes an intent (a staged write) to each shard before the commit; on commit, intents are promoted to committed writes atomically. This achieves distributed ACID without a central coordinator—the transaction state is distributed across the participating shards.",
+          "Spanner's read-write transactions use a wound-wait deadlock prevention scheme and TrueTime for external consistency. Each tablet (Spanner's shard) is a Paxos group; 2PC commits across tablets. TrueTime ensures that the commit timestamp is strictly after all prior transactions—no future transaction can have a timestamp before the current commit. This achieves global consistency without a central clock server."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Distributed Transactions (2PC, Sagas) — Expert notes",
+        "title": "Expert: ACID vs BASE and the Microservice Paradigm",
         "paragraphs": [
-          "At the expert level, Distributed Transactions (2PC, Sagas) intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
-          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+          "The microservice paradigm implicitly adopts BASE (Basically Available, Soft-state, Eventually consistent) semantics at the system level, even when each individual service is ACID internally. When service A commits its local transaction and publishes an event to trigger service B, there is a window where A's committed state is not reflected in B's state—a temporary inconsistency. Designing microservice systems means accepting and explicitly managing this consistency gap.",
+          "The practical implication: every microservice operation that spans service boundaries is eventually consistent by default. The question is whether the eventual consistency window is acceptable. For order placement (seconds of inconsistency between 'order placed' and 'inventory reserved' is fine), it is. For 'transfer funds' (account debited but credit not yet applied creates a negative balance window), it is not. Where eventual consistency is unacceptable, you either use a global transaction (Spanner, CockroachDB) or redesign the boundary so the operation is local to one service."
         ]
       }
     ]
   },
   "concepts": [
-    "2PC",
-    "Compensation",
-    "Orchestration vs choreography",
-    "Idempotent steps",
-    "Outbox"
+    "2PC (Two-Phase Commit): prepare/vote phase + commit/abort phase; atomic distributed commits",
+    "Saga: sequence of local transactions + compensating transactions; no distributed locking",
+    "Choreography saga: event-driven; each service listens and publishes; loosely coupled",
+    "Orchestration saga: central orchestrator commands each step; Temporal, Conductor",
+    "Compensating transaction: reverse a committed local transaction; not all ops are reversible",
+    "Outbox pattern: atomic DB write + event in same local transaction; relay publishes",
+    "CDC (Change Data Capture): stream DB changes from WAL as events; Debezium",
+    "Idempotency key: deduplicate at event handler; skip already-processed events",
+    "Temporal.io: durable workflow execution; Saga orchestration with crash recovery",
+    "Intermediate inconsistency: other services see partial saga state during execution"
   ],
   "practices": [
-    "Design compensations explicitly",
-    "Make steps idempotent",
-    "Prefer local ACID when possible"
+    "Use Sagas (orchestration + Temporal) instead of 2PC for cross-service business transactions",
+    "Implement the outbox pattern for all Saga event publications; never dual-write directly",
+    "Make all Saga activity handlers idempotent; store event_id as deduplication key in DB",
+    "Design compensating transactions for all reversible Saga steps before starting implementation",
+    "Use CockroachDB or Spanner for multi-shard transactions within a single database system",
+    "Avoid distributed transactions across independently owned services; redesign boundaries instead",
+    "Monitor Saga step completion times; alert on Sagas stuck in intermediate state longer than expected"
   ],
   "pitfalls": [
-    "Distributed monolith via chatty 2PC",
-    "Non-idempotent compensations",
-    "No timeout/repair path"
+    "Using 2PC for long-running transactions—coordinator or participant crash blocks all participants indefinitely",
+    "No compensating transactions—if Saga step N fails, previous steps cannot be rolled back; data corruption",
+    "Non-idempotent Saga handlers—duplicate event delivery causes duplicate charges, duplicate inventory deductions",
+    "Choreography saga without event correlation—impossible to track overall Saga state; debugging nightmare",
+    "Direct service-to-service calls in Saga steps without outbox—partial commit if publish fails after DB write",
+    "Ignoring intermediate inconsistency—other services reading partial saga state make incorrect decisions"
   ],
   "examples": [
     {
-      "title": "Order → payment → inventory",
-      "description": "Classic saga."
+      "title": "Stripe's Payment Processing via Temporal",
+      "description": "Stripe processes millions of payments daily using Temporal.io for orchestration. Each payment is a Temporal workflow: charge card (activity) → record revenue (activity) → send receipt email (activity) → update fraud models (activity). If the charge succeeds but Stripe crashes before recording revenue, Temporal replays the workflow history: charge is already in the event history, so it is not retried; revenue recording continues from where it left off. This durable execution model provides ACID-like guarantees for multi-step payment flows."
+    },
+    {
+      "title": "Uber's Trip Completion Saga",
+      "description": "When a trip ends, Uber must: calculate the fare, charge the rider's payment method, pay the driver, update trip records, send receipts, and trigger analytics. This multi-service process runs as a choreography saga: each step publishes an event that triggers the next. Failed steps retry with exponential backoff. The idempotency key is the trip_id: all handlers check whether this trip has already been processed and skip if so. This handles Uber's millions of daily trip completions reliably despite service failures."
     }
   ],
   "keyTakeaways": [
-    "Avoid distributed tx when you can",
-    "Sagas trade atomicity for availability",
-    "Compensations are product behavior"
+    "2PC achieves distributed atomicity but blocks on coordinator or participant failure",
+    "Sagas decompose long transactions into local steps with compensating rollbacks; no distributed locks",
+    "The outbox pattern atomically publishes events in the same transaction as the DB write",
+    "Idempotency keys + at-least-once delivery = effectively-exactly-once processing",
+    "Temporal.io provides durable workflow execution with crash recovery; preferred for production Sagas",
+    "When distributed transactions seem necessary, consider redesigning domain boundaries first"
   ],
-  "whyItMatters": "Microservices without a transaction story create inconsistent business state.",
+  "whyItMatters": "Distributed transactions are unavoidable in systems that must coordinate state across multiple services or database shards. Getting them wrong (data loss, partial commits, duplicate charges) is catastrophic. Understanding 2PC failure modes, Saga patterns, and practical tools like Temporal is essential for designing reliable multi-service business workflows.",
   "reflectionQuestions": [
-    "What is the compensation for each step in your checkout flow?"
+    "An e-commerce checkout must debit the user's wallet AND decrement inventory atomically. Design this using the Saga pattern with compensation.",
+    "Your 2PC coordinator crashes after all participants have voted YES but before it sends COMMIT. What state are participants in, and how does the system recover?",
+    "Compare choreography and orchestration Sagas for a travel booking system (book flight, hotel, car). Which would you choose and why?",
+    "Design the idempotency key strategy for a payment processing Saga with five steps."
   ],
   "numbersToKnow": [
-    "Know your p99 latency budget before adding hops",
-    "Peak load ≠ average load — plan headroom (often 2–3×)",
-    "Cross-region RTT is often ~50–150ms one way"
+    "2PC round trips: 4 messages minimum (prepare, vote, commit, ack); each = network RTT",
+    "2PC blocking duration: coordinator recovery time after crash; can be minutes without HA coordinator",
+    "Temporal.io workflow history: stored in Cassandra or MySQL; replayed on worker restart",
+    "Saga intermediate inconsistency window: typically seconds to minutes depending on step count",
+    "CockroachDB distributed transaction latency: 5–50ms within region; 100–300ms cross-region"
   ],
   "diagrams": [
     {
-      "id": "fund-distributed-tx-overview",
-      "title": "Distributed Transactions (2PC, Sagas) overview",
-      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+      "id": "fund-distributed-tx-saga",
+      "title": "Orchestration Saga with Compensation",
+      "mermaid": "flowchart TD\n  Start --> C1[Charge Card]\n  C1 -->|success| C2[Reserve Inventory]\n  C2 -->|success| C3[Schedule Shipping]\n  C3 -->|success| End[Done]\n  C2 -->|fail| Comp1[Compensate: Refund Card]\n  C3 -->|fail| Comp2[Compensate: Release Inventory]\n  Comp2 --> Comp1\n  Comp1 --> Failed[Saga Failed]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Distributed Transactions (2PC, Sagas) and the main trade-offs in three minutes."
+    "Explain two-phase commit. What happens if the coordinator crashes after the prepare phase?",
+    "What is the Saga pattern and how does it differ from 2PC?",
+    "Design the distributed transaction strategy for an e-commerce checkout that spans payment, inventory, and fulfillment services.",
+    "What is the outbox pattern and why is it needed for Sagas?",
+    "Compare choreography vs orchestration Sagas. When would you choose each?"
   ],
   "exercises": [
-    "Sketch a design that depends on Distributed Transactions (2PC, Sagas); list three trade-offs and one failure mode."
+    "Design the full Saga for a hotel booking: steps (hold room, charge card, send confirmation), compensating transactions for each, and idempotency keys.",
+    "Implement the outbox pattern for a payment service: define the outbox table schema, relay logic, and idempotency check for the payment handler.",
+    "Analyze a 2PC failure scenario: coordinator crashes at different points in the protocol. For each crash point, determine whether participants can proceed and what recovery looks like."
   ],
-  "sources": [],
+  "sources": [
+    { "title": "SAGAS — Garcia-Molina & Salem, ACM SIGMOD 1987" },
+    { "title": "Temporal.io documentation — docs.temporal.io" },
+    { "title": "Designing Data-Intensive Applications — Martin Kleppmann, Chapter 9 (Consistency and Consensus)" },
+    { "title": "Microservices Patterns — Chris Richardson, Chapter 4 (Saga Pattern)" }
+  ],
   "relatedLessons": [
-    "dist-cap-consensus",
-    "fund-clocks",
-    "fund-consistency-models"
+    "fund-distributed",
+    "fund-consistency-models",
+    "fund-messaging",
+    "fund-exactly-once"
   ]
 }

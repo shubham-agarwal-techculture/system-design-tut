@@ -1,204 +1,235 @@
 {
   "id": "fund-apis",
-  "title": "REST, GraphQL, gRPC & Streaming APIs",
+  "title": "API Design Fundamentals",
   "moduleId": "apis",
   "phaseId": "fundamentals",
-  "durationMinutes": 35,
-  "summary": "REST, GraphQL, gRPC & Streaming APIs is a core topic in modern system design. This lesson builds a first-principles model around contracts, evolution, and client ergonomics, then connects that model to capacity, failure modes, and operational practice so you can use it in real architectures.",
+  "durationMinutes": 42,
+  "summary": "API design is the act of making decisions that will constrain and enable developers for years. Well-designed APIs are intuitive, consistent, evolvable, and secure. REST, GraphQL, gRPC, and WebSockets each excel in different contexts. Understanding the principles of resource modeling, error handling, versioning, and security transforms API design from guesswork into engineering.",
   "kind": "evergreen",
   "difficulty": "intermediate",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "api-styles"
-  ],
-  "tags": [
-    "apis",
-    "evergreen",
-    "fundamentals"
-  ],
+  "prerequisites": [],
+  "tags": ["apis", "rest", "grpc", "graphql", "evergreen", "fundamentals"],
   "sections": [
     {
-      "title": "What REST, GraphQL, gRPC & Streaming APIs is solving",
+      "title": "REST Principles and Resource Modeling",
       "paragraphs": [
-        "REST, GraphQL, gRPC & Streaming APIs exists because naive designs around contracts, evolution, and client ergonomics break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-        "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map REST, GraphQL, gRPC & Streaming APIs onto those constraints.",
-        "A useful mental model separates the control plane (how you configure and observe REST, GraphQL, gRPC & Streaming APIs) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-      ]
-    },
-    {
-      "title": "Core mechanics",
-      "paragraphs": [
-        "Mechanically, REST, GraphQL, gRPC & Streaming APIs involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-        "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-        "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand REST, GraphQL, gRPC & Streaming APIs."
+        "REST (Representational State Transfer) organizes APIs around resources (nouns) rather than actions (verbs). A resource is any entity your API exposes: /users, /orders, /products. HTTP verbs express operations: GET (read), POST (create), PUT/PATCH (update), DELETE (delete). The URL identifies the resource; the verb identifies the operation. This uniformity makes REST APIs predictable: a developer familiar with one REST API can intuit how another works without reading documentation.",
+        "Resource naming: use plural nouns for collections (/users), singular resource identifiers (/users/123), and nested resources for relationships (/users/123/orders). Avoid verbs in URLs (/users/123/activate is wrong; use PATCH /users/123 with body {status: 'active'} or POST /users/123/activations for the activation event). Hierarchical nesting should be limited to 2–3 levels; deeper nesting creates brittle URLs that change when relationships change.",
+        "HTTP status codes must be used semantically: 200 OK (success with body), 201 Created (new resource; include Location header), 204 No Content (success without body), 400 Bad Request (client error; validation failed), 401 Unauthorized (missing/invalid auth), 403 Forbidden (authenticated but not authorized), 404 Not Found, 422 Unprocessable Entity (valid syntax but semantic error), 429 Too Many Requests, 500 Internal Server Error. Never return 200 with an error body ('success: false')—HTTP status codes exist precisely to convey outcome without parsing the body."
       ],
       "bullets": [
-        "Inputs → state/protocol → outputs/side effects",
-        "Name consistency and delivery guarantees",
-        "Identify the bottleneck resource early"
+        "Resources as nouns: /users, /orders, /products; HTTP verbs express operations",
+        "URL structure: /resources (collection), /resources/id (item), /resources/id/sub-resources",
+        "HTTP semantics: 200/201/204 success; 4xx client errors; 5xx server errors; use them correctly",
+        "Avoid verbs in URLs; use nouns + HTTP methods; use sub-resources for state transitions"
       ]
     },
     {
-      "title": "Designing with it",
+      "title": "GraphQL: Query What You Need",
       "paragraphs": [
-        "When incorporating REST, GraphQL, gRPC & Streaming APIs into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-        "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to REST, GraphQL, gRPC & Streaming APIs.",
-        "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of REST, GraphQL, gRPC & Streaming APIs should be observable on day one."
+        "GraphQL is a query language for APIs where clients specify exactly the data they need in a single request. Unlike REST where the server defines response shape, GraphQL clients define their own response shape. A mobile app needing only user name and avatar sends a query { user(id: 123) { name, avatar } } and receives exactly those fields. A desktop app needing full user details sends a richer query. This eliminates over-fetching (REST returning 50 fields when you need 3) and under-fetching (REST requiring 5 round trips to assemble a page).",
+        "GraphQL's type system is both its strength and its learning curve. All data is typed: scalars (String, Int, Boolean, ID), object types, enums, interfaces, and unions. The schema is the contract between client and server—once published, any breaking change (removing a field, changing a type) breaks all clients. Schema stitching and federation (Apollo Federation) allow splitting a large schema across multiple services while presenting a unified API to clients.",
+        "The N+1 problem is GraphQL's most common performance pitfall. A query for 100 users, each with their latest order, naively triggers 1 query for all users + 100 queries for each user's latest order = 101 queries. DataLoader (Facebook's batching library) solves this: instead of querying the database per-user, it collects all user IDs from a request's resolvers and fires one batched query for all of them. DataLoader is essential for any GraphQL API serving relational data."
+      ],
+      "bullets": [
+        "GraphQL: clients specify exact shape; eliminates over-fetching and under-fetching",
+        "Type system: schema is the contract; breaking changes (remove field) break all clients",
+        "Apollo Federation: split schema across multiple services; unified API surface",
+        "DataLoader: batches N+1 queries within a request; essential for relational GraphQL data"
       ]
     },
     {
-      "title": "Operations and failure modes",
+      "title": "gRPC: High-Performance Service Communication",
       "paragraphs": [
-        "Operate REST, GraphQL, gRPC & Streaming APIs with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-        "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-        "Chaos and game days should include slow dependencies and network delay, not only hard kills. REST, GraphQL, gRPC & Streaming APIs often fails in the gray area."
+        "gRPC uses Protocol Buffers (Protobuf) as its interface definition language and binary serialization format. Protobuf serialization is 3–10x smaller and faster than JSON: a 10KB JSON payload becomes 1–3KB in Protobuf. gRPC uses HTTP/2, enabling request multiplexing (multiple in-flight requests on one connection), server push, and header compression. For internal microservice communication where latency and throughput matter, gRPC is significantly faster than REST+JSON.",
+        "Protobuf message definitions are strongly typed and versioned. Field numbers (not field names) identify fields in the wire format: field 1, field 2, etc. Adding new fields with new field numbers is backward compatible (old clients ignore unknown fields). Removing fields by reserving their field number is backward compatible (new clients handle missing fields). Never reuse field numbers—this causes deserialization corruption. This versioning discipline enables gRPC APIs to evolve without breaking existing clients.",
+        "gRPC supports four communication patterns: unary (single request, single response—like HTTP), server streaming (single request, stream of responses—for real-time data feeds), client streaming (stream of requests, single response—for file uploads), and bidirectional streaming (both sides stream simultaneously—for real-time collaboration, gaming). These patterns are natively supported by the gRPC framework; implementing server streaming in REST requires SSE or WebSockets with significant boilerplate."
+      ],
+      "bullets": [
+        "Protobuf: 3–10x smaller and faster than JSON; strongly typed; backward-compatible via field numbers",
+        "HTTP/2: multiplexing + header compression; superior to HTTP/1.1 for many concurrent requests",
+        "Four patterns: unary, server streaming, client streaming, bidirectional streaming",
+        "Use for: internal microservice comms, high-throughput data pipelines, latency-sensitive services"
+      ]
+    },
+    {
+      "title": "API Error Handling and Idempotency",
+      "paragraphs": [
+        "Error responses must be consistent and informative. The standard: a JSON body with a machine-readable error code (string enum, not integer), a human-readable message, and optionally a details field for validation errors. Example: {error: {code: 'INSUFFICIENT_FUNDS', message: 'Account balance insufficient for this transfer', details: [{field: 'amount', issue: 'exceeds_balance'}]}}. The code field allows clients to handle specific errors programmatically; the message is for display. Never return 500 with generic 'Internal Server Error' messages—log the details server-side and return a unique error ID the client can reference in support tickets.",
+        "Idempotency keys transform non-idempotent operations (POST /charges) into safe-to-retry ones. The client generates a UUID and includes it as an Idempotency-Key header; the server stores the response keyed by this ID. If the same key is sent again (due to timeout/retry), the server returns the stored response without re-executing the operation. Stripe's implementation: idempotency keys are stored for 24 hours; requests with the same key within 24 hours return the cached response. Implement idempotency for all state-mutating endpoints that clients might retry.",
+        "Pagination is mandatory for list endpoints. Never return unbounded lists: response size is unpredictable, server and client memory usage is unbounded, and latency is uncontrollable. Offset/limit pagination (GET /users?offset=100&limit=20) is simple but breaks when items are inserted or deleted during pagination (items may be skipped or duplicated). Cursor-based pagination (GET /users?after=cursor123&limit=20) is stable: the cursor points to a specific item; insertions and deletions don't affect the page position. Use cursor-based pagination for user-facing paginated lists."
+      ],
+      "bullets": [
+        "Error format: code (machine-readable enum) + message (human readable) + details (validation)",
+        "Idempotency key: UUID header; server caches response; safe to retry POST operations",
+        "Pagination: always paginate list endpoints; cursor-based > offset for stability",
+        "Return unique error_id for 500 errors; log details server-side; allow support ticket reference"
+      ]
+    },
+    {
+      "title": "Authentication, Rate Limiting, and API Design Best Practices",
+      "paragraphs": [
+        "API authentication: API keys for server-to-server integrations (simple, long-lived, easy to revoke per key); OAuth 2.0 + JWT for user-delegated access (user grants an application limited access to their data without sharing their password); mutual TLS (mTLS) for service-to-service internal APIs (each service has a certificate; cryptographic identity verification). Never put API keys in URLs (they appear in server logs, browser history); always in headers (Authorization: Bearer <token> or X-API-Key: <key>).",
+        "Rate limiting protects APIs from abuse and prevents individual clients from monopolizing resources. Common strategies: fixed window (count requests in a fixed 60-second window; reset at the window boundary—vulnerable to boundary bursts), sliding window (count requests in the most recent 60 seconds—more accurate but heavier), token bucket (clients accumulate tokens at a fixed rate; each request consumes a token; allows bursts up to bucket size). Use different limits for different tiers (free: 100 req/min; paid: 10K req/min) and different operations (write endpoints stricter than read). Return 429 with Retry-After header when rate limited.",
+        "API design checklist: (1) Consistent resource naming (plural nouns). (2) Correct HTTP status codes. (3) Idempotency for all mutating endpoints. (4) Cursor-based pagination for all lists. (5) Consistent error format. (6) Authentication on all non-public endpoints. (7) Rate limiting with 429 and Retry-After. (8) Versioning strategy (URL path /v1 or header Accept: application/vnd.api.v1+json). (9) OpenAPI/Swagger specification. (10) Deprecation notices before breaking changes."
+      ],
+      "bullets": [
+        "Auth: API keys for server-to-server; OAuth 2.0 + JWT for user delegation; mTLS for service mesh",
+        "Rate limiting: token bucket (allows bursts); sliding window (accurate); per-tier limits",
+        "Return 429 + Retry-After on rate limit; don't silently drop requests",
+        "Checklist: nouns, status codes, idempotency, pagination, errors, auth, rate limits, versioning, OpenAPI"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "What REST, GraphQL, gRPC & Streaming APIs is solving",
+        "title": "REST and Resource Modeling",
         "paragraphs": [
-          "REST, GraphQL, gRPC & Streaming APIs exists because naive designs around contracts, evolution, and client ergonomics break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-          "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map REST, GraphQL, gRPC & Streaming APIs onto those constraints.",
-          "A useful mental model separates the control plane (how you configure and observe REST, GraphQL, gRPC & Streaming APIs) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
+          "REST: resources as nouns, HTTP verbs as operations. /users (collection), /users/123 (item), /users/123/orders (sub-resource). Never verbs in URLs.",
+          "HTTP status codes must be used semantically: 200/201/204 success, 4xx client errors, 5xx server errors. Never 200 with error body.",
+          "Pagination: cursor-based for user-facing lists; always paginate (never return unbounded lists)."
         ]
       },
       {
-        "title": "Core mechanics",
+        "title": "GraphQL and gRPC",
         "paragraphs": [
-          "Mechanically, REST, GraphQL, gRPC & Streaming APIs involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-          "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-          "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand REST, GraphQL, gRPC & Streaming APIs."
-        ],
-        "bullets": [
-          "Inputs → state/protocol → outputs/side effects",
-          "Name consistency and delivery guarantees",
-          "Identify the bottleneck resource early"
+          "GraphQL: client specifies exact shape; eliminates over/under-fetching; DataLoader prevents N+1.",
+          "gRPC + Protobuf: 3–10x smaller than JSON; backward-compatible via field numbers; 4 communication patterns (unary, streaming variants).",
+          "Use REST for external/public APIs; gRPC for high-performance internal microservice communication."
         ]
       },
       {
-        "title": "Designing with it",
+        "title": "Error Handling and Idempotency",
         "paragraphs": [
-          "When incorporating REST, GraphQL, gRPC & Streaming APIs into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-          "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to REST, GraphQL, gRPC & Streaming APIs.",
-          "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of REST, GraphQL, gRPC & Streaming APIs should be observable on day one."
-        ]
-      },
-      {
-        "title": "Operations and failure modes",
-        "paragraphs": [
-          "Operate REST, GraphQL, gRPC & Streaming APIs with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-          "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-          "Chaos and game days should include slow dependencies and network delay, not only hard kills. REST, GraphQL, gRPC & Streaming APIs often fails in the gray area."
+          "Error format: machine-readable code + human message + details. Idempotency key (UUID header) for all state-mutating endpoints.",
+          "Rate limiting: token bucket allows bursts; sliding window for accuracy. Return 429 + Retry-After.",
+          "Authentication: API keys for server-to-server; OAuth 2.0 + JWT for user delegation. Never in URLs."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "REST, GraphQL, gRPC & Streaming APIs — deeper internals",
+        "title": "API Versioning Strategies",
         "paragraphs": [
-          "Under the hood, REST, GraphQL, gRPC & Streaming APIs typically exposes knobs for batching, buffering, concurrency, retention, and timeouts. Each knob trades latency, throughput, and cost. Change one at a time and measure.",
-          "Instrumentation should include high-signal histograms and exemplars that jump to traces. For data systems, watch amplification and compaction/GC; for RPC systems, watch queue time and saturation; for ML systems, watch memory and tokens/s."
-        ],
-        "bullets": [
-          "One knob at a time with a hypothesis",
-          "Histograms > averages",
-          "Tie dashboards to runbooks"
+          "URL versioning (/v1/users, /v2/users) is the most common and visible approach. Clients know which version they're calling; multiple versions can run simultaneously. The downside: clients must update URLs when migrating; old versions must be maintained indefinitely (or until all clients migrate). Deprecation policy: announce deprecation 6–12 months in advance; return Deprecation and Sunset headers on deprecated endpoints to give clients time to migrate.",
+          "Header versioning (Accept: application/vnd.company.api.v2+json) keeps URLs clean but requires explicit header management by clients and is harder to test in a browser. GitHub's API uses header-based versioning. Schema versioning (GraphQL deprecation directives @deprecated(reason: 'Use newField instead')) allows granular field-level deprecation within a single schema version—more flexible but requires client tooling to surface deprecation warnings.",
+          "Additive changes are always backward compatible: adding optional fields, adding new endpoints, adding new enum values (with caution—existing clients switch to default on unknown values in switch statements). Breaking changes: removing or renaming fields, changing field types, removing endpoints, changing authentication schemes. Run a consumer-driven contract testing tool (Pact) to detect breaking changes before deployment."
         ]
       },
       {
-        "title": "REST, GraphQL, gRPC & Streaming APIs — integration patterns",
+        "title": "API Gateway Patterns",
         "paragraphs": [
-          "Integrate via stable contracts: schemas, idempotency keys, and versioned APIs. Dual-write carefully or prefer CDC/outbox patterns when crossing storage and messaging.",
-          "Boundary tests should prove behavior under duplicate delivery, reordering, and clock skew where relevant to REST, GraphQL, gRPC & Streaming APIs."
+          "An API gateway is the single entry point for all API traffic. It handles: authentication (verify JWT before forwarding to services), rate limiting (per-client, per-endpoint), request routing (route /api/v1/users to user-service, /api/v1/orders to order-service), protocol translation (REST->gRPC), response caching, and observability (trace correlation, logging, metrics). AWS API Gateway, Kong, and Envoy Proxy are common implementations.",
+          "Backend-for-Frontend (BFF) pattern: instead of a single API gateway, create a dedicated backend for each frontend (web BFF, mobile BFF, IoT BFF). Each BFF aggregates calls to multiple microservices and shapes the response for its specific client's needs. The web BFF returns rich data for a full browser; the mobile BFF returns compact data optimized for bandwidth-constrained devices. This pattern avoids the 'one size fits none' problem of a universal API.",
+          "API composition: when a client needs data from multiple services, the API gateway or BFF performs fan-out (call multiple services in parallel) and aggregation (merge results into one response). Service-to-service calls should be direct (gRPC); only final responses aggregated for clients should traverse the gateway. Putting the gateway in the critical path for all inter-service communication creates a bottleneck."
         ]
       }
     ],
     "expert": [
       {
-        "title": "REST, GraphQL, gRPC & Streaming APIs — multi-region and cost",
+        "title": "Expert: OpenAPI, Contract Testing, and API Governance",
         "paragraphs": [
-          "Across regions, RTT and quorum placement dominate. Keep user-critical paths region-local when invariants allow; replicate asynchronously otherwise. Spell out the conflict/staleness model.",
-          "Track unit economics for REST, GraphQL, gRPC & Streaming APIs: cost per million requests, per GB stored, or per million tokens. Many scalability projects are cost projects — make the objective explicit."
+          "OpenAPI (Swagger) specification should be generated from code annotations (not written manually) to stay in sync with implementation. Code-first generation (FastAPI, Go-swagger, Spring Springdoc) produces accurate specs without manual maintenance. The spec enables: automatic SDK generation (OpenAPI Generator produces clients in 30+ languages), interactive API docs (Swagger UI, Redoc), mock server generation for client development before the server is built, and schema validation middleware to automatically validate requests and responses.",
+          "API governance at scale (100+ APIs, dozens of teams) requires standards enforcement. API linting tools (Spectral by Stoplight) enforce standards—no 500 without error_id, no unbounded list endpoints, required security schemes—as part of CI/CD. API catalogs (Backstage, SwaggerHub) provide discoverability: developers can find existing APIs before building new ones. Breaking change detection (Optic, Bump.sh) fails CI when a new version introduces breaking changes without a version bump."
         ]
       }
     ]
   },
   "concepts": [
-    "REST, GraphQL, gRPC & Streaming APIs: problem framing and constraints",
-    "Control plane vs data plane",
-    "Amplification, locality, contention",
-    "Failure observations for clients",
-    "SLIs and capacity headroom",
-    "Versioned contracts / idempotency"
+    "REST: resources as nouns, HTTP verbs as operations, uniform interface",
+    "HTTP status codes: semantic usage; 200/201/204, 4xx client, 5xx server",
+    "GraphQL: client-specified query shape; type system schema contract; DataLoader for N+1",
+    "gRPC: Protobuf binary; HTTP/2; 4 communication patterns; backward-compatible via field numbers",
+    "Idempotency key: UUID header enabling safe retry of state-mutating POST operations",
+    "Cursor-based pagination: stable ordering during insertions/deletions; preferred for user-facing lists",
+    "API gateway: single entry point; handles auth, rate limiting, routing, observability",
+    "BFF (Backend for Frontend): dedicated backend per client type; optimizes response shape",
+    "OpenAPI spec: machine-readable contract; enables SDK generation, docs, mocking, linting",
+    "Rate limiting: token bucket (bursts), sliding window (accuracy); 429 + Retry-After response"
   ],
   "practices": [
-    "Start from constraints before selecting a REST, GraphQL, gRPC & Streaming APIs approach",
-    "Define SLIs and dashboards with the feature",
-    "Make retries idempotent and budgeted",
-    "Roll out reversibly with measurement"
+    "Design API contracts (OpenAPI spec) before implementation; spec is the design artifact",
+    "Use correct HTTP status codes; never return 200 with error body",
+    "Implement idempotency keys for all state-mutating endpoints; test by replaying the same request",
+    "Always paginate list endpoints; use cursor-based for user-facing lists",
+    "Return machine-readable error codes (string enum), not integer error codes",
+    "Never put API keys in URLs; use Authorization or X-API-Key headers",
+    "Announce deprecations 6–12 months in advance; return Deprecation/Sunset headers on deprecated endpoints"
   ],
   "pitfalls": [
-    "Tool-first design without invariants",
-    "Ignoring brownout/slow dependency behavior",
-    "Unbounded retries and queues",
-    "Missing ownership for ops/runbooks"
+    "Returning 200 with success: false in the body—breaks HTTP status code semantics for clients",
+    "Unbounded list endpoints without pagination—memory exhaustion for large datasets",
+    "Reusing Protobuf field numbers after removal—causes deserialization corruption in gRPC",
+    "No idempotency keys on payment/charge endpoints—client retries cause duplicate charges",
+    "Breaking changes without version bump—breaks all existing clients simultaneously",
+    "API keys in URL query parameters—logged in server access logs, browser history, and proxy logs"
   ],
   "examples": [
     {
-      "title": "Production pattern",
-      "description": "Teams that succeed with REST, GraphQL, gRPC & Streaming APIs treat measurement, failure drills, and contracts as part of the design — not afterthoughts."
+      "title": "Stripe's API Design Excellence",
+      "description": "Stripe's REST API is widely regarded as the gold standard. Idempotency keys on all charge operations prevent duplicate charges during retries. Consistent error codes (card_declined, insufficient_funds) enable programmatic error handling. Versioning via date-based API versions (2024-11-19) lets clients pin to a specific behavior. Pagination uses cursor-based next_page tokens. These design decisions have enabled Stripe to serve millions of developers with minimal support burden."
     },
     {
-      "title": "Common review question",
-      "description": "In design reviews, expect to explain what breaks first when load spikes 10× and how REST, GraphQL, gRPC & Streaming APIs sheds or scales."
+      "title": "GitHub's GraphQL API",
+      "description": "GitHub migrated from REST to GraphQL for its v4 API, eliminating the most common complaint about their v3 REST API: too many round trips to assemble a full repository view. A single GraphQL query can fetch repository details, recent commits, open pull requests, and collaborators in one request. The strongly-typed schema serves as living documentation; GraphiQL's autocomplete makes exploration intuitive without reading docs."
     }
   ],
   "keyTakeaways": [
-    "REST, GraphQL, gRPC & Streaming APIs should be chosen from constraints, not fashion",
-    "Mechanics + failure model + capacity math are the core",
-    "Operations and contracts decide long-term success"
+    "REST organizes APIs around resources; HTTP verbs express operations; use status codes semantically",
+    "GraphQL eliminates over/under-fetching; DataLoader prevents N+1; schema is a breaking-change surface",
+    "gRPC + Protobuf is 3–10x faster than REST+JSON; use for internal microservice communication",
+    "Idempotency keys make POST operations safely retryable; implement on all mutating endpoints",
+    "Cursor-based pagination is stable during insertions/deletions; preferred over offset for user-facing lists",
+    "API governance at scale requires linting, contract testing, and a catalog for discoverability"
   ],
-  "whyItMatters": "Without a solid model of REST, GraphQL, gRPC & Streaming APIs, designs either overbuild or fail in production in ways that are hard to debug. This lesson gives a working framework you can reuse across systems involving contracts, evolution, and client ergonomics.",
+  "whyItMatters": "APIs are the interfaces that allow systems, teams, and products to evolve independently. Poor API design causes cascading problems: clients break on updates, pagination causes memory exhaustion, missing idempotency causes duplicate transactions. Good API design—consistent, evolvable, secure—pays dividends for years. Every system design interview includes API design, and candidates who can reason about resource modeling, error handling, and versioning demonstrate production engineering maturity.",
   "reflectionQuestions": [
-    "What invariant does REST, GraphQL, gRPC & Streaming APIs protect in your system?",
-    "What is the scarcest resource when you apply REST, GraphQL, gRPC & Streaming APIs?",
-    "How would you rehearse the top failure mode for REST, GraphQL, gRPC & Streaming APIs?"
+    "Design the API for a payment processing service: endpoints, HTTP methods, error codes, idempotency, and pagination.",
+    "A REST API returns {success: false, error: 'Invalid input'} for validation errors. What is wrong with this and how would you fix it?",
+    "When would you choose gRPC over REST for a new service API? What constraints does gRPC impose?",
+    "Design a versioning strategy for a public API that must maintain backward compatibility while allowing the internal data model to evolve."
   ],
   "numbersToKnow": [
-    "Plan 2–3× headroom above peak for incidents and rebalancing",
-    "Cross-region RTT often ~50–150ms one way",
-    "p99 matters more than average for user-facing paths"
+    "Protobuf vs JSON: 3–10x smaller binary size; 2–5x faster serialization/deserialization",
+    "GraphQL DataLoader: batches N+1 queries within a single request execution",
+    "Rate limit response: 429 Too Many Requests; include Retry-After header in seconds",
+    "Idempotency key expiry: Stripe stores for 24 hours; typical range 24h–7 days",
+    "OpenAPI Generator: produces client SDKs in 30+ languages from a single spec file"
   ],
   "diagrams": [
     {
-      "id": "fund-apis-overview",
-      "title": "REST, GraphQL, gRPC & Streaming APIs context",
-      "mermaid": "flowchart LR\n  Client --> Boundary\n  Boundary --> REST__GraphQL__gRPC___St\n  REST__GraphQL__gRPC___St --> Dependency"
+      "id": "fund-apis-rest-resource-model",
+      "title": "REST Resource URL Hierarchy",
+      "mermaid": "flowchart TD\n  R1[GET /users] --> R2[POST /users]\n  R1 --> R3[GET /users/id]\n  R3 --> R4[PATCH /users/id]\n  R3 --> R5[DELETE /users/id]\n  R3 --> R6[GET /users/id/orders]\n  R6 --> R7[POST /users/id/orders]\n  R6 --> R8[GET /users/id/orders/order-id]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain REST, GraphQL, gRPC & Streaming APIs and the main trade-offs.",
-    "How does REST, GraphQL, gRPC & Streaming APIs behave under overload or partition?",
-    "What would you measure after changing a REST, GraphQL, gRPC & Streaming APIs-related knob?"
+    "Design the API for a URL shortener: endpoints, HTTP methods, error codes, rate limiting.",
+    "What is the N+1 problem in GraphQL and how do you solve it?",
+    "Compare REST and gRPC. For what use case would you choose gRPC?",
+    "How do you implement idempotency for a payment API?",
+    "Design a versioning strategy for a REST API serving millions of clients."
   ],
   "exercises": [
-    "Sketch an architecture that depends on REST, GraphQL, gRPC & Streaming APIs; estimate capacity and list three failure modes.",
-    "Write a one-page runbook for the most likely REST, GraphQL, gRPC & Streaming APIs outage."
+    "Design the full REST API for a hotel booking system: list all endpoints with HTTP methods, request/response schemas, error codes, pagination, and authentication.",
+    "Define a Protobuf schema for a user service with CRUD operations; identify which field changes are breaking vs backward-compatible.",
+    "Design the rate limiting strategy for a public API: different tiers, algorithms, response headers, and monitoring."
   ],
   "sources": [
-    {
-      "title": "Designing Data-Intensive Applications (concepts)"
-    }
+    { "title": "RESTful API Design — Best Practices in a Nutshell (Zalando Engineering)" },
+    { "title": "gRPC documentation — protobuf language guide, service definition" },
+    { "title": "GraphQL specification — graphql.org/learn" },
+    { "title": "Stripe API documentation — stripe.com/docs/api; gold standard for API design patterns" }
   ],
   "relatedLessons": [
-    "api-styles",
     "fund-api-versioning",
-    "fund-pagination"
+    "fund-security",
+    "fund-reliability",
+    "net-http"
   ]
 }

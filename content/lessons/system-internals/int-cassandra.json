@@ -1,202 +1,226 @@
 {
   "id": "int-cassandra",
-  "title": "Cassandra Internals",
+  "title": "Apache Cassandra Internals",
   "moduleId": "system-internals",
   "phaseId": "internal-designs",
-  "durationMinutes": 35,
-  "summary": "Cassandra Internals is a core topic in modern system design. This lesson builds a first-principles model around how production systems are built inside, then connects that model to capacity, failure modes, and operational practice so you can use it in real architectures.",
-  "kind": "living",
-  "difficulty": "intermediate",
+  "durationMinutes": 50,
+  "summary": "Apache Cassandra is a distributed, wide-column NoSQL database designed for high-availability and linear horizontal scalability. Its masterless architecture (consistent hashing ring, gossip protocol, tunable consistency), LSM-tree storage engine (memtable + SSTable), and partition-key-centric data model make it the right choice for high-write-throughput, geographically distributed workloads where availability trumps strict consistency.",
+  "kind": "evergreen",
+  "difficulty": "advanced",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [],
-  "tags": [
-    "system-internals",
-    "living",
-    "internal-designs"
-  ],
+  "prerequisites": ["db-replication-sharding", "dist-cap-consistency"],
+  "tags": ["system-internals", "cassandra", "nosql", "distributed", "wide-column"],
   "sections": [
     {
-      "title": "What Cassandra Internals is solving",
+      "title": "Architecture: Masterless Ring and Consistent Hashing",
       "paragraphs": [
-        "Cassandra Internals exists because naive designs around how production systems are built inside break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-        "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map Cassandra Internals onto those constraints.",
-        "A useful mental model separates the control plane (how you configure and observe Cassandra Internals) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-      ]
-    },
-    {
-      "title": "Core mechanics",
-      "paragraphs": [
-        "Mechanically, Cassandra Internals involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-        "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-        "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand Cassandra Internals."
+        "Cassandra has no master node—every node in the cluster is functionally identical (peer-to-peer). This masterless design is the source of Cassandra's high availability: there's no single point of failure, no election needed during failure, and no primary-replica failover latency. Data is distributed across nodes using consistent hashing: each row's partition key is hashed to a position on a virtual ring; each node is responsible for a range of that ring. With virtual nodes (vnodes), each physical node hosts multiple small token ranges, enabling smooth data distribution without manual token assignment.",
+        "The gossip protocol maintains cluster membership: each node gossips with 1-3 random peers every second, exchanging cluster state (which nodes are up/down, their token assignments, schema versions). Within seconds, a node failure is detected and propagated cluster-wide without central coordination. The gossip protocol also drives the anti-entropy repair process: nodes compare their data with peers and exchange missing or mismatched rows, maintaining eventual consistency over time.",
+        "Replication is configured per keyspace with a replication factor (RF). With RF=3, each row is stored on 3 consecutive nodes in the ring. The replica placement strategy (NetworkTopologyStrategy) ensures replicas are placed on different racks and data centers for failure domain isolation. When a client writes, it contacts any node (the coordinator). The coordinator routes the write to all responsible replicas (determined by the partition key's position on the ring).",
+        "Tunable consistency: each read and write operation specifies its consistency level. CL.ONE: single replica acknowledgment (fastest, least consistent). CL.QUORUM: majority of replicas (RF/2+1) must acknowledge. CL.ALL: all replicas must acknowledge (slowest, most consistent). For strong consistency, use CL.QUORUM for both reads and writes—this ensures at least one node participated in both the latest write and the read, guaranteeing read-after-write. CL.LOCAL_QUORUM limits acknowledgment to the local datacenter, providing low-latency strong consistency within a region."
       ],
       "bullets": [
-        "Inputs → state/protocol → outputs/side effects",
-        "Name consistency and delivery guarantees",
-        "Identify the bottleneck resource early"
+        "Masterless ring: every node equal; no primary/replica failover; no SPOF",
+        "Consistent hashing: partition key → token position → responsible nodes",
+        "Vnodes: each physical node holds N virtual token ranges; smooth load distribution",
+        "Tunable consistency: CL.ONE (AP), CL.QUORUM (CP), CL.LOCAL_QUORUM (regional CP)"
       ]
     },
     {
-      "title": "Designing with it",
+      "title": "LSM-Tree Storage: Memtable, SSTable, and Compaction",
       "paragraphs": [
-        "When incorporating Cassandra Internals into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-        "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to Cassandra Internals.",
-        "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of Cassandra Internals should be observable on day one."
+        "Cassandra's storage engine is an LSM (Log-Structured Merge-tree). Writes go first to an in-memory data structure (memtable) and a commit log (write-ahead log for durability). When the memtable reaches a size threshold, it is flushed to disk as an immutable SSTable (Sorted String Table). SSTables are never modified—updates and deletes create new versions. This design makes writes extremely fast (memory + sequential disk write) but requires periodic compaction to merge SSTables and remove obsolete versions.",
+        "An SSTable consists of several files: data file (actual column values, compressed), index file (partition key → data file offset), summary file (sample of index for in-memory range lookup), statistics file (partition count, min/max column values), and bloom filter file (probabilistic index to skip SSTables that definitely don't contain the requested partition key). On a read, Cassandra checks the bloom filter of each SSTable, then consults the summary and index to find the partition's location in the data file.",
+        "Tombstones are Cassandra's delete mechanism. Because SSTables are immutable, DELETE doesn't remove data—it writes a tombstone marker. The tombstone is replicated to all replicas. During compaction, tombstones older than gc_grace_seconds (default: 10 days) are physically removed. This gc_grace_seconds is the window for deleted data to propagate to all replicas before the tombstone can be safely removed—if a replica was down for longer than gc_grace_seconds and misses a delete, the deleted data could resurrect when the replica rejoins (zombie data).",
+        "Compaction strategies control how SSTables are merged. SizeTieredCompaction (default): merges similar-sized SSTables; good for write-heavy workloads, creates large SSTables that are slow to read. LeveledCompaction: maintains SSTables in levels where each level is 10x larger than the previous; better read performance (guaranteed to check at most L levels), more I/O-intensive writes. TimeWindowCompaction (TWCS): groups SSTables by time window; ideal for time-series data where old data is never updated. TWCS minimizes compaction I/O by never compacting windows that contain only old, immutable data."
+      ],
+      "bullets": [
+        "Writes: memtable (in-memory) + commit log (WAL); flush to SSTable when memtable full",
+        "SSTable: immutable; bloom filter + index + data; multiple SSTables merged during compaction",
+        "Tombstone: delete marker; physically removed after gc_grace_seconds during compaction",
+        "TWCS: time-series compaction; ideal for append-only time-series data"
       ]
     },
     {
-      "title": "Operations and failure modes",
+      "title": "Data Modeling: Partition Key, Clustering Columns, and Denormalization",
       "paragraphs": [
-        "Operate Cassandra Internals with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-        "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-        "Chaos and game days should include slow dependencies and network delay, not only hard kills. Cassandra Internals often fails in the gray area."
+        "Cassandra's data model is fundamentally query-driven: define your queries first, then design tables to serve those queries exactly. This is the opposite of relational modeling (normalize first, query however you need). Each Cassandra table is a distributed sorted map: the partition key determines which nodes hold the data (hash-based), and the clustering columns determine the sort order within a partition. Queries must specify the partition key (equality or IN clause); range queries are allowed only on clustering columns within a known partition.",
+        "Partition design is the most critical modeling decision. A partition holds all rows with the same partition key—they're stored together, read together, and must fit on a single node. Hot partitions (one partition receiving disproportionate reads/writes) become throughput bottlenecks and can cause node instability. Max recommended partition size is 100MB (soft limit); larger partitions cause GC pressure and slow compaction. For user event tables, partition by user_id groups all events per user together—ideal for per-user queries but creates uneven distribution for 'celebrity' users with millions of events. Add a time bucket (toStartOfMonth(event_time)) to bound partition size.",
+        "Denormalization is required because Cassandra doesn't support joins or multi-partition queries efficiently. Store the same data in multiple tables, each optimized for a different query pattern. An order system: orders_by_user (partition: user_id, cluster: created_at DESC for recent orders), orders_by_status (partition: status, cluster: created_at for work queue pattern), orders_by_id (partition: order_id for direct lookup). These three tables serve three different access patterns from the same underlying data.",
+        "Light transactions (LWT) provide linearizable compare-and-set within a single partition: INSERT INTO locks (key) VALUES ('value') IF NOT EXISTS implements a distributed lock. LWT uses Paxos under the hood—4 round-trips for a successful operation. This is 10-20x slower than a regular write (~5ms vs. ~0.5ms). Use LWT sparingly for idempotency keys and distributed locks where correctness is critical; avoid it in the hot path. For most uniqueness requirements, use Cassandra's partition key structure to enforce uniqueness naturally."
+      ],
+      "bullets": [
+        "Query-first design: design table schema around specific queries, not normalized data model",
+        "Partition key: determines node placement; must be specified in every query",
+        "Clustering columns: sort order within partition; range queries allowed within partition",
+        "Denormalization: duplicate data in multiple tables; each optimized for one query pattern"
+      ]
+    },
+    {
+      "title": "Consistency, Hinted Handoff, and Read Repair",
+      "paragraphs": [
+        "Hinted handoff is Cassandra's mechanism for handling temporary node failures without sacrificing write availability. When a replica node is temporarily unavailable, the coordinator stores the write as a 'hint' locally. When the unavailable node returns, the coordinator replays all stored hints. This allows writes to succeed at CL.ONE even when target replicas are temporarily offline—at the cost of eventual consistency for reads until hints are replayed. Hinted handoff has a TTL (default 3 hours); hints older than the TTL are discarded, requiring repair to reconcile the replica.",
+        "Read repair reconciles inconsistencies detected during reads. When a read with CL.QUORUM returns different values from different replicas, Cassandra determines the most recent value (using timestamps) and asynchronously writes the correct value back to the stale replica. Read repair is a background correction mechanism—it doesn't slow down the read path (unless using read_repair=blocking which synchronously waits for repair). Over time, read repair converges all replicas to consistent state, but explicit nodetool repair is required for comprehensive reconciliation.",
+        "Repair is the most important operational responsibility in Cassandra. Without regular repair, replicas drift: a node that was down and missed hinted handoff (or hints expired) has stale/missing data. nodetool repair initiates an anti-entropy repair using Merkle tree comparison—each node computes a Merkle hash of its data, compares with peer replicas, and exchanges only the differing rows. Full repair must run more frequently than gc_grace_seconds to prevent zombie data resurrection. Many teams use a reaper tool (Cassandra Reaper) to schedule and monitor repair jobs across the cluster."
+      ],
+      "bullets": [
+        "Hinted handoff: coordinator stores write for unavailable replica; replays on return",
+        "Read repair: reconcile stale replicas detected during quorum reads; asynchronous",
+        "nodetool repair: Merkle tree anti-entropy repair; must run more frequently than gc_grace_seconds",
+        "Cassandra Reaper: automated repair scheduling and monitoring for production clusters"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "What Cassandra Internals is solving",
+        "title": "Architecture and Consistency",
         "paragraphs": [
-          "Cassandra Internals exists because naive designs around how production systems are built inside break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-          "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map Cassandra Internals onto those constraints.",
-          "A useful mental model separates the control plane (how you configure and observe Cassandra Internals) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-        ]
-      },
-      {
-        "title": "Core mechanics",
-        "paragraphs": [
-          "Mechanically, Cassandra Internals involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-          "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-          "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand Cassandra Internals."
+          "Masterless ring with consistent hashing. Gossip for cluster membership. RF=3 with NetworkTopologyStrategy for DC isolation.",
+          "Tunable consistency: CL.ONE (high availability), CL.QUORUM (strong), CL.LOCAL_QUORUM (regional strong).",
+          "Vnodes: each node holds N token ranges; smooth load distribution without manual token assignment."
         ],
         "bullets": [
-          "Inputs → state/protocol → outputs/side effects",
-          "Name consistency and delivery guarantees",
-          "Identify the bottleneck resource early"
+          "No SPOF: masterless; any node can serve any request",
+          "QUORUM + QUORUM: guarantees read-after-write consistency",
+          "LOCAL_QUORUM: strong consistency within datacenter; low-latency"
         ]
       },
       {
-        "title": "Designing with it",
+        "title": "LSM Storage and Data Modeling",
         "paragraphs": [
-          "When incorporating Cassandra Internals into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-          "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to Cassandra Internals.",
-          "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of Cassandra Internals should be observable on day one."
-        ]
-      },
-      {
-        "title": "Operations and failure modes",
-        "paragraphs": [
-          "Operate Cassandra Internals with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-          "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-          "Chaos and game days should include slow dependencies and network delay, not only hard kills. Cassandra Internals often fails in the gray area."
+          "Writes: memtable + commit log → SSTable flush. SSTables immutable; compaction merges them and removes tombstones.",
+          "Design tables around queries: partition key for placement, clustering columns for sort order. No joins, no cross-partition queries.",
+          "Denormalize: duplicate data in multiple tables, each serving a specific query pattern."
+        ],
+        "bullets": [
+          "TWCS: time-series data; compaction by time window; minimal I/O for old data",
+          "Tombstones: delete markers; removed after gc_grace_seconds; run repair before gc_grace expires",
+          "Partition size: max 100MB; add time bucket to bound growing partitions"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Cassandra Internals — deeper internals",
+        "title": "Cassandra Performance Tuning",
         "paragraphs": [
-          "Under the hood, Cassandra Internals typically exposes knobs for batching, buffering, concurrency, retention, and timeouts. Each knob trades latency, throughput, and cost. Change one at a time and measure.",
-          "Instrumentation should include high-signal histograms and exemplars that jump to traces. For data systems, watch amplification and compaction/GC; for RPC systems, watch queue time and saturation; for ML systems, watch memory and tokens/s."
+          "Read performance bottlenecks: too many SSTables per read (use LeveledCompaction), tombstone accumulation (review delete patterns), large partitions (sub-partition by time), missing or ineffective bloom filters (tune false positive rate). Write performance bottlenecks: compaction falling behind (increase concurrent_compactors), JVM GC pauses (use G1GC with 8-16GB heap, enable incremental compaction), disk I/O saturation (NVMe SSDs mandatory for production).",
+          "JVM tuning for Cassandra: use G1GC with -Xms16g -Xmx16g (heap size; don't exceed 32GB to avoid GC pause issues), -XX:+UseStringDeduplication, and -XX:MaxGCPauseMillis=500. The off-heap memory (Cassandra uses off-heap for bloom filters, page cache, and compression buffers) often exceeds heap—a node may use 32GB heap + 48GB off-heap = 80GB total. Plan server RAM accordingly: typically 128-256GB RAM per Cassandra node for production workloads.",
+          "Cassandra's nodetool utility is the primary operational tool: nodetool status (cluster health), nodetool tpstats (thread pool statistics—critical for detecting backpressure), nodetool cfstats (per-table statistics including read/write latency and SSTable count), nodetool compactionstats (ongoing compaction progress), nodetool repair (trigger manual repair). Monitor tpstats for dropped mutations (indicator of overload) and pending tasks in native transport stage (indicates client backpressure)."
         ],
         "bullets": [
-          "One knob at a time with a hypothesis",
-          "Histograms > averages",
-          "Tie dashboards to runbooks"
-        ]
-      },
-      {
-        "title": "Cassandra Internals — integration patterns",
-        "paragraphs": [
-          "Integrate via stable contracts: schemas, idempotency keys, and versioned APIs. Dual-write carefully or prefer CDC/outbox patterns when crossing storage and messaging.",
-          "Boundary tests should prove behavior under duplicate delivery, reordering, and clock skew where relevant to Cassandra Internals."
+          "LeveledCompaction: better read performance; each read checks at most L+1 SSTables",
+          "G1GC with 16GB heap: stable latency; avoid >32GB heap for Cassandra (long GC pauses)",
+          "nodetool tpstats: dropped mutations = overload indicator; monitor pending native transport",
+          "SSTable count per read: high count → compaction falling behind → read latency increases"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Cassandra Internals — multi-region and cost",
+        "title": "Cassandra Multi-Region Active-Active",
         "paragraphs": [
-          "Across regions, RTT and quorum placement dominate. Keep user-critical paths region-local when invariants allow; replicate asynchronously otherwise. Spell out the conflict/staleness model.",
-          "Track unit economics for Cassandra Internals: cost per million requests, per GB stored, or per million tokens. Many scalability projects are cost projects — make the objective explicit."
+          "Cassandra's masterless architecture natively supports multi-region active-active replication. With NetworkTopologyStrategy and RF=3 per datacenter (US-East: 3, EU-West: 3), every write is replicated to 3 nodes in each datacenter. Using CL.LOCAL_QUORUM, writes acknowledge from the local datacenter only, with asynchronous replication to other datacenters. Read latency stays local; write conflicts are resolved by last-write-wins (highest timestamp wins) with no coordination overhead.",
+          "Last-write-wins (LWW) conflict resolution requires synchronized clocks. Cassandra uses wall-clock timestamps for conflict resolution—if two datacenters write to the same cell concurrently, the write with the highest timestamp wins. Clock skew can cause recent writes to be lost if the clocks diverge significantly. Use NTP with <1ms skew, or use client-side timestamps controlled by the application to ensure monotonicity. For use cases where LWW is incorrect (counter updates, inventory), use Cassandra Lightweight Transactions (Paxos) or move the conflicting data out of Cassandra.",
+          "Change Data Capture (CDC) in Cassandra 3.0+: a cdc_raw directory receives commit log segments when CDC is enabled per table (WITH cdc = true). A separate process (Kafka Cassandra CDC connector, Debezium) reads these commit log segments and publishes row changes to Kafka. This enables Cassandra to participate in event-driven architectures, feeding downstream systems with row-level change events without application-layer dual writes."
         ]
       }
     ]
   },
   "concepts": [
-    "Cassandra Internals: problem framing and constraints",
-    "Control plane vs data plane",
-    "Amplification, locality, contention",
-    "Failure observations for clients",
-    "SLIs and capacity headroom",
-    "Versioned contracts / idempotency"
+    "Masterless ring: peer-to-peer; consistent hashing for partition placement; no SPOF",
+    "Gossip protocol: peer-to-peer cluster state propagation; detects failures within seconds",
+    "Tunable consistency: CL.ONE (AP), CL.QUORUM (CP), CL.LOCAL_QUORUM (regional CP)",
+    "Memtable: in-memory write buffer; flushed to SSTable on size threshold",
+    "SSTable: immutable sorted disk file; bloom filter + index + data; compaction merges multiple SSTables",
+    "Tombstone: delete marker; physically removed after gc_grace_seconds during compaction",
+    "Hinted handoff: coordinator stores writes for unavailable replicas; replays on return",
+    "Read repair: stale replicas updated asynchronously when discrepancy detected during reads",
+    "Partition key: determines node placement via consistent hash; must be in every query",
+    "Clustering columns: sort order within a partition; range queries allowed within partition",
+    "LWT (Lightweight Transactions): Paxos-based compare-and-set; 4 round-trips; linearizable",
+    "TimeWindowCompaction: group SSTables by time; ideal for time-series append workloads"
   ],
   "practices": [
-    "Start from constraints before selecting a Cassandra Internals approach",
-    "Define SLIs and dashboards with the feature",
-    "Make retries idempotent and budgeted",
-    "Roll out reversibly with measurement"
+    "Design tables query-first: define access patterns before schema; create one table per query pattern",
+    "Use NetworkTopologyStrategy with RF=3 per datacenter; ensure racks are defined for fault domain isolation",
+    "Use TWCS for time-series tables; ensure no cross-window updates to avoid compaction inefficiency",
+    "Run nodetool repair more frequently than gc_grace_seconds to prevent zombie data resurrection",
+    "Bound partition size with a time bucket in the partition key (toStartOfMonth) for high-volume entities",
+    "Monitor tombstone counts with cfstats; excessive tombstones cause 'tombstone_warn_threshold' warnings and read latency",
+    "Use CL.LOCAL_QUORUM for multi-region setups to achieve strong consistency within a region at local latency"
   ],
   "pitfalls": [
-    "Tool-first design without invariants",
-    "Ignoring brownout/slow dependency behavior",
-    "Unbounded retries and queues",
-    "Missing ownership for ops/runbooks"
+    "Using ALLOW FILTERING in queries—full partition scan; indicates missing table design for the access pattern",
+    "Using a low-cardinality partition key (status='PENDING')—hot partition that overwhelms 1-2 nodes",
+    "Not running repair—replicas drift; deleted data resurrects after gc_grace_seconds expires",
+    "Storing large BLOBs (video, images) in Cassandra—causes GC pressure and large partition sizes; use object storage",
+    "Overusing LWT for uniqueness checks—4 round-trips; use partition key design to enforce uniqueness naturally",
+    "Not monitoring compaction—when compaction falls behind, SSTable count grows; read latency degrades severely",
+    "No time-to-live (TTL) on ephemeral data—tombstones accumulate indefinitely if TTL-based deletion is not used"
   ],
   "examples": [
     {
-      "title": "Production pattern",
-      "description": "Teams that succeed with Cassandra Internals treat measurement, failure drills, and contracts as part of the design — not afterthoughts."
+      "title": "Netflix View History",
+      "description": "Netflix uses Cassandra to store viewing history for 300 million users. The table is partitioned by user_id with clustering columns (profile_id, timestamp DESC) to serve 'get last N watched titles per profile' queries. RF=3 per datacenter (US-East, EU-West, AP-Southeast) with CL.LOCAL_QUORUM ensures strong per-region consistency. TWCS compaction handles the time-series append workload efficiently—older viewing history is never updated, so old SSTables are never re-compacted. The billion-row table serves p99 reads in <5ms."
     },
     {
-      "title": "Common review question",
-      "description": "In design reviews, expect to explain what breaks first when load spikes 10× and how Cassandra Internals sheds or scales."
+      "title": "IoT Sensor Time Series",
+      "description": "An IoT platform stores sensor readings from 10 million devices, each reporting every second. Cassandra partitioned by (device_id, year_month) with clustering columns (timestamp DESC). The year_month bucket bounds partition size to ~2.6M rows/month per device maximum. TWCS compaction with a 1-day window groups same-day SSTables together; old windows are never recompacted. The write throughput of 10 million inserts/second is handled by the distributed ring—with 100 nodes at RF=3, each node handles 300K inserts/second, well within single-node capacity."
     }
   ],
   "keyTakeaways": [
-    "Cassandra Internals should be chosen from constraints, not fashion",
-    "Mechanics + failure model + capacity math are the core",
-    "Operations and contracts decide long-term success"
+    "Cassandra's masterless ring provides linear horizontal scalability and no SPOF—adding nodes increases capacity proportionally",
+    "LSM-tree storage makes writes extremely fast; reads may require checking multiple SSTables—tune compaction for read/write balance",
+    "Data modeling is query-first and denormalized—design tables for specific query patterns, not normalized data relationships",
+    "Tunable consistency allows trading availability for consistency per-operation—CL.QUORUM for correctness, CL.ONE for maximum availability",
+    "Repair is the most critical operational responsibility—run it more frequently than gc_grace_seconds to prevent zombie data",
+    "TimeWindowCompaction is essential for time-series data—never mix TWCS with workloads that update old time windows",
+    "LWT provides linearizable transactions but costs 4 round-trips—use sparingly for correctness-critical operations"
   ],
-  "whyItMatters": "Without a solid model of Cassandra Internals, designs either overbuild or fail in production in ways that are hard to debug. This lesson gives a working framework you can reuse across systems involving how production systems are built inside.",
+  "whyItMatters": "Cassandra is the database of choice for high-availability, geographically distributed workloads where write throughput and linear scalability matter more than relational query flexibility. Netflix, Apple, Instagram, and Uber use Cassandra for their most demanding workloads. Understanding its trade-offs—eventual consistency, query-first modeling, repair requirements—is essential for evaluating when Cassandra is the right tool and designing schemas that perform well at scale.",
   "reflectionQuestions": [
-    "What invariant does Cassandra Internals protect in your system?",
-    "What is the scarcest resource when you apply Cassandra Internals?",
-    "How would you rehearse the top failure mode for Cassandra Internals?"
+    "Design a Cassandra schema for a social media application where you need to: (a) get a user's posts in reverse chronological order, (b) find all posts tagged with a specific hashtag, and (c) get the top 10 trending posts. How many tables do you need?",
+    "A Cassandra cluster is experiencing high read latency that correlates with high compaction pending tasks. Walk through the diagnosis and remediation.",
+    "Explain the gc_grace_seconds setting. What happens if a replica is down for longer than gc_grace_seconds? How do you prevent this scenario?",
+    "Compare Cassandra and DynamoDB for a multi-region, high-write-throughput workload. What are the operational and architectural trade-offs?"
   ],
   "numbersToKnow": [
-    "Plan 2–3× headroom above peak for incidents and rebalancing",
-    "Cross-region RTT often ~50–150ms one way",
-    "p99 matters more than average for user-facing paths"
+    "Cassandra write latency: typically 0.5-2ms p99 at CL.LOCAL_QUORUM on well-tuned clusters",
+    "Max recommended partition size: 100MB; alert at 10MB, investigate at 50MB",
+    "gc_grace_seconds default: 864000 (10 days); run repair more frequently than this",
+    "LWT cost: 4 round-trips (Paxos prepare, promise, propose, commit); 10-20x regular write latency",
+    "Replication factor: 3 per datacenter is standard; 5 for highest availability requirements",
+    "Bloom filter false positive rate: 0.1% default; tune per table based on read-to-write ratio"
   ],
   "diagrams": [
     {
-      "id": "int-cassandra-overview",
-      "title": "Cassandra Internals context",
-      "mermaid": "flowchart LR\n  Client --> Boundary\n  Boundary --> Cassandra_Internals\n  Cassandra_Internals --> Dependency"
+      "id": "int-cassandra-ring",
+      "title": "Cassandra Ring with Consistent Hashing",
+      "mermaid": "flowchart TD\n  CLIENT[Client] -->|any node| COORD[Coordinator Node]\n  COORD -->|hash partition key| RING[Token Ring]\n  RING -->|replica 1| N1[Node 1: tokens 0-25%]\n  RING -->|replica 2| N2[Node 2: tokens 25-50%]\n  RING -->|replica 3| N3[Node 3: tokens 50-75%]\n  N1 --> MEM1[Memtable]\n  N1 --> COMM1[Commit Log]\n  MEM1 -->|flush| SST1[SSTable 1...N]\n  SST1 -->|compaction| MERGED[Merged SSTable]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Cassandra Internals and the main trade-offs.",
-    "How does Cassandra Internals behave under overload or partition?",
-    "What would you measure after changing a Cassandra Internals-related knob?"
+    "What is consistent hashing and how does Cassandra use it for data distribution?",
+    "Explain Cassandra's LSM-tree storage engine. How do writes, reads, and compaction work?",
+    "What is the difference between CL.ONE, CL.QUORUM, and CL.ALL in Cassandra? When would you use each?",
+    "Design a Cassandra data model for a messaging application where you need to retrieve all messages in a conversation, and also search for a user's most recent conversations.",
+    "What is a tombstone in Cassandra and why must gc_grace_seconds be respected?"
   ],
   "exercises": [
-    "Sketch an architecture that depends on Cassandra Internals; estimate capacity and list three failure modes.",
-    "Write a one-page runbook for the most likely Cassandra Internals outage."
+    "Design the Cassandra schema for a ride-hailing trip tracking system: store trips (ongoing and completed), serve queries for a driver's current trip, all trips for a user in the last 30 days, and admin queries for all trips in a city on a given day. Create the necessary tables with proper partition keys and clustering columns.",
+    "Given a Cassandra table experiencing 'tombstone warning' thresholds on reads, diagnose the root cause and propose three different solutions depending on whether the data is time-series, user-keyed, or status-based.",
+    "Calculate the write throughput capacity of a 20-node Cassandra cluster with RF=3 where each node can handle 100K writes/second. What is the total effective write throughput?"
   ],
   "sources": [
-    {
-      "title": "Designing Data-Intensive Applications (concepts)"
-    }
+    {"title": "Apache Cassandra Documentation (cassandra.apache.org/doc)"},
+    {"title": "Datastax — Cassandra: The Definitive Guide, 3rd ed. (O'Reilly)"},
+    {"title": "Patrick McFadin — Data Modeling for Apache Cassandra (DataStax Academy)"},
+    {"title": "Netflix Tech Blog — Cassandra deployment and operations"},
+    {"title": "Datastax Blog — TWCS: TimeWindowCompactionStrategy (datastax.com/blog)"}
   ],
-  "relatedLessons": [
-    "int-clickhouse",
-    "int-etcd",
-    "int-kafka"
-  ]
+  "relatedLessons": ["db-replication-sharding", "dist-cap-consistency", "int-redis", "int-kafka"]
 }

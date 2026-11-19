@@ -1,202 +1,267 @@
 {
   "id": "os-cgroups",
-  "title": "cgroups, Namespaces & Isolation",
+  "title": "cgroups, Namespaces & Containers from the OS View",
   "moduleId": "operating-systems",
   "phaseId": "foundations",
-  "durationMinutes": 35,
-  "summary": "cgroups, Namespaces & Isolation is a core topic in modern system design. This lesson builds a first-principles model around processes, memory, I/O, and isolation, then connects that model to capacity, failure modes, and operational practice so you can use it in real architectures.",
+  "durationMinutes": 42,
+  "summary": "Containers are not a separate technology—they are Linux processes with two kernel features applied: namespaces for isolation (what the process can see) and cgroups for resource limits (what the process can use). Understanding these mechanisms explains Docker's behavior, Kubernetes's resource model, and production failure modes like OOM kills, CPU throttling, and pid namespace leaks. Every engineer operating containers in production benefits from knowing what happens at the kernel level when a container starts, runs under load, and exceeds its resource limits.",
   "kind": "evergreen",
   "difficulty": "intermediate",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [],
-  "tags": [
-    "operating-systems",
-    "evergreen",
-    "foundations"
-  ],
+  "prerequisites": ["os-processes-threads", "os-memory"],
+  "tags": ["operating-systems", "containers", "cgroups", "namespaces", "docker", "kubernetes", "evergreen"],
   "sections": [
     {
-      "title": "What cgroups, Namespaces & Isolation is solving",
+      "title": "Linux Namespaces: Isolation Without Virtualization",
       "paragraphs": [
-        "cgroups, Namespaces & Isolation exists because naive designs around processes, memory, I/O, and isolation break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-        "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map cgroups, Namespaces & Isolation onto those constraints.",
-        "A useful mental model separates the control plane (how you configure and observe cgroups, Namespaces & Isolation) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-      ]
-    },
-    {
-      "title": "Core mechanics",
-      "paragraphs": [
-        "Mechanically, cgroups, Namespaces & Isolation involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-        "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-        "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand cgroups, Namespaces & Isolation."
+        "A Linux namespace wraps a global system resource and provides each process with its own view. The kernel currently supports 8 namespace types: Mount (mnt), PID (pid), Network (net), IPC (ipc), UTS (uts—hostname and domainname), User (user—UID/GID mapping), Cgroup (cgroup), and Time (time—monotonic and boot-time clocks). When a container starts, the container runtime (Docker, containerd, cri-o) creates new namespaces and places the container's init process into them via clone() with namespace flags.",
+        "PID namespaces isolate the process ID space. The first process in a new PID namespace has PID 1; subsequent processes in that namespace have sequential PIDs starting at 2. The host kernel sees the actual PIDs; the container sees the remapped ones. A container's PID 1 (typically the entrypoint) must handle SIGCHLD to reap zombie processes—if it doesn't, zombie processes accumulate because there's no actual init process to inherit them. This is why using a minimal init (tini, dumb-init) as PID 1 is recommended for containers with multi-process entrypoints.",
+        "Network namespaces give each container an independent network stack: its own IP addresses, routing table, firewall rules, and sockets. Container networking (veth pairs, bridge networking, CNI plugins) connects the container's network namespace to the host or to other containers. A veth pair is a virtual Ethernet pair—one end in the container namespace, one end in the host namespace—allowing bidirectional traffic. Each Kubernetes pod has a shared network namespace shared by all containers in the pod (this is why containers in a pod can communicate on localhost).",
+        "User namespaces allow containers to map a range of host UIDs to UIDs inside the container. A container running as UID 0 (root) inside the namespace is mapped to an unprivileged UID (e.g., 100000) on the host. This enables rootless containers: the container process appears to have full root privileges inside its namespace but has no host privileges. User namespace support enables secure container execution without requiring a privileged container runtime daemon. Podman and rootless Docker use user namespaces by default."
       ],
       "bullets": [
-        "Inputs → state/protocol → outputs/side effects",
-        "Name consistency and delivery guarantees",
-        "Identify the bottleneck resource early"
+        "8 namespace types: mnt, pid, net, ipc, uts, user, cgroup, time",
+        "PID 1 in container: must reap zombies; use tini or dumb-init as container init process",
+        "Shared network namespace in Pods: all containers share the same IP and loopback; communicate on 127.0.0.1"
       ]
     },
     {
-      "title": "Designing with it",
+      "title": "cgroups v1 and v2: Resource Limits",
       "paragraphs": [
-        "When incorporating cgroups, Namespaces & Isolation into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-        "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to cgroups, Namespaces & Isolation.",
-        "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of cgroups, Namespaces & Isolation should be observable on day one."
+        "Control groups (cgroups) limit, account for, and isolate resource usage of a collection of processes. A cgroup is a named group of processes with associated resource controllers. Each process belongs to exactly one cgroup in each hierarchy. Resource controllers include: cpu (CPU time limits), memory (RAM and swap limits), blkio (block I/O throttling), net_cls / net_prio (network traffic marking), pids (process count limit), and devices (allow/deny device access). cgroups v1 uses separate hierarchies per controller; cgroups v2 unifies all controllers under a single hierarchy.",
+        "CPU limits in cgroups are expressed via two parameters: cpu.cfs_quota_us (maximum CPU time per scheduling period) and cpu.cfs_period_us (the period length, default 100ms). A container with cpu.cfs_quota_us=50000 and cpu.cfs_period_us=100000 gets 0.5 CPUs—50ms of CPU time per 100ms period. Kubernetes CPU 'limits' map directly to these CFS quota parameters. A container whose CPU limit is 0.5 CPUs will be throttled if it tries to use more—even if the host has idle CPUs. CPU throttling is monitored via cpu.stat's throttled_time counter.",
+        "Memory limits in cgroups: memory.limit_in_bytes sets the maximum RSS + page cache. When this limit is reached, the cgroup triggers its own reclaim (evicting page cache within the cgroup). If reclaim doesn't free enough, the cgroup OOM killer fires—it kills the process within the cgroup with the highest oom_score. memory.memsw.limit_in_bytes limits RSS + swap; set it equal to memory.limit_in_bytes to prevent containers from using swap. Without setting memsw, a container that hits its memory limit may start swapping, causing latency spikes without being OOM-killed.",
+        "cgroups v2 is the default on modern Linux distributions (Ubuntu 22.04+, RHEL 9+, Kubernetes 1.25+). v2 uses a unified hierarchy and adds resource.max per-cgroup limits that behave consistently. The key improvement: in v1, cpu.cfs_quota_us throttles the cgroup even when host CPUs are idle—a 0.5 CPU container can't burst above 0.5 even if other containers are sleeping. In v2, cpu.weight (priority-based) can be combined with cpu.max (burst) to allow bursting above the limit when capacity is available. Kubernetes 1.22+ supports 'memory.min' (memory.low in v2) for guaranteed minimum memory, preventing other pods from evicting a pod's cache."
+      ],
+      "bullets": [
+        "CPU throttling: container can't use more CPU than cfs_quota even if host is idle; monitor throttled_time",
+        "memory.memsw.limit_in_bytes: prevent containers from swapping; set equal to memory.limit_in_bytes",
+        "cgroups v2 cpu.max: allows burst above baseline; combined with cpu.weight for fair-share + burst"
       ]
     },
     {
-      "title": "Operations and failure modes",
+      "title": "Container Runtime Architecture",
       "paragraphs": [
-        "Operate cgroups, Namespaces & Isolation with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-        "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-        "Chaos and game days should include slow dependencies and network delay, not only hard kills. cgroups, Namespaces & Isolation often fails in the gray area."
+        "The container runtime stack has multiple layers. Docker or containerd receives API requests (from the CLI or Kubernetes). They call an OCI (Open Container Initiative) runtime (runc, crun, kata-containers) which does the actual work: creating namespaces with clone(), setting up cgroups, mounting the container's filesystem (using overlay filesystems), and exec'ing the entrypoint. runc is the reference implementation; crun is a lighter C implementation used by Podman and Red Hat; kata-containers runs containers inside lightweight VMs for stronger isolation.",
+        "Overlay filesystems (overlayfs, devicemapper, aufs) implement Docker's layered image model. Each Docker image layer is a directory on the host; overlayfs presents a unified view by stacking layers from bottom (base image) to top (container's writable layer). The writable layer is per-container and exists only while the container runs. Reads from unchanged files go to the base layers (shared across all containers using the same image); writes are Copy-on-Write to the writable layer. This allows thousands of containers from the same image to share the base layers on disk, using minimal additional storage per container.",
+        "Container networking involves several kernel mechanisms. The container runtime creates a veth pair (virtual Ethernet pair); one end goes into the container's network namespace, the other connects to a bridge on the host (docker0 for Docker, cni0 for Kubernetes with Flannel). The bridge performs L2 forwarding between containers on the same host. For cross-host communication, overlay networks (VXLAN in Flannel, Geneve in OVN) encapsulate container packets in UDP datagrams and route them between hosts. Kubernetes network policies use iptables or eBPF (Cilium) to enforce L3/L4 ACLs between pods.",
+        "The container's filesystem namespace uses pivot_root() or chroot() to change the root filesystem to the image's overlay. Combined with the mount namespace, the container sees only its image's files plus any volume mounts explicitly provided. The host filesystem is not visible inside the container (unless /proc, /sys, or host paths are explicitly mounted, which is a security risk). Volume mounts bind-mount a host directory into the container's mount namespace—the same inode, file descriptor, and kernel buffer, shared between host and container."
+      ],
+      "bullets": [
+        "OCI runtime (runc): creates namespaces, cgroups, overlayfs, and exec's entrypoint",
+        "overlayfs: shared base layers (image layers) + per-container CoW writable layer; default Docker storage driver",
+        "VXLAN overlay: UDP-encapsulated L2 traffic for cross-host container networking; 50-byte header overhead"
+      ]
+    },
+    {
+      "title": "Kubernetes Resource Model and cgroup Hierarchy",
+      "paragraphs": [
+        "Kubernetes translates Pod resource requests and limits into cgroup parameters. CPU request (e.g., 0.5) sets the cgroup's cpu.shares (or cpu.weight in v2), determining relative priority. CPU limit sets cfs_quota. Memory request is used by the scheduler for placement; memory limit sets the cgroup's memory.limit_in_bytes. When a pod exceeds its memory limit, the pod is OOM-killed—not gracefully terminated. Set memory limits conservatively, monitor actual RSS, and configure memory requests to match typical usage.",
+        "Kubernetes QoS classes map to eviction priority. Guaranteed: requests == limits for all containers; highest priority; never evicted under normal conditions. Burstable: requests < limits; evicted if the node is under memory pressure. BestEffort: no requests or limits; lowest priority; first to be evicted. For production workloads, use Guaranteed or Burstable with appropriate buffers. BestEffort is appropriate only for truly ephemeral batch jobs where OOM kill is acceptable.",
+        "Kubernetes 1.21+ supports CPU Manager policy for latency-sensitive pods. With the 'static' CPU manager policy, Guaranteed pods get exclusive CPU cores pinned via cpuset cgroup—no other process runs on those cores. This eliminates CPU time-sharing between pods and prevents cache-line eviction by other containers' CPUs. For database-in-container deployments, exclusive CPUs provide predictable single-thread latency. The tradeoff: pinned CPUs are unavailable to other pods, reducing cluster utilization.",
+        "Limit ranges and resource quotas enforce aggregate resource consumption per namespace. A LimitRange sets default and maximum request/limit per container; a ResourceQuota caps total CPU, memory, and pod count in the namespace. Without these, a misconfigured Deployment can claim unbounded resources and starve other workloads. Production Kubernetes clusters enforce ResourceQuotas per team/namespace as a governance mechanism."
+      ],
+      "bullets": [
+        "CPU request → cpu.shares; CPU limit → cfs_quota; memory limit → memory.limit_in_bytes",
+        "QoS Guaranteed: request == limit; never evicted; best for latency-sensitive services",
+        "Static CPU Manager: exclusive CPU cores per pod via cpuset; eliminates CPU time-sharing for latency-critical apps"
+      ]
+    },
+    {
+      "title": "Container Security: Namespaces, Capabilities, and seccomp",
+      "paragraphs": [
+        "Namespaces provide isolation, not security. A container running as UID 0 without user namespaces has real root privileges on the host kernel—it can mount filesystems, modify kernel parameters, and potentially escape the container via kernel vulnerabilities. Defense-in-depth requires multiple layers: drop capabilities (the kernel's fine-grained permissions system), use seccomp filters to restrict system calls, run as non-root inside the container, use read-only root filesystems, and enforce network policies.",
+        "Linux capabilities divide root's privileges into ~40 discrete permissions: CAP_NET_ADMIN (configure network interfaces), CAP_SYS_PTRACE (trace processes), CAP_SYS_ADMIN (a broad catch-all), CAP_NET_BIND_SERVICE (bind ports <1024), etc. Docker drops many dangerous capabilities by default (CAP_SYS_ADMIN, CAP_SYS_PTRACE, etc.) and adds only CAP_NET_BIND_SERVICE. The principle of least privilege: drop all capabilities and add back only what the application needs. Use 'docker run --cap-drop all --cap-add NET_BIND_SERVICE' or Kubernetes securityContext.capabilities.",
+        "seccomp (secure computing mode) is a system call filter. A seccomp profile is a JSON allowlist or denylist of syscalls. Docker's default seccomp profile blocks 44 syscalls considered dangerous (keyctl, ptrace, etc.). Kubernetes supports seccomp profiles via SecurityContext.seccompProfile. Custom profiles block all syscalls except those the application uses—generated by running the application with strace -f -c to collect the syscall set. The tradeoff: custom profiles require maintenance as the application adds new syscalls.",
+        "AppArmor and SELinux are mandatory access control systems that enforce security policies regardless of process UID/capabilities. AppArmor enforces per-program file access and network policies via kernel security hooks. SELinux enforces type enforcement across all system resources. Docker containers run with an AppArmor profile by default (docker-default) on Ubuntu/Debian; SELinux contexts are applied by default on RHEL/CentOS (spc_t for privileged, container_t for standard). These provide defense against container escapes by confining what kernel interfaces the container process can access, even with root capabilities."
+      ],
+      "bullets": [
+        "CAP_SYS_ADMIN: most dangerous capability; equivalent to root on most operations; never grant in production containers",
+        "Docker default seccomp: blocks 44 syscalls; can be overridden per container",
+        "AppArmor docker-default: enforced by default on Ubuntu/Debian; restricts file access and kernel interface use"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "What cgroups, Namespaces & Isolation is solving",
+        "title": "Namespaces and Container Isolation",
         "paragraphs": [
-          "cgroups, Namespaces & Isolation exists because naive designs around processes, memory, I/O, and isolation break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-          "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map cgroups, Namespaces & Isolation onto those constraints.",
-          "A useful mental model separates the control plane (how you configure and observe cgroups, Namespaces & Isolation) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-        ]
-      },
-      {
-        "title": "Core mechanics",
-        "paragraphs": [
-          "Mechanically, cgroups, Namespaces & Isolation involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-          "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-          "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand cgroups, Namespaces & Isolation."
+          "Containers use 8 Linux namespace types to isolate process view: PID, net, mnt, ipc, uts, user, cgroup, time. Each namespace gives the process its own view of that resource.",
+          "PID 1 in a container must reap zombies; use tini or dumb-init. Network namespaces give each container its own IP stack; Kubernetes pods share a network namespace.",
+          "User namespaces enable rootless containers by mapping container UID 0 to unprivileged host UIDs."
         ],
         "bullets": [
-          "Inputs → state/protocol → outputs/side effects",
-          "Name consistency and delivery guarantees",
-          "Identify the bottleneck resource early"
+          "unshare --pid --fork --mount-proc bash: create new PID namespace from shell",
+          "nsenter -t <pid> --net: enter a running container's network namespace",
+          "lsns: list all namespaces on the host with associated processes"
         ]
       },
       {
-        "title": "Designing with it",
+        "title": "cgroup Resource Limits",
         "paragraphs": [
-          "When incorporating cgroups, Namespaces & Isolation into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-          "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to cgroups, Namespaces & Isolation.",
-          "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of cgroups, Namespaces & Isolation should be observable on day one."
+          "cgroups limit CPU time (CFS quota), memory (RSS + cache), block I/O, and process count. CPU limits throttle containers even when host CPUs are idle.",
+          "Memory limits trigger cgroup OOM killer on excess; set memsw.limit == memory.limit to prevent swap usage.",
+          "cgroups v2 adds cpu.max for burst capability and memory.min for guaranteed minimum; Kubernetes 1.25+ uses v2 by default."
+        ],
+        "bullets": [
+          "CPU throttle monitoring: cat /sys/fs/cgroup/cpu/docker/<id>/cpu.stat | grep throttled_time",
+          "Memory cgroup: memory.usage_in_bytes shows current usage; memory.failcnt shows OOM events",
+          "cgroups v2 unified hierarchy: /sys/fs/cgroup/<group>/<resource>.{max,min,current}"
         ]
       },
       {
-        "title": "Operations and failure modes",
+        "title": "Container Security Layers",
         "paragraphs": [
-          "Operate cgroups, Namespaces & Isolation with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-          "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-          "Chaos and game days should include slow dependencies and network delay, not only hard kills. cgroups, Namespaces & Isolation often fails in the gray area."
+          "Namespaces isolate but don't secure. Defense-in-depth requires: dropped capabilities, seccomp syscall filtering, non-root UID, read-only filesystem, and network policies.",
+          "Capabilities divide root privileges; drop all and add back only what's needed. CAP_SYS_ADMIN is especially dangerous.",
+          "seccomp profiles allowlist syscalls; Docker's default blocks 44 dangerous ones. AppArmor/SELinux enforce MAC regardless of capabilities."
+        ],
+        "bullets": [
+          "kubectl exec -it pod -- capsh --print: show capabilities in running container",
+          "seccomp profile generation: strace -f -c -e trace=all ./app to collect syscall set",
+          "runAsNonRoot: true in Kubernetes securityContext; prevents root container execution"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "cgroups, Namespaces & Isolation — deeper internals",
+        "title": "Container Runtime Internals and Overlay Filesystem",
         "paragraphs": [
-          "Under the hood, cgroups, Namespaces & Isolation typically exposes knobs for batching, buffering, concurrency, retention, and timeouts. Each knob trades latency, throughput, and cost. Change one at a time and measure.",
-          "Instrumentation should include high-signal histograms and exemplars that jump to traces. For data systems, watch amplification and compaction/GC; for RPC systems, watch queue time and saturation; for ML systems, watch memory and tokens/s."
+          "When Docker starts a container, it calls runc which: (1) creates namespaces with clone(CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWMNT | ...), (2) sets up cgroup hierarchy under /sys/fs/cgroup/docker/<id>/, (3) sets up overlayfs with the image layers as lower dirs and a new writable directory as upper dir, (4) calls pivot_root() to change the root to the overlay, and (5) exec()s the entrypoint. This sequence takes ~50–100ms on a modern system. Container startup time is dominated by image pull and application init, not namespace/cgroup setup.",
+          "Overlayfs performance: reads from unmodified files in lower layers are fast (direct page cache access). The first write to a file in a lower layer triggers a CoW copy to the upper layer—this can take 1–100ms for large files, causing write latency spikes on first modification. For applications that modify large binary files on startup (JVM class loading with JVMTI agents, Python import of large compiled modules), this CoW cost is measurable. Use bind mounts for large mutable data to bypass overlayfs CoW for those paths.",
+          "Container layer deduplication: when multiple containers run from the same image, they share the overlayfs lower layers. A base image of 500 MB shared among 100 containers consumes 500 MB on disk, not 50 GB. This is why image layer caching is critical—Docker's layer cache on each node stores pulled layers; if 100 pods on the same node use the same base image, the base layers are stored once. Kubernetes image pull policy 'IfNotPresent' leverages this cache; 'Always' bypasses it and re-pulls every pod start."
         ],
         "bullets": [
-          "One knob at a time with a hypothesis",
-          "Histograms > averages",
-          "Tie dashboards to runbooks"
+          "runc uses clone() not fork(); clone() with namespace flags creates the container's isolation boundary",
+          "overlayfs CoW on first write: may cause startup latency for large files; use volumes for large mutable data",
+          "Image layer cache: images stored in /var/lib/docker/overlay2/; docker system df shows layer usage"
         ]
       },
       {
-        "title": "cgroups, Namespaces & Isolation — integration patterns",
+        "title": "cgroup Interaction with Production Workloads",
         "paragraphs": [
-          "Integrate via stable contracts: schemas, idempotency keys, and versioned APIs. Dual-write carefully or prefer CDC/outbox patterns when crossing storage and messaging.",
-          "Boundary tests should prove behavior under duplicate delivery, reordering, and clock skew where relevant to cgroups, Namespaces & Isolation."
+          "CPU throttling is one of the most misunderstood container performance issues. A container limited to 0.25 CPUs (cfs_quota = 25ms per 100ms period) will be throttled even if the host has 31 idle CPUs. CPU throttling is not about host capacity—it's enforced by the CFS scheduler regardless. Throttling manifests as increased request latency and increased p99/p999. The fix for unexpected throttling: increase CPU limit, or switch to cgroups v2 with cpu.max that allows burst. Monitor throttled_time in cpu.stat; if it's >1% of CPU time, the container is CPU-constrained by the limit, not the hardware.",
+          "JVM garbage collectors interact badly with cgroup memory limits. The JVM calculates its heap based on available memory; inside a container with cgroup memory limit, available memory is the cgroup limit, not the host RAM. Without JVM container awareness (-XX:+UseContainerSupport, available since JDK 8u191), the JVM reads host RAM from /proc/meminfo, sets its heap to 25% of host RAM (e.g., 32 GB), and immediately hits the cgroup's 2 GB limit—OOM kill. JDK 11+ has container support enabled by default; JDK 8 requires explicit -XX:+UseContainerSupport.",
+          "Memory limits and Java heap: even with container support, the JVM's heap plus off-heap (Metaspace, NIO buffers, thread stacks, JVM overhead) can exceed the cgroup limit. A container with 4 GB memory limit and -Xmx 3 GB might use 4.5 GB total and get OOM-killed. Rule of thumb: set -Xmx to 70–75% of the container memory limit, leaving headroom for off-heap. Monitor container memory with 'kubectl top pod' and /sys/fs/cgroup/memory/memory.usage_in_bytes."
+        ],
+        "bullets": [
+          "-XX:+UseContainerSupport: JVM reads cgroup limits, not host /proc/meminfo; enabled by default in JDK 11+",
+          "JVM memory limit: set -Xmx to 70–75% of container memory limit for off-heap headroom",
+          "CPU throttle indicator: cpu.stat throttled_time > 0 means container hit its CPU limit at some point"
         ]
       }
     ],
     "expert": [
       {
-        "title": "cgroups, Namespaces & Isolation — multi-region and cost",
+        "title": "Container Security Escape Vectors and Defense",
         "paragraphs": [
-          "Across regions, RTT and quorum placement dominate. Keep user-critical paths region-local when invariants allow; replicate asynchronously otherwise. Spell out the conflict/staleness model.",
-          "Track unit economics for cgroups, Namespaces & Isolation: cost per million requests, per GB stored, or per million tokens. Many scalability projects are cost projects — make the objective explicit."
+          "Container escape vulnerabilities exploit the boundary between namespace isolation and the host kernel. Historical escapes: runc CVE-2019-5736 (overwriting the runc binary via /proc/self/exe), Dirty COW (kernel CoW bug allowing privilege escalation), CVE-2022-0492 (cgroups v1 release_agent escape). These exploits bypass namespace isolation by exploiting kernel bugs or container runtime misconfigurations. Mitigating factors: gVisor (runs containers in a user-space kernel sandbox), Kata Containers (lightweight VMs), Firecracker (micro-VMs), and regular kernel patching.",
+          "Host network mode (--network=host in Docker, hostNetwork: true in Kubernetes) removes network namespace isolation—the container uses the host's network stack. This gives the container access to all host network interfaces and bypass of Kubernetes network policies. It's sometimes needed for performance (DaemonSet network agents, service meshes) but is a significant security risk. The container can see all network traffic on the host, bind to privileged ports, and interact with all services on the host network.",
+          "Privileged containers (--privileged in Docker, privileged: true in SecurityContext) disable all namespace security: the container gets all capabilities, sees all devices, and mounts the host filesystem. This is equivalent to root access on the host. Privileged containers are legitimate for specific infrastructure use cases (device drivers, storage plugins, Kata Containers' virtio devices) but should never be deployed for application workloads. Kubernetes admission controllers (OPA/Gatekeeper, Kyverno) can enforce policies that reject privileged containers in production namespaces."
         ]
       }
     ]
   },
   "concepts": [
-    "cgroups, Namespaces & Isolation: problem framing and constraints",
-    "Control plane vs data plane",
-    "Amplification, locality, contention",
-    "Failure observations for clients",
-    "SLIs and capacity headroom",
-    "Versioned contracts / idempotency"
+    "Linux namespaces: 8 types (pid, net, mnt, ipc, uts, user, cgroup, time); isolate what a process can see",
+    "cgroups: limit and account for resource usage (CPU, memory, I/O, pids) of a process group",
+    "Container: Linux process(es) with namespaces for isolation + cgroups for resource limits; no hypervisor needed",
+    "PID namespace: container's PID 1 is remapped from a higher host PID; must handle SIGCHLD",
+    "overlayfs: layered filesystem; shared base layers across containers; per-container CoW writable layer",
+    "CPU CFS quota: container CPU limit enforced by Linux CFS scheduler; throttles even when host CPUs idle",
+    "cgroup OOM killer: fires when container exceeds memory.limit_in_bytes; kills highest oom_score process",
+    "Linux capabilities: 40+ discrete permissions subdividing root; CAP_SYS_ADMIN is especially dangerous",
+    "seccomp: syscall filter; Docker default blocks 44 dangerous syscalls; custom profiles restrict further",
+    "User namespaces: map container root (UID 0) to unprivileged host UID; enables rootless containers"
   ],
   "practices": [
-    "Start from constraints before selecting a cgroups, Namespaces & Isolation approach",
-    "Define SLIs and dashboards with the feature",
-    "Make retries idempotent and budgeted",
-    "Roll out reversibly with measurement"
+    "Always set memory requests and limits for all containers in Kubernetes; unbounded containers are first to be OOM-killed",
+    "Monitor CPU throttled_time in cpu.stat; CPU throttling causes latency increases invisible to CPU utilization metrics",
+    "Set memory.memsw.limit_in_bytes equal to memory.limit_in_bytes to prevent containers from using swap",
+    "Use tini or dumb-init as PID 1 in containers to properly reap zombie processes from child processes",
+    "Drop all capabilities and add back only required ones; never grant CAP_SYS_ADMIN to application containers",
+    "Use Guaranteed QoS (request == limit) for latency-sensitive production services; prevents eviction under node pressure"
   ],
   "pitfalls": [
-    "Tool-first design without invariants",
-    "Ignoring brownout/slow dependency behavior",
-    "Unbounded retries and queues",
-    "Missing ownership for ops/runbooks"
+    "CPU throttling with idle host CPUs: container limited to 0.5 CPU will be throttled even with 31 idle CPUs available",
+    "JVM reading host RAM instead of cgroup limits (JDK < 8u191); -XX:+UseContainerSupport required for older JDKs",
+    "Setting -Xmx close to container memory limit without accounting for JVM off-heap usage; causes OOM kill",
+    "Using host network mode for application pods; bypasses Kubernetes network policies and exposes all host interfaces",
+    "Not setting memsw limit; container hits memory limit and starts swapping, causing latency spikes without OOM kill",
+    "Running containers as root without user namespaces; container root = host root if kernel escape is possible"
   ],
   "examples": [
     {
-      "title": "Production pattern",
-      "description": "Teams that succeed with cgroups, Namespaces & Isolation treat measurement, failure drills, and contracts as part of the design — not afterthoughts."
+      "title": "CPU Throttling Causing API Latency Spikes",
+      "description": "A production API service was showing p99 latency spikes correlating with traffic bursts. CPU utilization metrics showed only 40% utilization—seemingly plenty of headroom. Investigating cgroup metrics revealed throttled_time was 15% of total CPU time during spikes. The CPU limit was set to 0.5 CPUs for a container that needed 0.8 CPUs during burst. Solution: increase CPU limit to 2 CPUs (allowing burst) while keeping request at 0.5 (for scheduling). Using cgroups v2 with cpu.max allowed burst above the baseline while capping excessive usage."
     },
     {
-      "title": "Common review question",
-      "description": "In design reviews, expect to explain what breaks first when load spikes 10× and how cgroups, Namespaces & Isolation sheds or scales."
+      "title": "JVM OOM in Kubernetes without Container Support",
+      "description": "A Spring Boot service deployed on Kubernetes (JDK 8u181) was consistently OOM-killed within minutes of startup. Container memory limit: 2 GB. The JVM was reading /proc/meminfo and seeing 128 GB (host RAM), setting heap to 32 GB (25% of 128 GB). The heap immediately hit the 2 GB cgroup limit, triggering OOM kill before the application started. Fix: upgrade to JDK 11+ (container support default) and set -Xmx 1500m explicitly (75% of 2 GB limit). The application started successfully and stabilized."
+    },
+    {
+      "title": "Kubernetes Multi-Tenant Namespace Isolation",
+      "description": "A platform team runs 20 teams' services on a shared Kubernetes cluster. Each team's namespace has ResourceQuota (max 50 CPUs, 100 GB RAM) and LimitRange (default request 100m CPU / 256 MB, max 4 CPU / 8 GB per container). Without these, one team's runaway Deployment claimed 400 CPUs and OOM-killed pods from other teams. With ResourceQuota and LimitRange enforced via admission controllers (OPA/Gatekeeper), no single team can exceed their quota."
     }
   ],
   "keyTakeaways": [
-    "cgroups, Namespaces & Isolation should be chosen from constraints, not fashion",
-    "Mechanics + failure model + capacity math are the core",
-    "Operations and contracts decide long-term success"
+    "Containers are Linux processes with namespaces (isolation) and cgroups (resource limits)—no hypervisor, no separate kernel",
+    "CPU limits use CFS quotas and throttle containers even when host CPUs are idle; CPU throttling is a hidden source of latency",
+    "Memory limits trigger cgroup OOM kill; set memory.memsw.limit == memory.limit to prevent containers from swapping",
+    "JVMs require container-aware startup (JDK 11+) or explicit -XX:+UseContainerSupport to read cgroup limits correctly",
+    "Container security requires defense-in-depth: namespaces + dropped capabilities + seccomp + non-root UID + AppArmor",
+    "Kubernetes QoS Guaranteed (request == limit) is the most predictable class; prevents eviction and enables static CPU pinning"
   ],
-  "whyItMatters": "Without a solid model of cgroups, Namespaces & Isolation, designs either overbuild or fail in production in ways that are hard to debug. This lesson gives a working framework you can reuse across systems involving processes, memory, I/O, and isolation.",
+  "whyItMatters": "Every container-deployed application runs inside cgroup limits and namespace boundaries. CPU throttling is responsible for a large fraction of unexplained latency spikes in containerized services. OOM kills from misconfigured memory limits or JVM heap settings are a daily operational reality. Understanding what the kernel actually does when a container starts, hits its CPU limit, or exceeds its memory limit transforms container operations from mystery to predictable engineering. This knowledge is foundational for every engineer operating services on Docker, Kubernetes, or any container platform.",
   "reflectionQuestions": [
-    "What invariant does cgroups, Namespaces & Isolation protect in your system?",
-    "What is the scarcest resource when you apply cgroups, Namespaces & Isolation?",
-    "How would you rehearse the top failure mode for cgroups, Namespaces & Isolation?"
+    "Your containerized Go service shows p99 latency of 50ms and CPU utilization of 30%, but response time spikes correlate with traffic bursts. Walk through the investigation to determine if CPU throttling is the cause and what changes would fix it.",
+    "Design the resource limits for a Kubernetes deployment of a Java service: 2 GB heap, requiring 2 CPUs under normal load with burst to 4 CPUs for 30 seconds during batch processing. What QoS class, requests, limits, and JVM flags would you use?",
+    "Explain the difference between container isolation and container security. What three kernel features provide isolation, and what three mechanisms provide security beyond isolation?"
   ],
   "numbersToKnow": [
-    "Plan 2–3× headroom above peak for incidents and rebalancing",
-    "Cross-region RTT often ~50–150ms one way",
-    "p99 matters more than average for user-facing paths"
+    "8: number of Linux namespace types (pid, net, mnt, ipc, uts, user, cgroup, time)",
+    "0.5 CPU limit = 50ms of CPU per 100ms CFS period; container is throttled beyond this even with idle host CPUs",
+    "75%: recommended maximum for JVM -Xmx relative to container memory limit (remaining 25% for off-heap)",
+    "50–100ms: typical container startup time (namespace + cgroup + overlayfs setup); dominated by application init",
+    "44: number of syscalls blocked by Docker's default seccomp profile"
   ],
   "diagrams": [
     {
-      "id": "os-cgroups-overview",
-      "title": "cgroups, Namespaces & Isolation context",
-      "mermaid": "flowchart LR\n  Client --> Boundary\n  Boundary --> cgroups__Namespaces___Is\n  cgroups__Namespaces___Is --> Dependency"
+      "id": "os-cgroups-container-stack",
+      "title": "Container Kernel Primitives",
+      "mermaid": "flowchart TD\n  Container[Container Process PID 1 in ns] -->|sees isolated| NS_PID[PID Namespace]\n  Container -->|sees isolated| NS_NET[Network Namespace - own IP]\n  Container -->|sees isolated| NS_MNT[Mount Namespace - overlayfs]\n  Container -->|limited by| CG_CPU[cgroup cpu - CFS quota]\n  Container -->|limited by| CG_MEM[cgroup memory - OOM limit]\n  Container -->|filtered by| Seccomp[seccomp syscall filter]\n  Container -->|confined by| AppArmor[AppArmor MAC policy]\n  NS_NET -->|veth pair| HostBridge[Host Bridge - docker0 or cni0]\n  CG_CPU --> Host_CPU[Host CPUs]\n  CG_MEM --> Host_RAM[Host RAM]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain cgroups, Namespaces & Isolation and the main trade-offs.",
-    "How does cgroups, Namespaces & Isolation behave under overload or partition?",
-    "What would you measure after changing a cgroups, Namespaces & Isolation-related knob?"
+    "What is the difference between a container and a virtual machine at the kernel level? What two Linux features implement container isolation and resource limits?",
+    "Explain CPU throttling in containers. Why does a container with 30% CPU utilization experience latency spikes, and how would you diagnose and fix it?",
+    "A Java service inside a 2 GB memory limit container gets OOM-killed immediately after startup. Walk through the likely cause and the specific fix."
   ],
   "exercises": [
-    "Sketch an architecture that depends on cgroups, Namespaces & Isolation; estimate capacity and list three failure modes.",
-    "Write a one-page runbook for the most likely cgroups, Namespaces & Isolation outage."
+    "Create a cgroup manually: mkdir /sys/fs/cgroup/memory/test; echo 100M > /sys/fs/cgroup/memory/test/memory.limit_in_bytes; echo $$ > /sys/fs/cgroup/memory/test/tasks. Run a program that allocates 150 MB of memory and observe the OOM kill. Check dmesg for the OOM kill log entry.",
+    "Start a Docker container with --cpus 0.1 (10ms/100ms CFS quota). Inside the container, run a CPU-intensive program (stress --cpu 1). On the host, watch /sys/fs/cgroup/cpu/docker/<id>/cpu.stat throttled_time increase. Observe that docker stats shows <100% CPU but the program is clearly throttled."
   ],
   "sources": [
     {
-      "title": "Designing Data-Intensive Applications (concepts)"
+      "title": "Linux cgroups v2 documentation",
+      "url": "https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html"
+    },
+    {
+      "title": "Linux namespaces man pages (man 7 namespaces)",
+      "url": "https://man7.org/linux/man-pages/man7/namespaces.7.html"
+    },
+    {
+      "title": "Container Security — Liz Rice (O'Reilly)",
+      "url": "https://www.oreilly.com/library/view/container-security/9781492056690/"
+    },
+    {
+      "title": "Kubernetes CPU Limits and Throttling (Kubernetes Blog)",
+      "url": "https://kubernetes.io/blog/2021/08/06/cpu-manager-policies-cfs/"
     }
   ],
-  "relatedLessons": [
-    "os-io-sync",
-    "os-memory",
-    "os-numa"
-  ]
+  "relatedLessons": ["os-processes-threads", "os-memory", "os-io-sync", "os-numa"]
 }

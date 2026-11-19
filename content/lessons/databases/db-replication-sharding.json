@@ -3,164 +3,264 @@
   "title": "Replication & Sharding",
   "moduleId": "databases",
   "phaseId": "foundations",
-  "durationMinutes": 50,
-  "summary": "Replication copies data for durability and read scale; sharding splits data for write/storage scale. Together they define how databases grow — and how consistency and operational complexity grow with them.",
+  "durationMinutes": 45,
+  "summary": "Replication copies data across multiple servers for fault tolerance and read scaling, while sharding partitions data across multiple servers for write scaling and capacity. These two orthogonal strategies are the foundational scaling mechanisms for distributed databases. Choosing the right replication topology, handling replication lag, designing a sharding key, and dealing with cross-shard queries and rebalancing are among the most consequential architectural decisions in backend engineering.",
   "kind": "evergreen",
-  "difficulty": "advanced",
+  "difficulty": "intermediate",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "db-query-optimizer"
-  ],
-  "tags": [
-    "databases",
-    "evergreen",
-    "foundations"
-  ],
+  "prerequisites": ["db-storage-engines", "db-indexes-replication"],
+  "tags": ["databases", "replication", "sharding", "distributed-systems", "scalability", "evergreen"],
   "sections": [
     {
-      "title": "Replication topologies",
+      "title": "Replication: Why, What, and How",
       "paragraphs": [
-        "Primary-replica async replication is common: fast writes, possible loss on failover. Semi-sync and quorum replication reduce loss windows. Multi-primary increases conflict complexity."
+        "Replication maintains copies of the same data on multiple servers. The motivations are distinct: fault tolerance (if the primary fails, a replica can take over), read scaling (direct read traffic to replicas, leaving the primary for writes), geographic distribution (place replicas near users to reduce read latency), and backup (a replica can be snapshot without impacting the primary). These motivations have different architectural implications—a replication topology optimized for geographic read locality differs from one optimized for fast failover.",
+        "Single-leader replication (master-replica, primary-secondary) is the most common topology. All writes go to the primary; changes are propagated to replicas. Replicas apply changes in the same order as the primary. The primary is the source of truth; replicas are eventually consistent. If the primary fails, one replica is promoted. How promotion happens (automated via a consensus protocol, or manual), how writes are redirected, and how the new primary reconciles any in-flight transactions determine the actual availability characteristics of the system.",
+        "Multi-leader replication allows writes to multiple primaries simultaneously. Changes are propagated asynchronously to other leaders. This enables write availability in multiple data centers—each DC writes locally without waiting for cross-DC latency. The cost: write conflicts must be detected and resolved. If two leaders both accept a write to the same record at the same time, the system must reconcile them. Conflict resolution strategies: last-write-wins (LWW, loses data), application-defined merge functions, or CRDTs (commutative data structures that always merge consistently). Cassandra and DynamoDB use multi-leader models with LWW or vector clocks.",
+        "Leaderless replication (Dynamo-style) has no designated primary—any replica can accept writes. The client writes to W replicas (quorum write) and reads from R replicas (quorum read). If W + R > N (total replicas), reads always see at least one node that has the latest write. With N=3, W=2, R=2: writes go to 2 of 3 replicas; reads cover 2 of 3; at least 1 replica in every read set has the latest write. The tradeoff: read repair and anti-entropy are needed to fix diverged replicas; hinted handoff handles writes during node failures."
+      ],
+      "bullets": [
+        "Single-leader: all writes to primary; replicas read-only; failover promotes one replica; lag is the tradeoff",
+        "Multi-leader: writes to multiple nodes; write conflicts must be resolved; last-write-wins is lossy",
+        "Leaderless: W + R > N quorum ensures read-after-write consistency; anti-entropy repairs divergence"
       ]
     },
     {
-      "title": "Sharding strategies",
+      "title": "Replication Lag and Consistency Guarantees",
       "paragraphs": [
-        "Hash, range, and directory-based sharding. Resharding is the expensive part — plan early. Cross-shard transactions should be rare."
+        "Replication lag is the delay between a write completing on the primary and the write being visible on a replica. In synchronous replication, the primary waits for at least one replica to confirm before acknowledging the write to the client—no lag, but write latency increases to max(primary_write, network_to_replica, replica_write). In asynchronous replication, the primary acknowledges immediately after its own write; replicas apply changes on their schedule—low write latency but lag can grow during replication backlog.",
+        "Replication lag causes consistency anomalies. Read-your-writes: a user writes a comment, then immediately refreshes and doesn't see it—their read hit a replica that hasn't caught up. Solution: route reads to the primary immediately after writes from the same client, or use a session token encoding the write position (send it to the replica; the replica waits until it has applied up to that position). Monotonic reads: a user refreshes twice and sees a newer version on the first refresh, then an older version on the second—they hit replicas at different lag positions. Solution: session affinity to the same replica.",
+        "Semi-synchronous replication (MySQL default) waits for one replica to acknowledge before returning to the client. This ensures at least one replica has the data, preventing data loss on primary failure, but doesn't guarantee all replicas are up to date. PostgreSQL's synchronous_standby_names parameter allows configuring which standbys must confirm. Setting synchronous_standby_names = 'ANY 1 (standby1, standby2)' means write commit waits for confirmation from any one of the named standbys—balancing durability and performance.",
+        "Replication lag monitoring is critical. The standard metric is seconds_behind_master (MySQL) or replication_lag_in_bytes/pg_stat_replication.write_lag (PostgreSQL). Set alerts when lag exceeds acceptable thresholds. For read replicas serving user-facing reads, lag > 5 seconds typically requires investigation. Lag causes: write-heavy primary outpacing replicas, replica I/O saturation, network bandwidth limits, single-threaded replication applying a heavy batch write. Mitigations: parallel replica apply (MySQL 5.7+ parallel replication, PG 14+ parallel apply), larger replica hardware, or multi-master reads."
+      ],
+      "bullets": [
+        "Synchronous replication: no lag, higher write latency; best for durability-first workloads",
+        "Asynchronous replication: low write latency, lag can grow; standard for read scaling",
+        "read-your-writes: route reads to primary post-write, or pass write position token to replica"
       ]
     },
     {
-      "title": "Read your writes",
+      "title": "Sharding: Horizontal Partitioning",
       "paragraphs": [
-        "Async replicas cause stale reads. Session stickiness, primary reads for critical paths, or causal tokens mitigate."
+        "Sharding partitions data across multiple database nodes (shards) so each node holds a subset. The partition key determines which shard a record goes to. Unlike replication (which duplicates data), sharding divides data—each record lives on exactly one shard (plus any replication within that shard). Sharding solves limitations that replication cannot: write throughput exceeding a single primary's capacity, storage exceeding a single node, and working set exceeding available RAM on a single node.",
+        "Range sharding assigns contiguous ranges of the partition key to shards. Example: users with IDs 1–10M on shard 1, 10M–20M on shard 2, etc. Range sharding enables efficient range queries (all users with ID 100–200 go to one shard), but causes hotspots when writes are temporally correlated with the partition key: if the shard key is a timestamp, all new writes go to the same shard (the 'last' shard), making it a write bottleneck. Range sharding is used by HBase, BigTable, and CockroachDB for time-series data with explicit range splitting.",
+        "Hash sharding applies a hash function to the partition key modulo the number of shards. This distributes writes evenly—no hotspots for uniformly distributed keys. The tradeoff: range queries require hitting all shards (scatter-gather), and resharding (adding a shard) requires remapping all records (N → N+1 means roughly 1/N+1 of records change shard). Consistent hashing (Ketama, Jump Hash) reduces resharding impact to K/N remaps when adding a node. MongoDB's hash sharding uses consistent hashing; DynamoDB uses consistent hashing internally.",
+        "Directory sharding uses a lookup service to map partition keys to shards. The directory (shard map) is queried before each database operation to determine which shard to route to. This provides maximum flexibility—any key can be moved to any shard by updating the directory—but adds a lookup hop to every operation. The directory itself must be highly available and low-latency. Pinterest's Zen graph database, Slack's sharding service, and Twitter's Manhattan use directory-based sharding."
+      ],
+      "bullets": [
+        "Range sharding: efficient range queries; hotspot risk when writes are skewed to one range",
+        "Hash sharding: even write distribution; range queries scatter-gather all shards; resharding remaps K/N keys",
+        "Directory sharding: flexible mapping; lookup service must be highly available; extra round trip per operation"
       ]
     },
     {
-      "title": "Ops realities",
+      "title": "Cross-Shard Operations and Challenges",
       "paragraphs": [
-        "Failover automation, replica lag alerts, backup per shard, and schema change coordination dominate real-world success."
+        "Cross-shard joins are expensive. In a sharded database, a join between users (sharded by user_id) and orders (sharded by order_id) requires fetching data from potentially different shards for each pair. The application must either: scatter the query to all order shards and join in application code, denormalize (store order data on the user's shard), or redesign the data model to co-locate related data on the same shard. The right choice depends on query frequency—frequent cross-shard joins are a signal to reconsider the sharding key.",
+        "Distributed transactions across shards require coordination. Two-phase commit (2PC) coordinates a transaction across multiple shards: the coordinator asks each shard to prepare (phase 1), waits for all to confirm, then tells all to commit (phase 2). 2PC is correct but adds latency (2 round trips to all shards) and has a blocking failure mode: if the coordinator fails between prepare and commit, shards are stuck in 'prepared' state. NewSQL databases (CockroachDB, Spanner) replace classic 2PC with Paxos/Raft-based consensus that provides distributed transactions without blocking failures.",
+        "Rebalancing (resharding) is an operational challenge for sharded systems. As data grows or shard count changes, data must move between shards. During rebalancing: the system must continue serving reads and writes (no downtime), data must be moved atomically (no half-moved keys), and the routing layer must transition cleanly. Strategies: double-write to both old and new shard during migration, background copy + atomic cutover, or virtual sharding (more virtual shards than physical; virtual shards migrate atomically). Cassandra uses virtual nodes (vnodes) to enable incremental rebalancing.",
+        "Hotspot handling requires breaking the shard on the hot key. If a viral post's ID causes one shard to receive 100× more traffic than others, options: add a random suffix to the key (shard post_id+random_suffix across N shards; scatter reads across those N shards and merge), replicate the hot item to all shards, or cache at a layer above the database. Twitter's Hotkey detection service identifies hot keys and routes them to a temporary expanded shard set."
+      ],
+      "bullets": [
+        "Cross-shard join: scatter to all shards, join in application; or denormalize; or redesign sharding key",
+        "2PC failure: coordinator crash between prepare and commit leaves shards blocked; use consensus protocols for distributed transactions",
+        "Hotspot mitigation: add random suffix to key, scatter reads across N sub-shards; or cache above DB"
+      ]
+    },
+    {
+      "title": "Practical Replication and Sharding Decisions",
+      "paragraphs": [
+        "Start with replication, graduate to sharding. A single primary with read replicas scales to 10–50× read load with minimal complexity. Most applications never need sharding—they need better queries, caching, or connection pooling instead. Sharding introduces cross-shard complexity that is very hard to undo. Only shard when: you've exhausted single-node vertical scaling, write volume exceeds primary throughput, or storage exceeds single-node capacity. Use managed sharding solutions (Vitess for MySQL, Citus for PostgreSQL, MongoDB Atlas sharding) rather than application-level sharding when possible.",
+        "Choosing a sharding key is the most consequential decision. The key must: distribute writes evenly (no hotspots), enable co-location of data accessed together (minimize cross-shard queries), be stable (never changes after assignment, so records don't move shards), and have high cardinality (enough distinct values to distribute across many shards). Common choices: tenant_id for multi-tenant SaaS (all tenant data on one shard; cross-tenant queries require scatter), user_id for social apps (most activity within one user's data co-located), hash of primary key for uniform distribution.",
+        "Replication topology for high availability: a primary with two synchronous replicas (one in the same AZ for fast commit confirmation, one in another AZ for resilience) and async replicas for read scaling. Synchronous replication to both AZ replicas means the primary must wait for both before committing—too slow. Synchronous to one, async to others: fast commits but one node's data loss window. The right choice depends on your RPO (Recovery Point Objective) and write latency SLA."
+      ],
+      "bullets": [
+        "Scale with replication first; shard only when write throughput or storage exceeds single node",
+        "Sharding key properties: even distribution, co-location, stability, high cardinality",
+        "Managed sharding: Vitess (MySQL), Citus (PostgreSQL) reduce operational complexity vs application-level sharding"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Replication topologies",
+        "title": "Replication Topologies",
         "paragraphs": [
-          "Primary-replica async replication is common: fast writes, possible loss on failover. Semi-sync and quorum replication reduce loss windows. Multi-primary increases conflict complexity."
+          "Single-leader (primary-replica): all writes to one node, propagated to replicas. Replicas serve reads. Failover promotes a replica to primary.",
+          "Multi-leader: writes to multiple nodes; write conflicts need resolution (LWW, CRDTs, application merge). Used for multi-DC write availability.",
+          "Leaderless (Dynamo): any node accepts writes; W + R > N quorum ensures consistency. Anti-entropy repairs divergence."
+        ],
+        "bullets": [
+          "MySQL GTID replication: global transaction ID enables any replica to become primary without manual position tracking",
+          "PostgreSQL streaming replication: WAL-shipping to standbys; synchronous_standby_names for semi-sync",
+          "Cassandra leaderless: W=QUORUM, R=QUORUM with N=3 is standard for strong consistency"
         ]
       },
       {
-        "title": "Sharding strategies",
+        "title": "Sharding Strategies",
         "paragraphs": [
-          "Hash, range, and directory-based sharding. Resharding is the expensive part — plan early. Cross-shard transactions should be rare."
+          "Range sharding: contiguous key ranges per shard; efficient range queries; hotspot risk on sequential keys.",
+          "Hash sharding: even distribution; scatter-gather for range queries; consistent hashing minimizes resharding cost.",
+          "Directory sharding: flexible lookup-based mapping; extra round trip; best when shard assignment needs manual control."
+        ],
+        "bullets": [
+          "Consistent hashing: add node remaps only K/N keys; Cassandra vnodes implement consistent hashing",
+          "MongoDB hash sharding: hash of _id; even distribution; range queries scatter to all shards",
+          "Co-location: shard by entity that owns most of the data accessed in a request to minimize cross-shard ops"
         ]
       },
       {
-        "title": "Read your writes",
+        "title": "Replication Lag and Consistency",
         "paragraphs": [
-          "Async replicas cause stale reads. Session stickiness, primary reads for critical paths, or causal tokens mitigate."
-        ]
-      },
-      {
-        "title": "Ops realities",
-        "paragraphs": [
-          "Failover automation, replica lag alerts, backup per shard, and schema change coordination dominate real-world success."
+          "Replication lag causes read-your-writes and monotonic read violations. Session routing (read from primary post-write, or use write position token for replica) fixes read-your-writes.",
+          "Semi-synchronous replication waits for 1 replica confirmation; prevents data loss on primary failure without full sync overhead.",
+          "Monitor lag with seconds_behind_master (MySQL) or pg_stat_replication.write_lag (Postgres); alert when lag > threshold."
+        ],
+        "bullets": [
+          "Bounded staleness: some systems expose a staleness SLA (read data at most X seconds old)",
+          "Replica read routing: ORM-level read/write split; ProxySQL, PgBouncer, Vitess handle at proxy layer",
+          "Parallel replication apply: MySQL 5.7+ parallel slave; PG 14+ parallel apply; reduces lag on write-heavy primaries"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Replication & Sharding — Operations",
+        "title": "Failover, Split-Brain, and Consensus",
         "paragraphs": [
-          "Operating Replication & Sharding in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
-          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+          "Automatic failover without consensus is dangerous. Naive failover: if the primary is unreachable for >30 seconds, promote a replica. Problem: the primary may be alive but partitioned from the monitoring process. If a replica is promoted, two primaries now accept writes—split-brain. Both think they're primary; they accept conflicting writes; data diverges permanently. Recovery from split-brain requires manual intervention and usually data loss.",
+          "Consensus-based failover uses Raft or Paxos to elect a new primary with agreement from a quorum of replicas. No write proceeds unless a quorum agrees it's the current leader. Galera Cluster (MySQL), PatroniHA (PostgreSQL with etcd/Consul/Zookeeper), and Aurora's volume-based multi-AZ replication all use quorum-based approaches to prevent split-brain. The quorum must have an odd number of members (typically 3) to ensure a majority can always be formed.",
+          "GTID (Global Transaction Identifier) in MySQL makes failover deterministic. Each transaction has a unique GTID; replicas track which GTIDs they've applied. When promoting a replica, the orchestrator identifies the most up-to-date replica by GTID position, promotes it, and redirects other replicas to replicate from the new primary at their divergence point. Without GTID, replica failover requires manually calculating binary log positions—error-prone and slow."
         ],
         "bullets": [
-          "Define capacity from the scarcest resource",
-          "Document blast radius per dependency",
-          "Keep rollback cheaper than forward repair when possible"
+          "Split-brain: two primaries accept concurrent writes; data diverges; prevents automatic resolution",
+          "Patroni: Python-based HA for PostgreSQL; uses etcd/Consul/ZooKeeper for leader election with fencing",
+          "Fencing: prevent old primary from accepting writes after failover; stonith (shoot the other node in the head)"
         ]
       },
       {
-        "title": "Replication & Sharding — Failure modes",
+        "title": "Vitess and Production Sharding at Scale",
         "paragraphs": [
-          "Common failures around Replication & Sharding include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
-          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+          "Vitess is a MySQL-compatible sharding middleware developed at YouTube and open-sourced under CNCF. It sits between the application and MySQL shards, handling: query routing (parse SQL, extract shard key, route to correct shard), connection pooling (multiplex thousands of app connections to a smaller pool of MySQL connections), and resharding (online migration of data between shards via VReplication). YouTube's MySQL deployment handles petabytes of data via Vitess sharding with no application-level sharding code.",
+          "VReplication (Vitess's resharding engine) copies data from source to target shard while the system is live. It applies a journal of changes from the source shard's binlog to the target, keeping it in sync. When the lag approaches zero, Vitess performs a brief atomic cutover: stop writes to the old shard, apply final changes, switch routing to the new shard, resume writes. The cutover window is typically <1 second. This allows online resharding without downtime.",
+          "Citus extends PostgreSQL with distributed table support. Regular PostgreSQL tables become distributed tables partitioned across worker nodes. The Citus coordinator node routes queries; worker nodes execute shard-local queries. Joins between co-located tables (sharded on the same key) are executed locally; joins between non-co-located tables require data redistribution. Citus supports parallel query execution—a COUNT(*) on a distributed table runs on all shards simultaneously and aggregates at the coordinator."
+        ],
+        "bullets": [
+          "Vitess VSchema: defines sharding key per table; VTGate routes queries based on VSchema",
+          "Citus distributed table: CREATE TABLE orders (...); SELECT create_distributed_table('orders', 'user_id');",
+          "Vitess connection pool: app connections → Vitess VTGate → fewer connections to MySQL; prevents connection storm"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Replication & Sharding — Expert notes",
+        "title": "Global Replication, Consistency Tradeoffs, and NewSQL",
         "paragraphs": [
-          "At the expert level, Replication & Sharding intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
-          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+          "Global distributed databases (Spanner, CockroachDB, YugabyteDB) provide strongly consistent distributed transactions across geographically distributed nodes. Spanner uses TrueTime (GPS + atomic clocks, ±7ms uncertainty) to assign commit timestamps; transactions are serializable globally. CockroachDB uses Hybrid Logical Clocks (HLC) to approximate Spanner's global ordering without specialized hardware. Both provide ACID transactions across shards with 2PC-over-Paxos, eliminating the split-brain problem at the cost of cross-region commit latency (50–100ms for multi-region writes).",
+          "Read Committed vs Serializable isolation matters enormously in replicated systems. Most MySQL replicas run at READ COMMITTED—a replica serving reads may return data that was never committed on the primary if a rollback occurred after replication. PostgreSQL streaming replication uses logical decoding from WAL, which only ships committed transactions—replicas can never see uncommitted data. For financial or compliance workloads, verify the replication protocol guarantees that only committed data is replicated.",
+          "Multi-region active-active replication with conflict resolution is used by systems like Cassandra (LWW or application-level), MongoDB Global Clusters (bidirectional sync via Atlas), and Amazon DynamoDB Global Tables. Each region accepts writes locally; changes propagate asynchronously to other regions. At <100ms replication lag, concurrent writes to the same record in different regions are rare but possible. CRDT data structures (G-Counter, OR-Set) allow automatic conflict-free merges for specific use cases; for general-purpose records, application-defined merge rules or LWW are the common choices."
         ]
       }
     ]
   },
   "concepts": [
-    "Async vs sync replication",
-    "Failover",
-    "Hash/range sharding",
-    "Resharding",
-    "Replica lag"
+    "Single-leader replication: all writes to primary, propagated to replicas; failover promotes one replica",
+    "Multi-leader replication: writes to multiple leaders; write conflicts must be detected and resolved",
+    "Leaderless replication: any node accepts writes; W + R > N quorum ensures consistency",
+    "Replication lag: delay between primary write and replica visibility; causes read-your-writes anomalies",
+    "Range sharding: partition by key range; efficient range queries; hotspot risk on sequential keys",
+    "Hash sharding: partition by hash; even distribution; scatter-gather for range queries",
+    "Consistent hashing: add/remove nodes remaps only K/N keys; minimizes resharding cost",
+    "Cross-shard join: expensive scatter-gather operation; motivates co-location sharding design",
+    "Two-phase commit (2PC): distributed transaction protocol; correct but has blocking failure on coordinator crash",
+    "Split-brain: two nodes both believe they're primary; causes conflicting writes; prevented by quorum consensus"
   ],
   "practices": [
-    "Alert on lag",
-    "Avoid cross-shard transactions",
-    "Automate failover carefully"
+    "Scale with read replicas before considering sharding; most write bottlenecks are solved by query optimization, caching, or vertical scaling",
+    "Monitor replication lag continuously; alert when lag exceeds your application's acceptable staleness threshold",
+    "Use managed sharding solutions (Vitess, Citus) rather than application-level sharding; they handle online resharding",
+    "Design sharding key for co-location: entities accessed together in the same request should share a shard",
+    "Use consensus-based failover (Patroni with etcd, MySQL InnoDB Cluster) to prevent split-brain on primary failure",
+    "Set up replication from the beginning even on single-node databases; retroactively enabling replication is harder"
   ],
   "pitfalls": [
-    "Sharding before needed",
-    "Ignoring reshard cost",
-    "Reading replicas for strong consistency paths"
+    "Choosing a poor sharding key early: timestamp-based sharding causes write hotspots; sequential ID sharding causes range imbalance",
+    "Not testing failover: automatic promotion may not work as expected until it's actually needed under production conditions",
+    "Allowing reads from replicas without handling lag; users see their own writes disappear after posting",
+    "Underestimating cross-shard query complexity; many queries that look simple become multi-shard scatter-gather",
+    "Using 2PC for distributed transactions without understanding its failure modes; coordinator crash blocks all participating shards",
+    "Sharding before exhausting replication and caching; sharding adds complexity that is very difficult to remove"
   ],
   "examples": [
     {
-      "title": "Postgres primary + replicas",
-      "description": "Read scale with lag awareness."
+      "title": "Instagram's PostgreSQL Sharding with Django",
+      "description": "Instagram sharded PostgreSQL by user_id. Each shard holds all data for a subset of users: media, followers, likes. A user's feed generation reads only from their shard and the shards of people they follow. Cross-shard queries (global feed, search) are routed through a scatter-gather layer. Instagram ran 12 PostgreSQL shards at scale, each with one primary and two replicas, managed by an orchestrator (later moved to Vitess-equivalent tooling)."
     },
     {
-      "title": "Vitess/Cockroach",
-      "description": "Sharded or distributed SQL approaches."
+      "title": "Cassandra Multi-DC Replication for Global Availability",
+      "description": "A ride-sharing platform uses Cassandra with NetworkTopologyStrategy, RF=3 per DC across 3 DCs (US-East, EU-West, AP-Southeast). Write CL=LOCAL_QUORUM ensures writes are confirmed by 2 of 3 nodes in the local DC before returning—fast writes within a DC. Read CL=LOCAL_QUORUM ensures reads from 2 of 3 local nodes—no cross-DC latency for reads. Data replicates asynchronously to other DCs. If US-East goes down, EU-West and AP-Southeast continue serving with their local data."
+    },
+    {
+      "title": "CockroachDB Global Distributed ACID",
+      "description": "A financial services company uses CockroachDB for global account ledger. Transactions span accounts in different regions; CockroachDB's distributed 2PC-over-Raft ensures ACID across the global cluster. A transfer from an account on a US node to one on an EU node takes ~120ms (cross-Atlantic RTT × 2 for consensus). For latency-sensitive operations, accounts are pinned to regions via REGION-based row placement, and cross-region transfers are explicitly batched."
     }
   ],
   "keyTakeaways": [
-    "Replication ≠ free consistency",
-    "Sharding keys are destiny",
-    "Resharding must be planned"
+    "Replication duplicates data for availability and read scaling; sharding partitions data for write scaling and capacity",
+    "Replication lag causes consistency anomalies; handle read-your-writes with primary routing or write position tokens",
+    "Sharding key choice is irreversible and consequential; design for co-location, even distribution, and stability",
+    "Cross-shard joins and distributed transactions are expensive; minimize them through data model design",
+    "Start with replication; shard only when single-node write throughput or storage is genuinely the bottleneck",
+    "Consensus-based failover (Patroni, Galera) prevents split-brain; never use naive timeout-based promotion in production"
   ],
-  "whyItMatters": "Database scale-out is where many systems hit a wall; these are the levers.",
+  "whyItMatters": "Replication and sharding are how databases scale beyond a single node—and how they fail in spectacular ways when done wrong. A bad sharding key creates permanent hotspots that require a full data migration to fix. Missing replication lag handling causes lost updates that frustrate users. Naive failover creates split-brain that corrupts data. These patterns appear in every system design interview and every production database migration, and getting them wrong has irreversible consequences.",
   "reflectionQuestions": [
-    "What is your shard key — and what query cannot use it?"
+    "You're designing a database for a multi-tenant SaaS with 10,000 tenants, some with 100× more data than others. Design the sharding strategy: what's the sharding key, how do you handle hotspot tenants, and how do you handle cross-tenant analytics queries?",
+    "Your MySQL replica is 10 minutes behind the primary during a marketing email send that generates high write load. Walk through three specific techniques to reduce this replication lag.",
+    "Design the replication topology for a financial transaction system: 3 geographic regions, RPO of 0 (no data loss), and <10ms write commit latency within each region."
   ],
   "numbersToKnow": [
-    "Know your p99 latency budget before adding hops",
-    "Peak load ≠ average load — plan headroom (often 2–3×)",
-    "Cross-region RTT is often ~50–150ms one way"
+    "W + R > N: quorum condition for read-after-write consistency in leaderless replication",
+    "2PC: 2 round trips to all shards for distributed transaction commit; latency multiplied by worst shard RTT",
+    "Consistent hashing resharding: adding 1 node to N remaps only 1/N of keys",
+    "MySQL semi-sync: waits for 1 replica confirmation before commit; prevents data loss on primary failure",
+    "Vitess VReplication cutover: <1s window for online resharding with no downtime"
   ],
   "diagrams": [
     {
       "id": "db-replication-sharding-overview",
-      "title": "Replication & Sharding overview",
-      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+      "title": "Replication vs Sharding",
+      "mermaid": "flowchart LR\n  subgraph Replication - same data duplicated\n    W1[Write] --> P1[Primary]\n    P1 -->|async replicate| R1[Replica 1]\n    P1 -->|async replicate| R2[Replica 2]\n    Read1[Read] --> R1\n    Read2[Read] --> R2\n  end\n  subgraph Sharding - data partitioned\n    W2[Write user_id=1] --> S1[Shard 1 - users 1-1M]\n    W3[Write user_id=2M] --> S2[Shard 2 - users 1M-2M]\n    Read3[Read user_id=1] --> S1\n    Read4[Read user_id=2M] --> S2\n  end"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Replication & Sharding and the main trade-offs in three minutes."
+    "What is replication lag and what consistency anomalies does it cause? How would you implement read-your-writes consistency in a system with async replication?",
+    "Compare range sharding vs hash sharding for a user activity table. When would each be appropriate, and what are the operational challenges of each?",
+    "Design the data storage layer for a global social network: 5 billion users, 100 billion posts, writes from every region. What replication and sharding strategy would you use?"
   ],
   "exercises": [
-    "Sketch a design that depends on Replication & Sharding; list three trade-offs and one failure mode."
+    "Set up MySQL primary-replica replication. Write a script that inserts 1 million rows on the primary while monitoring seconds_behind_master on the replica. Identify the lag pattern and experiment with parallel slave apply (slave_parallel_workers).",
+    "Implement application-level hash sharding for a URL shortener: given a URL key, compute shard = hash(key) % N_SHARDS. Implement a 'virtual resharding' migration that adds a new shard and migrates 1/N of keys to it without downtime."
   ],
-  "sources": [],
-  "relatedLessons": [
-    "db-backup-pit",
-    "db-cdc",
-    "db-connection-pooling"
-  ]
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Martin Kleppmann (Chapter 5: Replication, Chapter 6: Partitioning)",
+      "url": "https://dataintensive.net/"
+    },
+    {
+      "title": "Vitess Documentation — VReplication and Resharding",
+      "url": "https://vitess.io/docs/15.0/reference/vreplication/"
+    },
+    {
+      "title": "Spanner: Google's Globally Distributed Database (OSDI 2012)",
+      "url": "https://www.usenix.org/conference/osdi12/technical-sessions/presentation/corbett"
+    },
+    {
+      "title": "Amazon DynamoDB: Replication Across Data Centers",
+      "url": "https://aws.amazon.com/blogs/database/amazon-dynamodb-global-tables/"
+    }
+  ],
+  "relatedLessons": ["db-storage-engines", "db-indexes-replication", "db-modeling", "db-cdc"]
 }
