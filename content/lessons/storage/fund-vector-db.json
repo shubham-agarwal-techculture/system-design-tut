@@ -1,101 +1,251 @@
 {
   "id": "fund-vector-db",
-  "title": "Vector Databases",
+  "title": "Vector Databases & Embeddings",
   "moduleId": "storage",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "Vector Databases — draft awaiting generation and review.",
-  "kind": "living",
+  "durationMinutes": 42,
+  "summary": "Vector databases store high-dimensional embeddings and answer 'find the K most similar vectors to this query vector'—a problem called approximate nearest neighbor search. They are the backbone of semantic search, recommendation systems, and retrieval-augmented generation (RAG). Understanding how ANN algorithms work and how to operationalize vector stores at scale is essential for AI-integrated systems.",
+  "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "fund-storage-types"
+    "fund-storage-types",
+    "fund-search"
   ],
   "tags": [
     "storage",
-    "living",
+    "vector-db",
+    "ai",
+    "evergreen",
     "fundamentals"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Embeddings: Turning Meaning into Vectors",
       "paragraphs": [
-        "This draft covers Vector Databases. Run content:generate to expand it with a model provider, or edit manually."
+        "An embedding is a dense numerical vector—typically 384 to 4096 dimensions—that represents the semantic meaning of a piece of text, image, audio, or other content. Embedding models (OpenAI text-embedding-3-small, Cohere embed-v3, E5-large) are trained such that semantically similar content produces vectors that are close together in the embedding space, as measured by cosine similarity or dot product. 'The dog ran fast' and 'The canine sprinted quickly' produce vectors with cosine similarity ~0.95, while 'The dog ran fast' and 'The stock market crashed' produce ~0.1.",
+        "Embeddings enable semantic search, which finds conceptually related content even when no keywords match. A user searching 'how to fix a leaky faucet' finds results about 'plumbing repair' even though 'leaky faucet' never appears in the retrieved document. This is the fundamental limitation of BM25 that embeddings solve: keyword search requires term overlap; semantic search requires meaning overlap. The combination—hybrid retrieval—retrieves using both mechanisms and reranks the union.",
+        "Embedding models have fixed context windows (typically 512–8192 tokens) and cannot encode arbitrarily long documents in a single vector. Long documents are chunked before embedding: each chunk becomes a separate vector. Chunk size (256–1024 tokens typically) and overlap (50–100 tokens between consecutive chunks) are key hyperparameters. Too-small chunks lose context; too-large chunks dilute signal. Sliding window chunking with overlap ensures entities mentioned at chunk boundaries are captured in at least one chunk."
+      ],
+      "bullets": [
+        "Embedding: dense vector representing semantic meaning; similar content → nearby vectors",
+        "Cosine similarity: dot product of normalized vectors; range [-1, 1]; 1=identical, 0=orthogonal",
+        "Semantic search: finds meaning-similar content without keyword overlap",
+        "Chunking: split long documents before embedding; chunk size 256–1024 tokens with overlap"
+      ]
+    },
+    {
+      "title": "ANN Algorithms: HNSW, IVF, and Product Quantization",
+      "paragraphs": [
+        "Exact nearest neighbor search requires comparing the query vector to every vector in the database—O(n×d) for n vectors of d dimensions. At 100M vectors of 1536 dimensions, that's 10^11 floating-point operations per query: 10+ seconds on modern hardware. Approximate Nearest Neighbor (ANN) algorithms sacrifice small amounts of recall for massive speedups. HNSW (Hierarchical Navigable Small World) achieves 10,000+ QPS with >95% recall at 1 million vectors by building a multi-layer graph where each layer is a subset of the previous, enabling coarse-to-fine navigation.",
+        "IVF (Inverted File Index) partitions vectors into K clusters (typically K=4096 for large datasets) using k-means. At query time, only the nearest C clusters are searched (C=10–100 out of K=4096), dramatically reducing vectors examined. IVFPQ combines IVF with Product Quantization: each vector is compressed from 1536 float32s (~6KB) to 32–64 bytes by encoding sub-vectors as codes from a small codebook (typically 256 entries). This achieves 50–200x memory reduction at the cost of some recall and accuracy.",
+        "HNSW vs IVF trade-offs: HNSW has higher build time and memory usage but superior recall/QPS ratio; better for datasets up to ~100M vectors. IVF+PQ scales to billions of vectors with lower memory footprint; better for truly massive scale where HNSW's memory requirements become prohibitive (HNSW uses ~100 bytes/vector overhead for the graph structure). Most vector databases (Weaviate, Qdrant, Milvus) default to HNSW; Faiss (the underlying library) supports both and IVF is better for billion-scale."
+      ],
+      "bullets": [
+        "Exact KNN: O(n×d); too slow for n > 1M",
+        "HNSW: multi-layer navigable graph; 10K+ QPS at >95% recall; best for <100M vectors",
+        "IVF: cluster partitioning; search only nearest C of K clusters; faster for large scale",
+        "PQ (Product Quantization): 50–200x memory compression; viable for billion-scale indices"
+      ]
+    },
+    {
+      "title": "Vector Database Ecosystem: Pinecone, Weaviate, Qdrant, pgvector",
+      "paragraphs": [
+        "Pinecone (managed SaaS): serverless or pod-based deployment; handles scaling, replication, and updates transparently; strong integration with LangChain and LlamaIndex; pricing by vectors stored + queries. Best for teams wanting managed infrastructure with minimal operational overhead. Pod-based indexes support high-QPS workloads; serverless scales to zero. Weakness: no on-premise option, limited customization, vendor lock-in.",
+        "Weaviate (open source, self-hosted or managed): combines vector search with traditional metadata filtering; modules for text2vec (auto-embed at ingest) and BM25 hybrid search; GraphQL API. HNSW with ACORN filtering (apply metadata filters during HNSW graph traversal rather than post-filtering, dramatically improving filtered recall). Qdrant (Rust-based): high performance, payload-based filtering, segment architecture similar to Elasticsearch, supports on-disk indices for billion-scale deployments.",
+        "pgvector (PostgreSQL extension): adds vector type and HNSW/IVF indexes to PostgreSQL. Ideal for teams already running PostgreSQL who don't want to operate a separate vector database. Performance is excellent for <10M vectors; above that, dedicated vector databases have better scalability. The key advantage: combine vector similarity with SQL predicates (WHERE user_id = $1 AND created_at > now() - interval '7 days') without a separate filter step, using PostgreSQL's mature query planner."
+      ],
+      "bullets": [
+        "Pinecone: managed SaaS; serverless scaling; best for teams avoiding infra overhead",
+        "Weaviate: open source; hybrid BM25+vector; ACORN filtering; GraphQL API",
+        "Qdrant: Rust-based; high performance; on-disk indices; good for large self-hosted deployments",
+        "pgvector: PostgreSQL extension; SQL + vector in one query; best for <10M vectors"
+      ]
+    },
+    {
+      "title": "Retrieval-Augmented Generation (RAG) Architecture",
+      "paragraphs": [
+        "RAG augments LLM responses by retrieving relevant context before generating. The pipeline: (1) Document ingestion: chunk documents, embed each chunk, store vectors in vector DB with metadata. (2) Query time: embed the user query, retrieve top-K similar chunks (typically K=5–20), inject retrieved chunks into the LLM prompt as context. (3) Generate: LLM produces an answer grounded in retrieved context rather than hallucinating from parametric knowledge alone. This pattern dramatically reduces hallucination for domain-specific knowledge.",
+        "Retrieval quality is the bottleneck in most RAG systems. Strategies to improve: re-ranking (use a cross-encoder to re-score the top-100 BM25+vector candidates before passing the top-5 to the LLM), HyDE (Hypothetical Document Embeddings: use the LLM to generate a hypothetical answer, embed it, and retrieve using that embedding—works better than embedding the raw question for some domains), parent-child chunking (embed small chunks for precise retrieval but pass the parent chunk as context for richer information).",
+        "RAG pipelines must address staleness: documents change, embeddings must be re-generated, and old vectors must be replaced. Incremental re-indexing using change data capture (CDC) from the source database keeps the vector index fresh. Use namespace or collection-level versioning to allow atomic updates of a document's vectors (delete old chunk vectors, insert new chunk vectors atomically). Monitor retrieval quality with metrics like MRR (Mean Reciprocal Rank) and nDCG using a golden evaluation set."
+      ],
+      "bullets": [
+        "RAG: chunk → embed → store → retrieve → inject → generate; reduces LLM hallucination",
+        "Re-ranking: cross-encoder on top-100 candidates before passing top-5 to LLM",
+        "HyDE: embed a hypothetical answer to improve query embedding quality",
+        "Staleness: incremental re-indexing via CDC; monitor retrieval quality with MRR/nDCG"
+      ]
+    },
+    {
+      "title": "Operational Considerations: Filtering, Scaling, and Cost",
+      "paragraphs": [
+        "Metadata filtering with vector search is non-trivial. Post-filtering (run ANN, then filter by metadata) is fast but can return fewer than K results if many candidates are filtered out. Pre-filtering (filter the vector space to matching vectors, then do ANN) is accurate but slow for large filter sets. HNSW with native filtering (Weaviate's ACORN) traverses the graph while applying filters, achieving balanced performance. For highly selective filters (<1% of vectors match), use pre-filtering; for loosely selective filters (>10% match), use post-filtering or graph-native filtering.",
+        "Memory sizing: HNSW stores the full vector index in memory. At 1536 float32 dimensions × 4 bytes = 6.1 KB per vector. 1M vectors = 6.1 GB; 100M vectors = 610 GB. Add HNSW graph overhead (~100–200 bytes/vector): 100M vectors need ~700–750 GB RAM—expensive. Mitigations: quantization (PQ or INT8) reduces memory 4–8x with modest recall loss; on-disk indices (Qdrant's mmap) allow serving vectors from SSD with higher latency but dramatically lower cost.",
+        "Cost-per-query comparison: Pinecone serverless charges $0.0004 per 1000 queries for a 1536-dim index. Self-hosted Qdrant on a 32GB memory instance handles ~10M vectors with ~1ms QPS; at $0.10/hr that's $72/month for unlimited queries. The break-even is roughly 180M queries/month. For high-query-volume applications, self-hosted is significantly cheaper; for infrequent or spiky query patterns, managed serverless avoids overprovisioning."
+      ],
+      "bullets": [
+        "Memory: 1536-dim float32 = 6.1 KB/vector; 1M vectors = 6.1 GB; plan for index overhead",
+        "Filtering: ACORN graph-native filtering balances recall and performance for mid-selectivity",
+        "Quantization: INT8 or PQ reduces memory 4–8x; eval recall impact for your use case",
+        "On-disk indices: serve vectors from SSD; 5–10x higher latency, 5–10x lower cost"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Embeddings and Semantic Search",
         "paragraphs": [
-          "This draft covers Vector Databases. Run content:generate to expand it with a model provider, or edit manually."
+          "Embedding: dense vector representing semantic meaning. Similar content → nearby vectors in cosine similarity space. Semantic search finds meaning-similar content without keyword overlap.",
+          "Chunking: split long documents before embedding. Chunk size 256–1024 tokens with 50–100 token overlap. Too small loses context; too large dilutes signal.",
+          "Hybrid retrieval (BM25 + vector) + cross-encoder reranking achieves state-of-the-art retrieval quality."
+        ]
+      },
+      {
+        "title": "ANN Algorithms",
+        "paragraphs": [
+          "Exact KNN: O(n×d); too slow at scale. HNSW: multi-layer graph; 10K+ QPS at >95% recall; best for <100M vectors.",
+          "IVF: cluster partitioning; search nearest C of K clusters; scales to billions with PQ compression.",
+          "HNSW uses more memory (~100 bytes/vector overhead); IVF+PQ uses less memory but lower recall."
+        ]
+      },
+      {
+        "title": "RAG Architecture",
+        "paragraphs": [
+          "RAG: chunk → embed → store → at query time, retrieve top-K similar chunks → inject as LLM context → generate grounded response.",
+          "Retrieval quality is the bottleneck; improve with re-ranking, HyDE, and parent-child chunking.",
+          "Monitor retrieval quality with MRR and nDCG on a golden evaluation set."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Vector Databases — Deep Dive",
+        "title": "HNSW Graph Construction and Search",
         "paragraphs": [
-          "Extended treatment of Vector Databases: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "HNSW builds a multi-layer graph. Layer 0 contains all vectors; each higher layer contains a subset (exponentially fewer vectors per layer). Vectors are assigned to a maximum layer by a probability distribution (typically exp(-L*mL) where mL determines density). During search: start from a single entry point in the top layer, greedily navigate to the query vector's nearest neighbor in that layer, descend to the next layer and repeat, reaching layer 0 where the precise neighborhood is explored.",
+          "M (connections per node at layer 0, default 16) and ef_construction (beam width during construction, default 100) control the index quality-build time trade-off. Higher M improves recall but increases memory and build time. ef_search (beam width during query, default 10) is the main query-time recall/speed knob: ef_search=200 on a production cluster is a common setting for 99% recall at acceptable latency.",
+          "Filtering in HNSW: naive post-filtering returns top-K vectors from ANN, then filters. If 90% of vectors fail the filter, the returned K may be much smaller than requested—you get K×0.1 results. ACORN (Approximate Constraint-Optimized Retrieval for Nearest Neighbors) modifies the graph traversal to skip filtered nodes, maintaining search quality even with high filter selectivity."
+        ]
+      },
+      {
+        "title": "Embedding Model Selection and Dimensionality",
+        "paragraphs": [
+          "Embedding model selection involves trade-offs between dimension size, context length, multilingual support, and cost. text-embedding-3-small (1536 dims) outperforms ada-002 on most benchmarks while being cheaper. E5-large (1024 dims) is competitive with OpenAI embeddings and self-hostable. MTEB (Massive Text Embedding Benchmark) is the standard benchmark—compare models on retrieval tasks matching your use case (domain and language).",
+          "Dimensionality reduction via MRL (Matryoshka Representation Learning) trains models to produce embeddings where the first D dimensions are themselves a good D-dimensional embedding. This allows truncating text-embedding-3-large from 3072 to 256 dimensions with minimal quality loss—8x memory and compute reduction. OpenAI's text-embedding-3 models support MRL dimension reduction as a first-class feature.",
+          "Embedding update strategy: when you switch embedding models (e.g., upgrading from ada-002 to text-embedding-3-large), you cannot compare similarity scores across models—the vector spaces are different. Strategies: (1) Re-embed everything and swap the index atomically. (2) Run a shadow index with the new model while keeping the old live, then cutover. (3) Backfill incrementally using a background job. The shadow index approach gives the best rollback capability."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Vector Databases — Expert Notes",
+        "title": "Expert: Billion-Scale Vector Search",
         "paragraphs": [
-          "Expert considerations for Vector Databases: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At billion-scale (Meta's FAISS deployment for image search, Google's ScaNN), neither HNSW nor standard IVF suffices. Hierarchical IVF (IVFHNSW) uses HNSW to navigate between IVF partitions, combining HNSW's traversal efficiency with IVF's partition scalability. DiskANN (Microsoft Research) stores HNSW graph structure on SSD with an in-memory compressed cache; achieves billion-scale with memory footprint of ~32 bytes/vector (vs ~6KB for in-memory float32).",
+          "Spann (Space Partition and Approximate Nearest Neighbor) partitions vectors into ~100K clusters, stores centroids in memory, and stores full vector lists per cluster on SSD. At query time: nearest centroid lookup (memory, fast) → load cluster vectors from SSD → exact search within cluster. Achieves <10ms latency at billion scale with minimal memory. Meta's production deployment of FAISS uses GPU for the ANN computation, achieving 10M+ QPS on a small GPU cluster."
         ]
       }
     ]
   },
   "concepts": [
-    "Vector Databases: core idea"
+    "Embedding: dense vector of semantic meaning; similar content → nearby vectors",
+    "Cosine similarity: angular distance between vectors; range [-1,1]",
+    "ANN (Approximate Nearest Neighbor): trading recall for speed; practical for n > 10K",
+    "HNSW: multi-layer navigable graph; best recall/QPS for <100M vectors",
+    "IVF (Inverted File Index): k-means partitioning; scales to billions with PQ",
+    "PQ (Product Quantization): compress vectors 50–200x by encoding sub-vectors as codebook entries",
+    "RAG (Retrieval-Augmented Generation): retrieve relevant context, inject into LLM prompt",
+    "Chunking: splitting documents into indexable units before embedding",
+    "Re-ranking: cross-encoder scoring of top-K candidates before final selection",
+    "MRL (Matryoshka Representation Learning): embeddings where prefix dimensions are themselves valid embeddings"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Choose embedding model based on MTEB benchmark for your domain and language",
+    "Chunk documents with overlap (50–100 tokens) to avoid losing context at chunk boundaries",
+    "Use hybrid retrieval (BM25 + vector) + cross-encoder reranker for best RAG quality",
+    "Start with pgvector for <10M vectors; graduate to dedicated vector DB at larger scale",
+    "Monitor retrieval quality with MRR/nDCG on a golden evaluation set; regression-test on model upgrades",
+    "Use quantization (INT8 or PQ) to reduce memory footprint for large-scale deployments",
+    "Build shadow index when upgrading embedding models; cutover atomically to avoid mixed vector spaces"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Comparing similarity scores across different embedding models—scores are not cross-model comparable",
+    "Post-filtering with high filter selectivity (<10% pass)—results in fewer than K useful results",
+    "Not tracking embedding model version with stored vectors—makes model upgrades a migration nightmare",
+    "Using too-large chunk sizes (whole documents as single vectors)—dilutes retrieval signal",
+    "Ignoring HNSW memory requirements—100M vectors at 1536 dims can require >700GB RAM",
+    "No re-indexing pipeline for updated documents—stale embeddings degrade retrieval quality over time"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Notion's AI Search",
+      "description": "Notion embeds every block (a paragraph or header in a page) using an embedding model, stores vectors in Weaviate with page and workspace metadata. At query time, hybrid retrieval (BM25 on the block text + vector similarity on the embedding) retrieves candidates, filtered by workspace_id and permissions metadata. A cross-encoder re-ranks the top-50 results before returning the top-10. This combination handles both keyword-rich queries ('meeting notes 2024-01') and semantic queries ('where did we document the decision to use Postgres')."
+    },
+    {
+      "title": "Spotify's Song Recommendation via Embeddings",
+      "description": "Spotify computes embeddings for each song using an audio feature model and a collaborative filtering model. The two embeddings are concatenated; ANN search over this combined space finds songs that are both acoustically similar and liked by users with similar taste. At Spotify's scale (100M+ songs), they use GPU-accelerated FAISS with IVF+PQ, running on a fleet of GPU servers that handle millions of ANN queries per second."
+    }
+  ],
   "keyTakeaways": [
-    "Vector Databases belongs in the curriculum as living content"
+    "Embeddings map semantic meaning to dense vectors; similar content → nearby in embedding space",
+    "HNSW provides >95% recall at 10K+ QPS for <100M vectors; IVF+PQ scales to billions",
+    "Hybrid retrieval (BM25 + vector) + re-ranking is the production standard for RAG and semantic search",
+    "pgvector is the right starting point; graduate to dedicated vector DBs above ~10M vectors",
+    "Memory is the dominant operational cost: quantization reduces memory 4–8x with modest recall loss",
+    "Track embedding model versions; never mix vectors from different models in the same index"
   ],
-  "whyItMatters": "Understanding Vector Databases improves design judgment for production systems.",
+  "whyItMatters": "Vector databases are the foundational infrastructure for AI-powered applications: semantic search, recommendation, RAG, duplicate detection, and anomaly detection all rely on efficient similarity search over embeddings. As LLMs become standard components, the ability to design a retrieval pipeline—choosing embedding models, chunking strategies, ANN algorithms, and reranking—is a core engineering skill, not a niche specialization.",
   "reflectionQuestions": [
-    "When would you reach for Vector Databases in a real design?"
+    "Design a RAG pipeline for a customer support system with 1M documentation articles. What are your chunk size, embedding model, vector DB, and retrieval strategy?",
+    "Your vector search is returning irrelevant results. How do you debug whether the problem is in the embedding model, chunk size, retrieval algorithm, or re-ranker?",
+    "At 500M product vectors, your HNSW index requires 500GB RAM. What alternatives do you consider?",
+    "When would you use pgvector instead of a dedicated vector database like Pinecone or Qdrant?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "1536-dim float32 embedding: 6.1 KB/vector; HNSW overhead: ~100–200 bytes/vector",
+    "1M vectors: ~6–7 GB in-memory (HNSW); 10M: ~60–70 GB; 100M: ~600–700 GB",
+    "HNSW typical recall: >95% at ef_search=100; >99% at ef_search=400",
+    "PQ compression: 50–200x; float32 → int8 quantization: 4x with minimal recall loss",
+    "OpenAI text-embedding-3-small: 1536 dims; $0.02/1M tokens; supports MRL truncation"
   ],
   "diagrams": [
     {
-      "id": "fund-vector-db-overview",
-      "title": "Vector Databases overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-vector-db-rag",
+      "title": "RAG Pipeline Architecture",
+      "mermaid": "flowchart LR\n  subgraph Indexing\n    Docs[Documents] --> Chunk[Chunker]\n    Chunk --> Embed[Embedding Model]\n    Embed --> VDB[(Vector DB)]\n  end\n  subgraph Retrieval\n    Q[User Query] --> QEmbed[Embed Query]\n    QEmbed -->|ANN search| VDB\n    VDB -->|top-K chunks| Rerank[Cross-Encoder Reranker]\n    Rerank -->|top-5 chunks| LLM[LLM]\n    LLM --> Answer[Grounded Answer]\n  end"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Vector Databases and the main trade-offs in 3 minutes."
+    "What is the difference between semantic search and keyword search? When would you use each?",
+    "Explain how HNSW enables approximate nearest neighbor search faster than brute force.",
+    "Design a RAG pipeline for a 100M-document corpus. What are your choices for chunking, embedding, retrieval, and reranking?",
+    "How do you handle embedding model upgrades without taking the search system offline?",
+    "What is product quantization and why is it important for billion-scale vector search?"
   ],
   "exercises": [
-    "Design a small system that depends on Vector Databases; list 3 trade-offs."
+    "Design the full vector search pipeline for a job matching platform: embed job descriptions and resumes, define the similarity metric, choose your ANN library, and design the filtering strategy (location, skills, seniority).",
+    "Calculate the memory required for 50M vectors at 1536 dimensions with HNSW, and propose a compression strategy to fit within 128GB RAM.",
+    "Design an A/B test to evaluate whether switching from text-embedding-ada-002 to text-embedding-3-large improves retrieval quality in a customer support RAG system."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "HNSW paper — Malkov & Yashunin, 'Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs'"
+    },
+    {
+      "title": "MTEB benchmark — huggingface.co/spaces/mteb/leaderboard"
+    },
+    {
+      "title": "Pinecone learning center — pinecone.io/learn"
+    },
+    {
+      "title": "Faiss documentation — faiss.ai/guidelines_choose_an_index.html"
+    }
+  ],
   "relatedLessons": [
+    "fund-blob-storage",
     "fund-olap",
-    "fund-search",
-    "fund-storage-types"
+    "fund-search"
   ]
 }

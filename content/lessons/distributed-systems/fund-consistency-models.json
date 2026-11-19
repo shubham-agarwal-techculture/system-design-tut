@@ -3,12 +3,12 @@
   "title": "Consistency Models",
   "moduleId": "distributed-systems",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "Consistency Models — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "Consistency models specify what observations clients may make. From linearizability to eventual consistency, each model enables and forbids certain anomalies — learn them to pick storage and API guarantees.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "fund-clocks"
@@ -20,77 +20,142 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Linearizability and sequential consistency",
       "paragraphs": [
-        "This draft covers Consistency Models. Run content:generate to expand it with a model provider, or edit manually."
+        "Linearizability: operations appear instantaneously at a single point between invocation and response, globally. Sequential consistency allows reordering across clients but preserves each client's order."
+      ]
+    },
+    {
+      "title": "Causal and session models",
+      "paragraphs": [
+        "Causal consistency preserves cause-before-effect. Session guarantees (read-your-writes, monotonic reads) are often what users actually need for a single device/login."
+      ]
+    },
+    {
+      "title": "Eventual consistency",
+      "paragraphs": [
+        "If updates stop, replicas converge. During churn, stale reads and conflicts happen. Pair with conflict resolution (LWW, CRDT, app merge)."
+      ]
+    },
+    {
+      "title": "Choosing per API",
+      "paragraphs": [
+        "Payments capture may need strong guarantees; feed ranking may tolerate staleness. Document guarantees in API specs so clients do not invent them."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Linearizability and sequential consistency",
         "paragraphs": [
-          "This draft covers Consistency Models. Run content:generate to expand it with a model provider, or edit manually."
+          "Linearizability: operations appear instantaneously at a single point between invocation and response, globally. Sequential consistency allows reordering across clients but preserves each client's order."
+        ]
+      },
+      {
+        "title": "Causal and session models",
+        "paragraphs": [
+          "Causal consistency preserves cause-before-effect. Session guarantees (read-your-writes, monotonic reads) are often what users actually need for a single device/login."
+        ]
+      },
+      {
+        "title": "Eventual consistency",
+        "paragraphs": [
+          "If updates stop, replicas converge. During churn, stale reads and conflicts happen. Pair with conflict resolution (LWW, CRDT, app merge)."
+        ]
+      },
+      {
+        "title": "Choosing per API",
+        "paragraphs": [
+          "Payments capture may need strong guarantees; feed ranking may tolerate staleness. Document guarantees in API specs so clients do not invent them."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Consistency Models — Deep Dive",
+        "title": "Consistency Models — Operations",
         "paragraphs": [
-          "Extended treatment of Consistency Models: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating Consistency Models in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Consistency Models — Failure modes",
+        "paragraphs": [
+          "Common failures around Consistency Models include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Consistency Models — Expert Notes",
+        "title": "Consistency Models — Expert notes",
         "paragraphs": [
-          "Expert considerations for Consistency Models: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, Consistency Models intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "Consistency Models: core idea"
+    "Linearizability",
+    "Sequential consistency",
+    "Causal consistency",
+    "Session guarantees",
+    "Eventual consistency"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Declare per-endpoint guarantees",
+    "Test under delay/partition",
+    "Avoid accidental stronger-than-needed costs"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "One global model for all data",
+    "Client retries assuming linearizability",
+    "Hiding conflict resolution"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Spanner",
+      "description": "External consistency with TrueTime."
+    },
+    {
+      "title": "Dynamo",
+      "description": "Eventual with quorums and repair."
+    }
+  ],
   "keyTakeaways": [
-    "Consistency Models belongs in the curriculum as evergreen content"
+    "Models are product contracts",
+    "Stronger ≠ always better",
+    "Session guarantees cover many UX needs"
   ],
-  "whyItMatters": "Understanding Consistency Models improves design judgment for production systems.",
+  "whyItMatters": "Misstated consistency is how you get heisenbugs and angry users after failover.",
   "reflectionQuestions": [
-    "When would you reach for Consistency Models in a real design?"
+    "Which of your APIs accidentally promise linearizability?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "fund-consistency-models-overview",
       "title": "Consistency Models overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Consistency Models and the main trade-offs in 3 minutes."
+    "Explain Consistency Models and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on Consistency Models; list 3 trade-offs."
+    "Sketch a design that depends on Consistency Models; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [

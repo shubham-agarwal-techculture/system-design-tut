@@ -3,12 +3,12 @@
   "title": "NUMA & Memory Hierarchy",
   "moduleId": "operating-systems",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "NUMA & Memory Hierarchy — draft awaiting generation and review.",
+  "durationMinutes": 40,
+  "summary": "On multi-socket machines, memory access cost depends on which CPU owns the DIMM. NUMA-aware placement of threads and buffers can dominate low-latency and high-throughput performance.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "os-memory"
@@ -20,82 +20,145 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "What NUMA changes",
       "paragraphs": [
-        "This draft covers NUMA & Memory Hierarchy. Run content:generate to expand it with a model provider, or edit manually."
+        "Uniform memory assumptions fail on multi-socket servers. Remote memory access adds latency and reduces bandwidth. Allocators and thread schedulers that ignore locality leave performance on the table.",
+        "For trading engines, packet processing, and in-memory databases, NUMA can mean double-digit percent latency differences."
+      ]
+    },
+    {
+      "title": "Placement strategies",
+      "paragraphs": [
+        "Pin threads to nodes; allocate memory first-touch on the same node; avoid false sharing across cache lines. Tools: numactl, hwloc, perf.",
+        "Shared structures either replicate per node or accept remote access with careful design."
+      ]
+    },
+    {
+      "title": "Interaction with NICs and GPUs",
+      "paragraphs": [
+        "NIC IRQ affinity and GPU affinity should match the consuming CPU node. Cross-node PCIe traffic is a silent tax."
+      ]
+    },
+    {
+      "title": "When to care",
+      "paragraphs": [
+        "Single-socket cloud VMs may hide NUMA. Bare metal and large instances expose it. Benchmark with production-like pinning."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "What NUMA changes",
         "paragraphs": [
-          "This draft covers NUMA & Memory Hierarchy. Run content:generate to expand it with a model provider, or edit manually."
+          "Uniform memory assumptions fail on multi-socket servers. Remote memory access adds latency and reduces bandwidth. Allocators and thread schedulers that ignore locality leave performance on the table.",
+          "For trading engines, packet processing, and in-memory databases, NUMA can mean double-digit percent latency differences."
+        ]
+      },
+      {
+        "title": "Placement strategies",
+        "paragraphs": [
+          "Pin threads to nodes; allocate memory first-touch on the same node; avoid false sharing across cache lines. Tools: numactl, hwloc, perf.",
+          "Shared structures either replicate per node or accept remote access with careful design."
+        ]
+      },
+      {
+        "title": "Interaction with NICs and GPUs",
+        "paragraphs": [
+          "NIC IRQ affinity and GPU affinity should match the consuming CPU node. Cross-node PCIe traffic is a silent tax."
+        ]
+      },
+      {
+        "title": "When to care",
+        "paragraphs": [
+          "Single-socket cloud VMs may hide NUMA. Bare metal and large instances expose it. Benchmark with production-like pinning."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "NUMA & Memory Hierarchy — Deep Dive",
+        "title": "NUMA & Memory Hierarchy — Operations",
         "paragraphs": [
-          "Extended treatment of NUMA & Memory Hierarchy: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating NUMA & Memory Hierarchy in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "NUMA & Memory Hierarchy — Failure modes",
+        "paragraphs": [
+          "Common failures around NUMA & Memory Hierarchy include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "NUMA & Memory Hierarchy — Expert Notes",
+        "title": "NUMA & Memory Hierarchy — Expert notes",
         "paragraphs": [
-          "Expert considerations for NUMA & Memory Hierarchy: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, NUMA & Memory Hierarchy intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "NUMA & Memory Hierarchy: core idea"
+    "Local vs remote memory",
+    "First-touch allocation",
+    "CPU pinning",
+    "Cache line false sharing"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Measure before pinning blindly",
+    "Colocate IRQ, thread, and memory",
+    "Watch for cross-node bandwidth saturation"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Assuming all RAM is equal",
+    "Over-pinning without measuring",
+    "Ignoring NIC/GPU locality"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "DPDK apps",
+      "description": "Per-NUMA queues and memory pools."
+    }
+  ],
   "keyTakeaways": [
-    "NUMA & Memory Hierarchy belongs in the curriculum as evergreen content"
+    "Memory locality is a first-class design input on multi-socket hosts",
+    "Pinning + first-touch are the basic tools"
   ],
-  "whyItMatters": "Understanding NUMA & Memory Hierarchy improves design judgment for production systems.",
+  "whyItMatters": "Low-latency and high-throughput systems often lose more to NUMA than to algorithm choice.",
   "reflectionQuestions": [
-    "When would you reach for NUMA & Memory Hierarchy in a real design?"
+    "Is your deployment single-socket or multi-socket in production?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "os-numa-overview",
       "title": "NUMA & Memory Hierarchy overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain NUMA & Memory Hierarchy and the main trade-offs in 3 minutes."
+    "Explain NUMA & Memory Hierarchy and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on NUMA & Memory Hierarchy; list 3 trade-offs."
+    "Sketch a design that depends on NUMA & Memory Hierarchy; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
+    "os-cgroups",
     "os-io-sync",
-    "os-memory",
-    "os-processes-threads"
+    "os-memory"
   ]
 }

@@ -1,0 +1,265 @@
+{
+  "id": "net-nat-firewall",
+  "title": "NAT, Firewalls & Hole Punching",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 38,
+  "summary": "Network Address Translation (NAT) allows organizations and ISPs to share IPv4 addresses among many devices, but it creates asymmetric reachability that complicates peer-to-peer and inbound connection patterns. Firewalls enforce access control policies at network and application layers. Hole punching techniques—used by WebRTC, gaming platforms, and VPN systems—allow two clients behind NAT to establish direct connections despite neither having a public IP. Understanding these mechanisms is essential for designing VPNs, P2P systems, real-time communication, and cloud network topologies.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": ["net-tcp-ip", "net-tcp-udp"],
+  "tags": ["networking", "nat", "firewall", "webrtc", "hole-punching", "vpn", "foundations"],
+  "sections": [
+    {
+      "title": "How NAT Works",
+      "paragraphs": [
+        "Network Address Translation solves IPv4 exhaustion by allowing many devices with private IP addresses (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) to share a single public IP. When a private device sends a packet to the internet, the NAT device (router, gateway) replaces the source IP:port with its own public IP:port and records the mapping. When the response arrives, the NAT device reverse-translates the destination IP:port to the original private device. This mapping is called a NAT translation entry.",
+        "NAPT (Network Address Port Translation) is the specific form of NAT used by home routers and cloud NAT gateways—it uses different source ports to disambiguate multiple devices sharing one IP. The NAT table entry maps (public IP, public port) → (private IP, private port) for each active connection. The entry is created when the first packet leaves, and remains active while traffic flows. After an idle timeout (typically 30s for UDP, 300s for TCP), the entry is deleted. If a response arrives after the timeout, it is dropped—the connection silently breaks.",
+        "NAT types differ in how permissively they allow inbound traffic. Full Cone NAT: once a port mapping exists, any external host can send packets to the mapped port. Restricted Cone: only hosts the internal device has previously sent to. Port-Restricted Cone: only the specific host:port the internal device sent to. Symmetric NAT: allocates a different external port for each (destination IP, destination port) pair—the external port is unpredictable and cannot be reused by other hosts. Symmetric NAT is the most common type in carrier-grade NAT (CGNAT) and corporate networks, and the hardest for P2P connectivity.",
+        "Carrier-Grade NAT (CGNAT, RFC 6598) adds another NAT layer: ISPs use 100.64.0.0/10 as a shared address space between customer CPE and the CGNAT device, translating to public IPs at the ISP level. A user behind CGNAT has two layers of NAT: home router and ISP CGNAT. This creates double-NAT, where both NAT devices have their own translation tables. P2P connectivity through double-NAT is essentially impossible without relay infrastructure."
+      ],
+      "bullets": [
+        "NAT table entry: (public IP, public port) → (private IP, private port); created on first outbound packet",
+        "UDP NAT timeout: typically 30s; TCP NAT timeout: 300–900s; keep-alives essential for long-lived UDP sessions",
+        "CGNAT (100.64.0.0/10): ISP-level NAT; common on mobile networks and in IPv4-scarce regions"
+      ]
+    },
+    {
+      "title": "Firewall Fundamentals and Stateful Inspection",
+      "paragraphs": [
+        "A firewall is a policy enforcement point that permits or denies network traffic based on rules. Packet-filter firewalls (iptables, ipfw, nftables) match individual packets against ACL rules: (src IP, dst IP, protocol, src port, dst port, interface) → accept/drop/reject. Rules are evaluated top-to-bottom; the first match wins. Packet filters are fast—O(n) rule evaluation, cached in hash tables for common rules—but stateless: they cannot distinguish a reply packet from an unsolicited inbound packet without additional work.",
+        "Stateful inspection firewalls track connection state. For TCP, the firewall tracks the handshake: the first SYN is matched against inbound rules; if accepted, the firewall creates a state table entry for the 4-tuple. Subsequent packets in the same connection match the state entry and bypass ACL rule evaluation. This allows the firewall to 'allow established connections' without an explicit rule for each direction. For UDP, stateful tracking uses a timer: a UDP datagram matching an outbound rule creates an entry; responses from the same (src IP, src port) are allowed for the timer duration.",
+        "Security groups and VPC network ACLs (AWS), network security groups (Azure), and firewall rules (GCP) are cloud implementations of these principles. Security groups are stateful (a response to an allowed outbound request is automatically allowed inbound). Network ACLs are stateless (you must explicitly allow both directions). The architectural implication: for internet-facing services, security groups are simpler; for defense-in-depth with explicit bidirectional control, network ACLs add a second layer.",
+        "Application-layer firewalls (WAFs—Web Application Firewalls, proxies) inspect the payload content. A WAF parses HTTP requests and can block based on URI patterns, headers, body content, or request rate. AWS WAF, Cloudflare WAF, and ModSecurity implement rules (OWASP Core Rule Set) detecting SQL injection, XSS, path traversal, and other application attacks. L7 inspection requires TLS termination at the firewall, which is why WAFs are always deployed as inline proxies, not transparent network devices."
+      ],
+      "bullets": [
+        "nftables: modern Linux firewall; replaces iptables; faster rule evaluation with set-based matching",
+        "Security group vs NACL: SG is stateful (implicit return traffic); NACL is stateless (explicit both directions)",
+        "WAF OWASP CRS: open-source ruleset detecting common web attacks; deployed on Nginx, Apache, Cloudflare"
+      ]
+    },
+    {
+      "title": "UDP Hole Punching",
+      "paragraphs": [
+        "UDP hole punching enables two peers behind NAT to establish direct UDP communication without a relay. The technique exploits how most NAT devices create entries: when device A sends a UDP packet to any external address, the NAT creates a port mapping for A. If B sends a packet to that mapping before the NAT timeout, the NAT lets it through—even though B wasn't the original destination. By coordinating through a signaling server, both peers can open their NAT mappings to each other simultaneously.",
+        "The hole punching process: (1) Both peers A and B connect to a STUN server via UDP. The STUN server observes their public IP:port (the NAT-translated address) and returns it to each peer. (2) The signaling server exchanges these public addresses between A and B. (3) Both A and B simultaneously send UDP packets to each other's public address. A's NAT creates an entry allowing traffic from B; B's NAT creates an entry allowing traffic from A. (4) The packets arrive (or don't, if timing is off), but the NAT entries are now open. Subsequent packets flow bidirectionally.",
+        "STUN (Session Traversal Utilities for NAT, RFC 5389) is the protocol used for NAT discovery. STUN servers are lightweight—they just echo back the client's observed public address and port. The difference between the client's local IP:port and the STUN-observed IP:port reveals the NAT translation. STUN also reveals NAT type by sending requests to multiple server addresses and observing whether the same public port is used (cone NAT) or different ports (symmetric NAT).",
+        "Hole punching fails with symmetric NAT because each destination gets a different source port. If A's public port when talking to the STUN server is 54000, and A's public port when talking to B is 54001 (different for each destination), B cannot know to send to 54001—it only learned 54000 from the STUN server. In this case, direct connection is impossible, and traffic must relay through a TURN server."
+      ],
+      "bullets": [
+        "STUN: discovers public IP:port; lightweight UDP request/response; Google's public STUN: stun.l.google.com:19302",
+        "Hole punching success rate: ~80% for full/restricted/port-restricted cone; ~0% for symmetric NAT",
+        "Timing matters: both peers must send 'simultaneously'; coordinate via signaling channel (WebSocket, HTTP)"
+      ]
+    },
+    {
+      "title": "TURN Relay and ICE Framework",
+      "paragraphs": [
+        "TURN (Traversal Using Relays around NAT, RFC 8656) is the fallback when hole punching fails. A TURN server relays UDP (or TCP) packets between peers through its public IP. Both peers connect to the TURN server; the server forwards packets between them. This always works but adds latency (extra hop), costs bandwidth (TURN server transmits every byte twice), and requires infrastructure. For WebRTC video calls, TURN servers are the expensive fallback: good ICE implementations keep TURN usage below 15–20% of calls.",
+        "ICE (Interactive Connectivity Establishment, RFC 8445) is the framework that orchestrates STUN discovery, hole punching, and TURN fallback. ICE collects 'candidates'—potential ways the peer can be reached—from three sources: host candidates (local IP:port), server-reflexive candidates (STUN-discovered public IP:port), and relay candidates (TURN-allocated address). ICE exchanges all candidates between peers via the signaling channel (SDP offer/answer in WebRTC), then systematically tries each candidate pair in priority order: host pairs first (fastest if on the same LAN), server-reflexive next (direct internet path), relay last.",
+        "ICE nomination: once ICE finds a working candidate pair, it nominates it. If the best candidate pair found is a relay pair (TURN), the peers can keep trying higher-priority pairs in the background and promote the best one that works—this is ICE trickle, standardized for WebRTC. The ICE agent handles keepalives (STUN BINDING requests every 15s) on nominated pairs to prevent NAT timeout from expiring the mapping during active calls."
+      ],
+      "bullets": [
+        "ICE candidate priority: host (127.x.x.x) > server-reflexive (100.x.x.x) > relay (0.x.x.x) in priority formula",
+        "TURN usage: aim for <20% of WebRTC calls to relay; monitor with client-side ICE candidate type metrics",
+        "ICE restarts: re-negotiate candidates on network change (mobile to Wi-Fi); ICE restart re-runs full candidate discovery"
+      ]
+    },
+    {
+      "title": "VPNs, Cloud NAT, and Modern NAT Traversal",
+      "paragraphs": [
+        "VPNs create encrypted tunnels that bypass NAT by encapsulating traffic in a protocol the VPN server can receive. IPSec/IKEv2, WireGuard, and OpenVPN all use UDP as the transport (or TCP as a fallback). WireGuard uses UDP port 51820; it performs its own NAT traversal by sending keepalive packets every 25 seconds (configurable via PersistentKeepalive) to maintain the NAT mapping in intermediate routers. Without keepalives, a WireGuard peer behind NAT loses connectivity after NAT timeout.",
+        "Cloud NAT gateways (AWS NAT Gateway, GCP Cloud NAT) provide managed outbound NAT for private subnet instances. Each gateway has a fixed number of ports per IP address (~55,000). At high connection rates, connections that exceed per-destination port limits are rejected—a silent failure. AWS NAT Gateway documents a limit of 55,000 simultaneous connections to the same destination IP:port. For services with many containers all calling the same external endpoint through NAT, this limit is surprisingly easy to hit. Mitigation: use multiple NAT Gateway IPs, or establish direct peering to avoid NAT for high-volume destinations.",
+        "IPv6 eliminates NAT for public addresses—every device gets a globally unique address. But IPv6 doesn't eliminate firewalls. The equivalent of NAT's implicit firewall protection is an explicit IPv6 firewall policy: by default, block all inbound connections to private hosts. IPv6 Privacy Extensions (RFC 4941) generate random temporary addresses for outbound connections, preventing tracking by destination servers. NAT64 and DNS64 allow IPv6-only hosts to reach IPv4-only servers by translating IPv6 packets to IPv4 at a gateway."
+      ],
+      "bullets": [
+        "WireGuard PersistentKeepalive: send keepalive every 25s; prevents NAT table expiry for persistent tunnels",
+        "AWS NAT Gateway limits: 55k connections per destination IP:port; monitor cloudwatch metric ActiveConnectionCount",
+        "IPv6 privacy extensions: rotates source address every few hours; reduces cross-site tracking correlation"
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "NAT Fundamentals",
+        "paragraphs": [
+          "NAPT translates (private IP, port) → (public IP, port) for outbound connections. The mapping persists until idle timeout: 30s for UDP, 300s for TCP.",
+          "NAT types range from Full Cone (permissive) to Symmetric (strict). Symmetric NAT assigns different ports per destination, breaking hole punching.",
+          "CGNAT (carrier-grade NAT) adds a second NAT layer at ISP level. Double-NAT is effectively impenetrable to P2P without TURN relay."
+        ],
+        "bullets": [
+          "RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 — private ranges, not internet-routable",
+          "RFC 6598: 100.64.0.0/10 — CGNAT shared address space",
+          "NAT hairpinning: internal host reaching itself via public IP; requires router support"
+        ]
+      },
+      {
+        "title": "Firewall Types",
+        "paragraphs": [
+          "Packet-filter firewalls match ACL rules per packet (iptables, nftables). Stateful firewalls track connection state to allow return traffic without explicit rules.",
+          "Cloud security groups are stateful; network ACLs are stateless. Use security groups for typical allow/deny; ACLs for defense-in-depth bidirectional control.",
+          "WAFs inspect application payload (HTTP, TLS-terminated) and enforce OWASP CRS rules against SQLi, XSS, and path traversal."
+        ],
+        "bullets": [
+          "iptables ESTABLISHED,RELATED: allow return traffic for tracked connections",
+          "Security group rules: permit/deny by CIDR, port, protocol; stateful response traffic automatic",
+          "WAF false positive rate: tune CRS paranoia level (1–4); higher = more rules but more legitimate requests blocked"
+        ]
+      },
+      {
+        "title": "Hole Punching and ICE",
+        "paragraphs": [
+          "UDP hole punching: both peers send to each other's STUN-discovered public address simultaneously, opening NAT mappings bidirectionally.",
+          "ICE collects host, server-reflexive, and relay candidates; tries pairs in priority order; nominates best working pair.",
+          "TURN relays all traffic through its public IP as the universal fallback; aim for <20% relay usage in WebRTC."
+        ],
+        "bullets": [
+          "STUN: lightweight server that echoes observed public IP:port back to client",
+          "ICE trickle: stream candidates as discovered; don't wait for full gathering before signaling",
+          "TURN authentication: required; unprotected TURN servers are abused for free bandwidth relay"
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "WebRTC NAT Traversal in Production",
+        "paragraphs": [
+          "A WebRTC call between two browsers collects candidates from multiple interfaces (Wi-Fi, cellular), one or more STUN servers, and optional TURN servers. Modern browsers gather all candidates within 1–2 seconds. Candidate exchange happens via the signaling channel (WebSocket to your backend), which then needs to deliver the SDP with ICE candidates to the other peer. The bottleneck is usually signaling latency, not ICE itself—a delayed SDP offer/answer adds directly to call setup time.",
+          "TURN server capacity planning: a TURN relay carries all media for a call when direct connectivity fails. At 500 Kbps per video call, a single TURN server handles 2,000 calls per Gbps of bandwidth. For a service with 10,000 concurrent calls and 20% using TURN: 2,000 TURN calls × 500 Kbps = 1 Gbps TURN bandwidth. Cloud TURN servers are elastic but expensive—bandwidth costs dominate. Use Coturn as the open-source TURN server; configure credential rotation and rate limits to prevent abuse.",
+          "ICE candidate filtering improves setup latency by removing low-value candidates before exchange. Filtering IPv6 candidates if IPv4 coverage is complete, removing loopback candidates, and de-prioritizing relay candidates reduces the ICE candidate pair matrix size, speeding up connectivity checks. Browser MediaDevices.getUserMedia() with RTCPeerConnection implements the ICE state machine; monitor iceconnectionstatechange events to detect failures and trigger ICE restarts."
+        ],
+        "bullets": [
+          "Coturn: open-source TURN/STUN server; supports TURN over TCP (port 443) for firewall traversal",
+          "TURN over TLS/TCP port 443: last resort for environments blocking UDP entirely",
+          "ICE restart: RTCPeerConnection.restartIce() triggers new candidate gathering after network change"
+        ]
+      },
+      {
+        "title": "Firewall Troubleshooting and Bypass Patterns",
+        "paragraphs": [
+          "Silent drops vs RST/ICMP unreachable: firewalls configured to drop silently cause connection hangs (SYN retransmit for 60–120s before timeout); firewalls configured to RST cause immediate failure. From a user experience standpoint, RST is better—fast failure allows faster fallback. From a security standpoint, RST reveals firewall presence; drop conceals it. Modern corporate firewalls and WAFs typically drop silently. Design client retry logic to fail fast (1–2s timeout on connection) rather than waiting for TCP retransmit to exhaust.",
+          "PMTUD (Path MTU Discovery) failures are a classic firewall misconfiguration. TCP uses PMTUD to discover the smallest MTU on the path. PMTUD works by sending packets with DF (Don't Fragment) set; if the packet exceeds the path MTU, the router sends back ICMP Type 3 Code 4 (Fragmentation Needed). If the firewall blocks ICMP, PMTUD fails silently: connections hang after the handshake because large data packets are dropped without notification. Fix: allow ICMP Type 3 (unreachable) and Type 11 (time exceeded) through firewalls even in restrictive policies.",
+          "QUIC through firewalls: many enterprise firewalls block UDP on non-DNS, non-NTP ports. QUIC uses UDP 443; some firewalls allow port 443 TCP but block 443 UDP. This is why all QUIC implementations fall back to TCP/TLS automatically. Cloudflare's data shows ~5% of clients cannot use QUIC due to UDP blocking. QUIC over port 443 TCP is in development (QUIC over TCP, or MASQUE tunneling) for these environments."
+        ],
+        "bullets": [
+          "PMTUD: requires ICMP Type 3 Code 4 through firewalls; blocking it causes TCP black hole",
+          "TCP MSS clamping: proxy or firewall can clamp MSS in SYN to 1452 (1500 MTU - IP - TCP headers - safety margin)",
+          "Network diagnostic: use 'ping -M do -s 1472' to test PMTUD; packet loss at large sizes indicates MTU issue"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "NAT at Scale and Future of NAT Traversal",
+        "paragraphs": [
+          "At hyperscale, NAT table capacity is a first-class concern. A cloud NAT gateway handling 10 million concurrent connections must maintain 10M translation entries in DRAM. Each NAT entry is ~40–80 bytes; 10M entries = 400–800 MB. The NAT hardware or software must perform O(1) lookup per packet—hash tables indexed by (public IP, public port) on inbound, (private IP, private port) on outbound. At 100 Gbps with 1500-byte packets = 8.3 Mpps, the NAT table must sustain 8.3M lookups/second per direction. At this scale, NAT is implemented in ASIC (hardware) or eBPF/XDP (software) to avoid kernel overhead.",
+          "WireGuard's peer-to-peer approach represents a different philosophy: instead of accepting NAT as a constraint, WireGuard's roaming support assumes peers can send from any IP:port, and identifies peers by their public key rather than their address. When a packet arrives from a new address signed by a known public key, WireGuard updates the peer's endpoint—instant migration, no reconnect. This works through NAT because WireGuard uses keepalives to maintain the NAT mapping, and the mapping identifies the peer by consistent behavior rather than identity.",
+          "MASQUE (Multiplexed Application Substrate over QUIC Encryption) is an IETF protocol for general-purpose UDP/IP proxying over QUIC. It allows clients behind restrictive firewalls to tunnel arbitrary UDP or IP traffic through a MASQUE proxy on port 443. This is the successor to HTTP CONNECT for TCP tunneling, generalized to UDP. Apple's iCloud Private Relay and Cloudflare's privacy proxy use MASQUE variants. As UDP blocking remains common in enterprise, MASQUE provides the protocol-level infrastructure for firewall traversal without requiring host-based VPN clients."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "NAPT: translates (private IP, port) → (public IP, port); creates NAT table entries on first outbound packet",
+    "NAT types: Full Cone, Restricted Cone, Port-Restricted Cone, Symmetric; type determines hole punching success",
+    "CGNAT: ISP-level NAT using 100.64.0.0/10; creates double-NAT that blocks P2P without TURN relay",
+    "Stateful firewall: tracks connection state; allows return traffic without explicit rules; standard in cloud security groups",
+    "STUN: server that echoes client's observed public IP:port; enables NAT type detection",
+    "UDP hole punching: peers simultaneously send to each other's public addresses to open NAT mappings bidirectionally",
+    "ICE: framework collecting host, server-reflexive, and relay candidates; tries pairs in priority order",
+    "TURN: relay server that forwards media when direct connection fails; fallback when hole punching fails",
+    "PMTUD black hole: firewall blocking ICMP unreachable prevents path MTU discovery; large TCP packets silently drop",
+    "WireGuard roaming: identifies peers by public key, not IP:port; handles NAT migration transparently with keepalives"
+  ],
+  "practices": [
+    "Configure NAT keepalives for all UDP protocols that must stay connected through NAT (WireGuard PersistentKeepalive, QUIC keepalives)",
+    "Allow ICMP Type 3 (Destination Unreachable) through all firewalls; blocking it causes PMTUD black holes",
+    "Monitor cloud NAT gateway connection count per destination; near-limit behavior causes silent connection failures",
+    "Deploy STUN and TURN for any application requiring P2P connectivity; never assume direct connections work through CGNAT",
+    "Use stateful security groups for most traffic; add stateless network ACLs only where explicit bidirectional control is needed",
+    "Test firewall rules by trying connections from outside the network; do not rely solely on 'allow' rules to infer actual reachability"
+  ],
+  "pitfalls": [
+    "Assuming all users have Full Cone or Restricted Cone NAT; Symmetric NAT from CGNAT/corporate networks is common and breaks hole punching",
+    "Not implementing TURN fallback in P2P or WebRTC applications; ~20–40% of connections fail without relay",
+    "Blocking ICMP at the firewall 'for security'; blocking ICMP Type 3 Code 4 causes TCP PMTUD black holes for large packets",
+    "Relying on NAT as a security mechanism; NAT provides no authentication—any packet that matches a NAT entry is forwarded",
+    "Not accounting for cloud NAT gateway port limits; 55k connections per destination IP:port is easy to exceed with containerized services",
+    "Silent-drop firewalls with long TCP retransmit timeouts; design clients with explicit short connection timeouts"
+  ],
+  "examples": [
+    {
+      "title": "WebRTC Video Call ICE Negotiation",
+      "description": "A video calling app collects ICE candidates from both peers. Peer A is on a home router (port-restricted cone NAT); Peer B is on a corporate network (symmetric NAT). ICE tries direct hole punching—it fails for symmetric NAT. ICE falls back to TURN relay via the application's TURN server. The call connects within 2 seconds with ~15ms additional latency through TURN. The app monitors ICE candidate type (relay) and logs it; relay usage stays at 22% of calls, within budget."
+    },
+    {
+      "title": "AWS NAT Gateway Port Exhaustion",
+      "description": "A financial services company ran 500 containers in a private subnet, all calling the same third-party API (fixed IP). Through the shared NAT Gateway, each container maintained 200 persistent connections—100,000 total to the same destination IP:port. AWS NAT Gateway's 55k per-destination limit was exceeded; new connections silently failed. Resolution: distributed NAT Gateway allocation across multiple IPs, reduced idle connection keep-alive in connection pools, and negotiated a dedicated API endpoint with separate IP."
+    },
+    {
+      "title": "WireGuard Behind CGNAT",
+      "description": "A remote employee on a mobile tether (CGNAT) uses WireGuard VPN. Without PersistentKeepalive, the CGNAT NAT entry expires after 30 seconds of idle time, breaking the VPN tunnel silently. With PersistentKeepalive=25 set on the peer config, WireGuard sends a keepalive packet every 25 seconds, maintaining the CGNAT entry and providing uninterrupted connectivity. The tradeoff: 25-second interval adds ~40 bytes/second of continuous overhead per tunnel."
+    }
+  ],
+  "keyTakeaways": [
+    "NAT provides implicit outbound-only firewall behavior; inbound connections require explicit port forwarding or hole punching",
+    "NAT type (symmetric vs cone) determines whether direct P2P connection is possible; CGNAT with symmetric NAT requires TURN relay",
+    "ICE (STUN + hole punching + TURN fallback) is the standard solution for NAT traversal in real-time communication",
+    "Blocking ICMP at firewalls is a common misconfiguration that causes TCP PMTUD black holes for large packets",
+    "Cloud NAT gateways have per-destination connection limits that production containerized services can easily exhaust",
+    "WireGuard's keepalive mechanism and peer-key identity model make it unusually resilient to NAT and IP changes"
+  ],
+  "whyItMatters": "NAT and firewalls define the boundary conditions for every network connection your services make or receive. Cloud VPCs, remote access VPNs, real-time communication features, and even internal microservice connectivity are all shaped by NAT behavior and firewall rules. Engineers who understand NAT types, hole punching, and ICMP filtering can diagnose mysterious connection failures, design P2P systems that actually work in the real internet, and avoid the silent failure modes that plague systems deployed without testing through real-world network conditions.",
+  "reflectionQuestions": [
+    "Your WebRTC video calling app works fine in the office but fails to connect for 40% of users on mobile. Walk through the investigation and the architecture changes needed.",
+    "Design a VPN solution for 10,000 remote employees that works through CGNAT, corporate symmetric NAT, and strict firewalls that block UDP. What protocols and fallback strategies would you use?",
+    "Explain why blocking ICMP at a firewall 'for security' is usually counterproductive. What specific ICMP types are safe to block and which must be allowed for TCP to work correctly?"
+  ],
+  "numbersToKnow": [
+    "30 seconds: typical UDP NAT entry timeout; use keepalives shorter than this for persistent UDP sessions",
+    "55,000: AWS NAT Gateway connections per destination IP:port before silent failure",
+    "~80%: UDP hole punching success rate (Full/Restricted/Port-Restricted cone NAT)",
+    "<20%: target TURN relay usage for WebRTC calls; above this indicates systemic NAT traversal issues",
+    "100.64.0.0/10: RFC 6598 CGNAT shared address space at ISP level"
+  ],
+  "diagrams": [
+    {
+      "id": "net-nat-hole-punch",
+      "title": "UDP Hole Punching via STUN",
+      "mermaid": "sequenceDiagram\n  participant A as Peer A - private 10.0.0.1:5000\n  participant STUN as STUN Server\n  participant Sig as Signaling Server\n  participant B as Peer B - private 192.168.1.1:6000\n  A->>STUN: BINDING Request\n  STUN->>A: Observed: 1.2.3.4:5100\n  B->>STUN: BINDING Request\n  STUN->>B: Observed: 5.6.7.8:6200\n  A->>Sig: My public address: 1.2.3.4:5100\n  B->>Sig: My public address: 5.6.7.8:6200\n  Sig->>A: B is at 5.6.7.8:6200\n  Sig->>B: A is at 1.2.3.4:5100\n  A->>B: UDP to 5.6.7.8:6200 - opens NAT entry\n  B->>A: UDP to 1.2.3.4:5100 - opens NAT entry\n  note over A,B: Direct UDP connection established"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain what happens at the network level when a client behind home router NAT connects to a server. What creates and maintains the NAT mapping, and what happens when it expires?",
+    "Two clients are both behind symmetric NAT. Can they establish a direct UDP connection? Why or why not? What infrastructure is needed as a fallback?",
+    "Design the STUN/TURN infrastructure for a WebRTC video platform expecting 100,000 concurrent calls, with 20% requiring TURN relay. How much bandwidth does the TURN tier need, and how would you scale it?"
+  ],
+  "exercises": [
+    "Use STUN to discover your public IP from behind a home router. Use stunclient or a custom UDP client to query stun.l.google.com:19302. Verify the returned IP matches your public IP from ifconfig.me. If behind CGNAT, observe that the STUN-returned IP differs from both your local and your router's WAN IP.",
+    "Configure a WireGuard tunnel between two machines where one is behind NAT. Observe that it connects. Then remove PersistentKeepalive and wait 60 seconds of idle time. Verify the tunnel breaks. Re-add PersistentKeepalive=25 and confirm it stays up indefinitely."
+  ],
+  "sources": [
+    {
+      "title": "RFC 5389 — STUN: Session Traversal Utilities for NAT",
+      "url": "https://datatracker.ietf.org/doc/html/rfc5389"
+    },
+    {
+      "title": "RFC 8445 — Interactive Connectivity Establishment (ICE)",
+      "url": "https://datatracker.ietf.org/doc/html/rfc8445"
+    },
+    {
+      "title": "WebRTC for the Curious (book, free online)",
+      "url": "https://webrtcforthecurious.com/"
+    },
+    {
+      "title": "RFC 6598 — IANA-Reserved IPv4 Prefix for Shared Address Space (CGNAT)",
+      "url": "https://datatracker.ietf.org/doc/html/rfc6598"
+    }
+  ],
+  "relatedLessons": ["net-tcp-ip", "net-tcp-udp", "net-bgp-anycast", "net-lb-proxy"]
+}

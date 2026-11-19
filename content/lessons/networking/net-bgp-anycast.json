@@ -3,14 +3,16 @@
   "title": "BGP & Anycast",
   "moduleId": "networking",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "BGP & Anycast — draft awaiting generation and review.",
+  "durationMinutes": 40,
+  "summary": "BGP is how autonomous systems exchange reachability. Anycast announces the same prefix from many locations so users hit a nearby PoP. Together they power CDNs, DNS, and DDoS absorption — and create failure modes that look like 'random' routing flaps.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [],
+  "prerequisites": [
+    "net-tcp-ip"
+  ],
   "tags": [
     "networking",
     "evergreen",
@@ -18,82 +20,159 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Autonomous systems and BGP basics",
       "paragraphs": [
-        "This draft covers BGP & Anycast. Run content:generate to expand it with a model provider, or edit manually."
+        "The internet is a network of Autonomous Systems (AS). BGP advertises prefixes with AS paths. Policy — not pure shortest path — decides what you accept and export. That policy surface is why a single misconfiguration can blackhole traffic globally.",
+        "iBGP distributes routes inside an AS; eBGP speaks between ASes. Route reflectors and confederations scale iBGP. Attributes like LOCAL_PREF, MED, and AS path length influence selection.",
+        "For system designers, BGP matters when you run multi-homed services, anycast edges, or need to understand why traffic suddenly shifts regions."
+      ]
+    },
+    {
+      "title": "Anycast as a design tool",
+      "paragraphs": [
+        "Anycast means many servers advertise the same IP prefix. Routers deliver packets to the 'nearest' announcement by routing metrics. DNS resolvers and CDN edges use this so clients land on a nearby PoP without an application-level directory.",
+        "Anycast is great for request/response UDP/TCP services that tolerate connection resets on route change. It is a poor fit for long-lived connections that must pin to one backend unless you terminate quickly at the PoP.",
+        "Health withdrawal is critical: if a PoP is sick but still announces, it becomes a blackhole. Couple BGP announcements with health-checked control planes."
+      ]
+    },
+    {
+      "title": "Failures and operational controls",
+      "paragraphs": [
+        "Route leaks, hijacks, and RPKI invalid announcements are real. Monitoring control-plane (BMP, looking glasses) matters as much as data-plane latency.",
+        "Traffic engineering uses prepends, communities, and selective announcements. Overuse creates brittle topologies that break during maintenance."
+      ]
+    },
+    {
+      "title": "Design implications",
+      "paragraphs": [
+        "When designing a global API, decide whether geo-DNS, anycast, or client-side region selection owns steering. Mixing all three without a clear source of truth causes oscillation.",
+        "State replication must match steering: if users flip PoPs, sticky server state will orphan sessions unless state is global or PoP-local with sticky routing."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Autonomous systems and BGP basics",
         "paragraphs": [
-          "This draft covers BGP & Anycast. Run content:generate to expand it with a model provider, or edit manually."
+          "The internet is a network of Autonomous Systems (AS). BGP advertises prefixes with AS paths. Policy — not pure shortest path — decides what you accept and export. That policy surface is why a single misconfiguration can blackhole traffic globally.",
+          "iBGP distributes routes inside an AS; eBGP speaks between ASes. Route reflectors and confederations scale iBGP. Attributes like LOCAL_PREF, MED, and AS path length influence selection.",
+          "For system designers, BGP matters when you run multi-homed services, anycast edges, or need to understand why traffic suddenly shifts regions."
+        ]
+      },
+      {
+        "title": "Anycast as a design tool",
+        "paragraphs": [
+          "Anycast means many servers advertise the same IP prefix. Routers deliver packets to the 'nearest' announcement by routing metrics. DNS resolvers and CDN edges use this so clients land on a nearby PoP without an application-level directory.",
+          "Anycast is great for request/response UDP/TCP services that tolerate connection resets on route change. It is a poor fit for long-lived connections that must pin to one backend unless you terminate quickly at the PoP.",
+          "Health withdrawal is critical: if a PoP is sick but still announces, it becomes a blackhole. Couple BGP announcements with health-checked control planes."
+        ]
+      },
+      {
+        "title": "Failures and operational controls",
+        "paragraphs": [
+          "Route leaks, hijacks, and RPKI invalid announcements are real. Monitoring control-plane (BMP, looking glasses) matters as much as data-plane latency.",
+          "Traffic engineering uses prepends, communities, and selective announcements. Overuse creates brittle topologies that break during maintenance."
+        ]
+      },
+      {
+        "title": "Design implications",
+        "paragraphs": [
+          "When designing a global API, decide whether geo-DNS, anycast, or client-side region selection owns steering. Mixing all three without a clear source of truth causes oscillation.",
+          "State replication must match steering: if users flip PoPs, sticky server state will orphan sessions unless state is global or PoP-local with sticky routing."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "BGP & Anycast — Deep Dive",
+        "title": "BGP & Anycast — Operations",
         "paragraphs": [
-          "Extended treatment of BGP & Anycast: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating BGP & Anycast in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "BGP & Anycast — Failure modes",
+        "paragraphs": [
+          "Common failures around BGP & Anycast include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "BGP & Anycast — Expert Notes",
+        "title": "BGP & Anycast — Expert notes",
         "paragraphs": [
-          "Expert considerations for BGP & Anycast: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, BGP & Anycast intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "BGP & Anycast: core idea"
+    "AS, eBGP, iBGP",
+    "Prefix announcement and withdrawal",
+    "Anycast vs unicast vs multicast",
+    "RPKI / route origin validation",
+    "PoP health coupled to routing"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Withdraw anycast on PoP health failure quickly",
+    "Monitor control plane and data plane separately",
+    "Prefer simple steering policies you can explain in an incident"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Anycast + sticky in-memory sessions",
+    "Announcing sick origins",
+    "Assuming BGP converges instantly worldwide"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Root DNS / public resolvers",
+      "description": "Anycast for availability and latency."
+    },
+    {
+      "title": "CDN edges",
+      "description": "Anycast VIP in front of regional caches."
+    }
+  ],
   "keyTakeaways": [
-    "BGP & Anycast belongs in the curriculum as evergreen content"
+    "BGP is policy-driven reachability between ASes",
+    "Anycast steers users to nearby healthy announcements",
+    "Steering and state placement must be designed together"
   ],
-  "whyItMatters": "Understanding BGP & Anycast improves design judgment for production systems.",
+  "whyItMatters": "Global systems fail in routing-shaped ways. If you cannot reason about BGP and anycast, you cannot design multi-region edges safely.",
   "reflectionQuestions": [
-    "When would you reach for BGP & Anycast in a real design?"
+    "When would you prefer geo-DNS over anycast?",
+    "What happens to TCP connections when anycast routes shift mid-flow?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "BGP convergence: seconds to minutes depending on failure",
+    "Anycast: best for short connections / edge termination"
   ],
   "diagrams": [
     {
       "id": "net-bgp-anycast-overview",
-      "title": "BGP & Anycast overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "title": "Anycast announcement",
+      "mermaid": "flowchart LR\n  User --> ISP\n  ISP --> PoP_A\n  ISP --> PoP_B\n  PoP_A --> Origin\n  PoP_B --> Origin"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain BGP & Anycast and the main trade-offs in 3 minutes."
+    "Explain BGP & Anycast and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on BGP & Anycast; list 3 trade-offs."
+    "Sketch a design that depends on BGP & Anycast; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
+    "net-congestion",
     "net-http",
-    "net-kernel",
-    "net-lb-proxy"
+    "net-kernel"
   ]
 }

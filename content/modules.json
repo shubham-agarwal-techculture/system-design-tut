@@ -96,6 +96,13 @@
     "order": 9
   },
   {
+    "id": "edge-delivery",
+    "phaseId": "fundamentals",
+    "title": "Edge & Delivery",
+    "description": "Edge & Delivery",
+    "order": 10
+  },
+  {
     "id": "architecture-patterns",
     "phaseId": "architecture",
     "title": "Architecture Patterns",
@@ -108,6 +115,13 @@
     "title": "Infrastructure & Ops",
     "description": "Containers, orchestration, CI/CD, and observability.",
     "order": 1
+  },
+  {
+    "id": "data-platform",
+    "phaseId": "infrastructure",
+    "title": "Data Platforms",
+    "description": "Data Platforms",
+    "order": 2
   },
   {
     "id": "software-patterns",

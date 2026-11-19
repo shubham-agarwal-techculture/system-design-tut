@@ -1,0 +1,266 @@
+{
+  "id": "net-congestion",
+  "title": "TCP Congestion Control & BBR",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 40,
+  "summary": "TCP congestion control governs how senders probe for available bandwidth while protecting the shared network from collapse. The classic algorithms—Reno, Cubic—react to packet loss as a congestion signal, which causes poor performance on modern high-bandwidth-delay-product and lossy wireless paths. BBR (Bottleneck Bandwidth and Round-trip time) replaces loss-based reaction with a model of the network's current state, achieving dramatically higher throughput on long-haul paths and better latency on bufferbloated networks. Understanding these mechanisms explains much of the latency and throughput behavior engineers observe in production.",
+  "kind": "evergreen",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": ["net-tcp-udp", "net-tcp-ip"],
+  "tags": ["networking", "tcp", "congestion-control", "bbr", "performance", "foundations"],
+  "sections": [
+    {
+      "title": "Why Congestion Control Exists",
+      "paragraphs": [
+        "In 1986, the early internet experienced its first congestion collapse. Due to positive feedback loops—retransmissions increasing load further increasing loss further increasing retransmissions—throughput dropped by a factor of 1000 on affected paths. Van Jacobson's 1988 paper 'Congestion Avoidance and Control' introduced slow start and congestion avoidance to TCP, algorithms that remain at the core of TCP today. The fundamental insight: senders must self-regulate based on network feedback or the network degrades for everyone.",
+        "Congestion control addresses a collective action problem. No single sender owns the network; each sender can individually improve its throughput by sending faster, but doing so degrades throughput for all other senders. TCP's congestion control implements network-aware throttling: infer the network's current state from packet loss and RTT signals, stay close to the available bandwidth without pushing into collapse, and back off quickly when congestion is detected.",
+        "The congestion window (cwnd) is the sender's self-imposed limit on bytes in flight. The sender can have at most min(cwnd, rwnd) bytes unacknowledged at any time. Congestion control algorithms adjust cwnd in response to ACKs (increase) and loss events (decrease). The goal is for cwnd to converge to the bandwidth-delay product of the path: bytes_in_flight = bandwidth × RTT. Too small: underutilizes the path. Too large: overfills buffers, adds queuing delay (bufferbloat).",
+        "The bottleneck link is the slowest link on the path. When the sender's rate exceeds the bottleneck's capacity, packets queue in the bottleneck's buffer. Queue growth adds latency (queuing delay). When the buffer fills, packets are dropped. Loss-based algorithms interpret drops as congestion signals—which they are—but they only detect congestion after the buffer has already filled and latency has already spiked. This is the fundamental problem BBR addresses."
+      ],
+      "bullets": [
+        "Bandwidth-delay product: BDP = bandwidth × RTT; optimal cwnd to fully utilize a link",
+        "Bufferbloat: oversized router buffers hide congestion; latency spikes before packet loss occurs",
+        "Congestion collapse: 1986 internet event; throughput dropped 1000× without congestion control"
+      ]
+    },
+    {
+      "title": "Classic Algorithms: Reno and Cubic",
+      "paragraphs": [
+        "TCP Reno introduced the four canonical phases: Slow Start, Congestion Avoidance, Fast Retransmit, and Fast Recovery. Slow Start: cwnd starts at 1 MSS, doubles each RTT (exponential growth) until it reaches ssthresh or experiences loss. Congestion Avoidance: cwnd grows by 1 MSS per RTT (additive increase), preventing overshoot. On loss (3 duplicate ACKs): Fast Retransmit resends the missing segment immediately; Fast Recovery halves cwnd and continues from there rather than restarting slow start. This additive increase / multiplicative decrease (AIMD) pattern converges to fair sharing between competing flows.",
+        "TCP Cubic (Linux default since 2.6.19, 2006) replaces Reno's linear congestion avoidance with a cubic function of time since the last loss event. The key difference: Cubic's growth rate is independent of RTT—it grows based on elapsed time, not RTT count. This makes Cubic much more aggressive on high-latency paths (inter-continental links, satellite) where Reno's RTT-counted linear growth is excessively slow. Cubic's cubic function also has a plateau near the previous cwnd maximum—it probes cautiously near the value where loss last occurred, then accelerates away from it.",
+        "Cubic's weaknesses are well-documented. First, it is loss-triggered: Cubic keeps increasing cwnd until it fills the bottleneck buffer and loses a packet, then halves. This means steady-state operation involves oscillating between filling buffers and backing off—causing periodic latency spikes (bufferbloat). Second, Cubic performs poorly on paths with high packet loss rates (wireless, mobile) where losses occur from channel errors (not congestion), causing unnecessary cwnd reductions. Third, Cubic does not distinguish between random packet loss and congestion-triggered loss.",
+        "SACK (Selective Acknowledgement) is a critical complement to any loss-based algorithm. Without SACK, TCP can retransmit only one lost segment per RTT (Go-Back-N style). With SACK, the receiver reports all received-but-out-of-order segments; the sender retransmits only the specific gaps. On a path with 5 lost packets in a window, SACK repairs all 5 in one round trip instead of 5. SACK is universally supported in modern TCP stacks and enabled by default."
+      ],
+      "bullets": [
+        "AIMD: additive increase on ACK (+1 MSS/RTT), multiplicative decrease on loss (cwnd × 0.7)",
+        "Cubic cwnd growth: W = C × (t - K)^3 + W_max; cubic in time since last congestion event",
+        "SACK: receiver bitmaps received segments; sender retransmits only gaps; enabled by default"
+      ]
+    },
+    {
+      "title": "BBR: Modeling the Network",
+      "paragraphs": [
+        "BBR (Bottleneck Bandwidth and Round-trip time) was developed at Google and merged into Linux 4.9 (2016). Instead of inferring congestion from packet loss, BBR models two physical properties of the network path: the bottleneck bandwidth (BtlBw) and the minimum RTT (RTprop). These define the network's operating point—the maximum throughput at minimum latency. BBR continuously estimates both, pacing sends at BtlBw and maintaining a cwnd that keeps bytes in flight near BDP (BtlBw × RTprop).",
+        "BBR operates in four phases. Startup: like slow start, doubles the pacing rate each RTT to quickly find BtlBw. Drain: after finding the max, drains the queue that formed during startup by sending at a rate below BtlBw. ProbeBW: steady state; cycles through 8 RTTs: 1 RTT at 125% rate to probe for more bandwidth, then 1 RTT at 75% to drain any queue formed, then 6 RTTs at 100%. ProbeRTT: every 10 seconds, reduces cwnd to 4 packets for 200ms to drain queues and re-measure minimum RTT (which grows if buffers stay full).",
+        "BBR's key insight: on a bottleneck-bandwidth path, the bottleneck queue grows when you send faster than BtlBw, adding queuing delay. If you stop filling the queue (send at exactly BtlBw), RTT returns to its minimum (RTprop). BBR measures both by watching BtlBw (maximum ACK rate seen recently, filtered with an RTT-sized window) and RTprop (minimum RTT seen in the past 10 seconds). The algorithm avoids loss-based decisions entirely—it never reduces cwnd due to loss.",
+        "BBR has significant known problems in its v1 form. When multiple TCP flows compete, BBR flows can be unfair to Cubic flows: BBR probes aggressively during ProbeBW, while Cubic backs off on loss. At congested links where both BBR and Cubic flows compete, BBR can consume 90% of bandwidth while Cubic flows starve. BBR v2 (Linux 5.13+) adds loss-awareness: it respects packet loss signals partially, trading some throughput for fairness in mixed deployments."
+      ],
+      "bullets": [
+        "BBR phases: Startup (probe BtlBw) → Drain → ProbeBW (steady state) → ProbeRTT (re-measure RTprop)",
+        "BBR ProbeRTT: drain to 4 packets every 10s to measure true minimum RTT; causes brief throughput dip",
+        "BBR fairness: v1 unfair to Cubic in shared bottlenecks; BBRv2 adds loss sensitivity to fix this"
+      ]
+    },
+    {
+      "title": "Active Queue Management and ECN",
+      "paragraphs": [
+        "Active Queue Management (AQM) algorithms control drop/marking behavior in router queues to signal congestion earlier—before buffers fill—preventing bufferbloat. Classic tail-drop queues drop packets only when full, allowing latency to spike. AQM algorithms drop or mark packets probabilistically as queue length grows, providing congestion signals earlier at the cost of some packet loss.",
+        "CoDel (Controlled Delay) is the most deployed AQM algorithm. CoDel's key observation: in an uncongested network, packets spend minimal time in queues; in a congested network, queuing delay is persistent. CoDel measures the minimum sojourn time (time a packet spends in the queue) over a sliding window. If the minimum exceeds the target delay (5ms by default) for longer than an interval (100ms), CoDel starts dropping packets. When minimum sojourn drops below target, CoDel stops dropping. CoDel reacts to chronic queuing rather than instantaneous queue length.",
+        "FQ-CoDel (Fair Queuing + CoDel) combines CoDel's delay-based dropping with per-flow fair queuing. Each active flow gets its own queue; flows are served round-robin. This prevents one flow (e.g., a bulk transfer) from filling the buffer and adding latency to other flows (e.g., DNS, interactive traffic). FQ-CoDel is the default qdisc in many Linux distributions and OpenWrt, dramatically improving latency for interactive traffic on shared links.",
+        "ECN (Explicit Congestion Notification) allows routers to signal congestion without dropping packets. The router sets the CE (Congestion Experienced) bit in the IP header of a packet it would otherwise drop (if ECN is negotiated). The receiver echoes this in the ECE bit of TCP ACKs; the sender reduces cwnd as if a loss occurred, but the packet was not actually lost. This eliminates one round trip of unnecessary packet loss. ECN is most beneficial for datacenter networks where packet loss rates should be near zero and any loss indicates real congestion."
+      ],
+      "bullets": [
+        "CoDel target: 5ms default sojourn time; tune lower for latency-critical links (1ms for datacenter)",
+        "FQ-CoDel: default qdisc on Linux desktop; enabled on most OpenWrt deployments",
+        "ECN negotiation: TCP SYN with ECE+CWR bits; both endpoints must support ECN; router marks CE bit instead of dropping"
+      ]
+    },
+    {
+      "title": "Congestion Control in Practice",
+      "paragraphs": [
+        "Selecting the right congestion algorithm depends on the workload and network. For inter-datacenter replication and cross-region API traffic, BBR outperforms Cubic due to high BDP (10 Gbps × 50ms = 62.5 MB). For user-facing mobile clients on 4G/5G (variable bandwidth, 5–20% packet loss from channel errors), BBR v2 is preferred—BBR v1 ignores loss and can overshoot, while Cubic over-backs-off. For datacenter internal traffic (1–100μs RTT, near-zero loss), DCTCP (Data Center TCP) with ECN is optimal—it uses ECN to maintain near-zero queue depths, achieving optimal throughput at minimum latency.",
+        "Kernel configuration: on Linux, check the current default with 'sysctl net.ipv4.tcp_congestion_control'. Change globally with 'sysctl -w net.ipv4.tcp_congestion_control=bbr'. Applications can override per-socket with setsockopt(TCP_CONGESTION). BBR also requires the pacing scheduler: 'sysctl -w net.core.default_qdisc=fq' (FQ provides per-connection pacing; without it, BBR's pacing is emulated less accurately). Confirm available algorithms with 'sysctl net.ipv4.tcp_available_congestion_control'.",
+        "Measuring congestion control behavior in production: ss --info displays cwnd, ssthresh, and RTT per connection—essential for diagnosing whether congestion is limiting throughput. /proc/net/netstat (TcpExt:TCPCongestionRecovery, TCPSackRecovery, TCPLostRetransmit) provide system-wide counters. For long-haul transfers, iperf3 --logfile with --json output captures per-second throughput, RTT, and retransmit counts, allowing correlation with network events."
+      ],
+      "bullets": [
+        "Linux BBR config: net.ipv4.tcp_congestion_control=bbr + net.core.default_qdisc=fq",
+        "ss --info: per-connection cwnd, ssthresh, rtt, retrans counters",
+        "DCTCP: requires ECN on all switches in path; reduces datacenter queuing to microseconds"
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Loss-Based Congestion Control Fundamentals",
+        "paragraphs": [
+          "TCP Reno's AIMD: add 1 MSS/RTT during congestion avoidance; halve cwnd on loss (triple duplicate ACK). Slow Start doubles cwnd each RTT from 1 MSS until ssthresh or loss.",
+          "Cubic extends Reno with cubic time-based growth, performing better on high-BDP paths. It's the Linux default; loss-triggered, so it fills buffers before detecting congestion.",
+          "SACK enables selective retransmission of only lost segments, dramatically improving recovery speed on paths with multiple losses per window."
+        ],
+        "bullets": [
+          "ssthresh: threshold where slow start transitions to congestion avoidance",
+          "Fast recovery: continue sending at reduced rate after loss; don't return to slow start",
+          "SACK: enabled by default; check with ss -i to verify sack negotiated"
+        ]
+      },
+      {
+        "title": "BBR: Model-Based Congestion Control",
+        "paragraphs": [
+          "BBR estimates bottleneck bandwidth (BtlBw) and minimum RTT (RTprop) to operate at the network's physical capacity without filling queues. It paces sends at BtlBw and maintains cwnd ≈ BtlBw × RTprop.",
+          "BBR's four phases: Startup (exponential probe), Drain (queue drain), ProbeBW (steady-state cycling), ProbeRTT (re-measure minimum RTT every 10s).",
+          "BBR v1 is unfair to Cubic in mixed deployments; BBRv2 adds loss sensitivity for fairness while maintaining throughput advantages."
+        ],
+        "bullets": [
+          "BBR does not reduce cwnd on loss events (v1); this is intentional, not a bug",
+          "BBR ProbeRTT reduces cwnd to 4 packets for 200ms every 10s; causes brief throughput dip",
+          "Linux 4.9+: BBR available; Linux 5.13+: BBRv2 available"
+        ]
+      },
+      {
+        "title": "AQM and ECN",
+        "paragraphs": [
+          "CoDel drops packets when minimum sojourn time exceeds 5ms for >100ms, preventing bufferbloat without queue-length thresholds.",
+          "FQ-CoDel adds per-flow fairness: bulk transfers don't starve interactive flows. Default Linux qdisc on many distros.",
+          "ECN allows routers to signal congestion by marking packets (CE bit) rather than dropping them, reducing unnecessary retransmits."
+        ],
+        "bullets": [
+          "FQ-CoDel: set with 'tc qdisc add dev eth0 root fq_codel'",
+          "ECN requires TCP SYN negotiation and router support; transparent to application",
+          "DCTCP: uses ECN fraction to scale cwnd reduction proportionally; optimal for datacenter"
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "BBR Internals and Measurement",
+        "paragraphs": [
+          "BBR's BtlBw estimator uses a windowed max filter: the maximum ACK rate observed in the last 10 RTTs is the BtlBw estimate. ACK rate is computed as (bytes ACKed) / (time between ACKs). The 10-RTT window allows BBR to track changing bandwidth while filtering noise. During ProbeBW, the brief 125% rate probe allows BBR to discover if more bandwidth has become available.",
+          "RTprop estimation uses a windowed minimum: the minimum RTT observed in the past 10 seconds. RTT naturally increases when queues form (queuing delay); the 10-second window allows BBR to rediscover the true minimum after queues drain. The ProbeRTT phase actively reduces cwnd to 4 packets—below the BDP—forcing the queue to drain and revealing the true propagation delay.",
+          "BBR's pacing rate = BtlBw × pacing_gain. Without a pacing qdisc (FQ), the kernel sends the entire cwnd in a burst, then nothing. With FQ, sends are spread uniformly over the RTT—smoother traffic, fewer drops, more accurate RTT measurement. Without FQ, BBR works but is less efficient; always pair BBR with FQ qdisc."
+        ],
+        "bullets": [
+          "BtlBw filter window: max over 10 RTTs; 10 × 100ms = 1s for 100ms RTT paths",
+          "pacing_gain cycle in ProbeBW: [5/4, 3/4, 1, 1, 1, 1, 1, 1] × BtlBw",
+          "BBR inflight limit: 2 × BDP during ProbeBW; prevents excessive buffering"
+        ]
+      },
+      {
+        "title": "Congestion Control in Datacenters and Cloud",
+        "paragraphs": [
+          "Datacenter networks have RTTs of 10–500 μs and near-zero packet loss in normal operation. Loss-based algorithms (Cubic) perform poorly here: they target cwnd that fills router buffers before detecting congestion, adding hundreds of μs of queuing delay to what should be a 10 μs path. DCTCP uses ECN marking frequency (what fraction of packets are marked) to scale cwnd reduction proportionally—a small marking fraction causes a small reduction, maintaining high throughput while keeping queues nearly empty.",
+          "RDMA over Converged Ethernet (RoCE) used in GPU training clusters requires lossless Ethernet. Any packet drop in RDMA causes a catastrophic performance cliff—the entire RDMA queue pair stalls. Lossless behavior is achieved with PFC (Priority Flow Control): when a switch buffer exceeds a threshold, it sends a PAUSE frame to the upstream device, stopping transmission for that traffic class. Congestion Notification (CN) adds end-to-end congestion control on top of PFC to prevent PFC storms (where PAUSE frames cascade across the network).",
+          "QUIC's congestion control is per-path and pluggable. By default, most QUIC stacks use NewReno or Cubic. Google's production QUIC uses BBR. QUIC's ability to migrate paths means congestion state must be reset on migration (a migrated path may have completely different capacity). This is correctly handled in QUIC implementations by resetting cwnd to initial values after path validation on migration."
+        ],
+        "bullets": [
+          "DCTCP: ECN fraction-based cwnd reduction; average queue depth <1 packet on well-tuned networks",
+          "PFC (Priority Flow Control): lossless Ethernet for RDMA; required for RoCE in GPU clusters",
+          "RoCEv2: RDMA over UDP; requires DCQCN (Data Center Quantized Congestion Notification) for congestion control"
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Congestion Control at Hyperscale and Future Directions",
+        "paragraphs": [
+          "At hyperscale, congestion control is a collective optimization problem across millions of concurrent flows. Google's B4 WAN uses a centralized SDN controller with global visibility to allocate bandwidth explicitly to flows via weighted max-min fairness, rather than relying on each flow's local congestion control. This eliminates the inefficiency of multiple competing flows probing the same bottleneck—the SDN controller knows the bottleneck capacity and assigns rates directly. For flows that can't be centrally managed (internet-facing traffic), BBR is the best available decentralized algorithm.",
+          "Practical Backpressure (PBP) and CCA variants for cellular networks (LTE, 5G) address the fundamental mismatch between TCP congestion control assumptions and cellular radio characteristics. Cellular links have highly variable capacity (1 Mbps to 100 Mbps within seconds), large per-hop queues in base stations, and loss patterns that reflect radio conditions, not congestion. Network-Assisted Dynamic Adaptation (NADA) and RMCAT (RTP Media Congestion Avoidance Techniques) are IETF-standardized algorithms for real-time media over cellular, used in WebRTC.",
+          "Prague (L4S-compatible Cubic) and Scalable TCP are emerging CCAs designed for the Low Latency, Low Loss, Scalable throughput (L4S) architecture. L4S uses a scalable congestion signal (ECN marking frequency increases with queue depth) rather than classic ECN's binary signal. Prague responds to this graded signal proportionally, maintaining cwnd near BDP without the AIMD oscillations of Cubic. L4S pilot deployments (Apple's Low Latency mode in iOS 16+, Comcast's L4S trial) show sub-millisecond queuing delay while saturating links—the theoretical ideal."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Congestion window (cwnd): sender's self-imposed limit on bytes in flight; adjusted by congestion control algorithm",
+    "Bandwidth-delay product (BDP): bytes_in_flight = bandwidth × RTT; optimal cwnd to fully utilize link without buffering",
+    "Slow start: cwnd doubles each RTT from 1 MSS; exponential probe of available bandwidth",
+    "AIMD: Additive Increase Multiplicative Decrease; +1 MSS/RTT on ACK, ×0.5 on loss; converges to fairness",
+    "Cubic: loss-based, time-driven cubic growth; Linux default; fills buffers before detecting congestion",
+    "BBR: model-based; estimates BtlBw and RTprop; paces at bandwidth without queue-filling loss signal",
+    "Bufferbloat: oversized router buffers add latency before loss; CoDel/FQ-CoDel prevent this",
+    "SACK: selective acknowledgement; sender retransmits only lost segments, not entire window",
+    "ECN: router marks CE bit instead of dropping; sender reduces cwnd without packet loss event",
+    "DCTCP: ECN-fraction-based cwnd reduction; optimal for datacenter near-lossless networks"
+  ],
+  "practices": [
+    "Deploy BBR + FQ qdisc for cross-region and internet-facing TCP flows; Cubic is suboptimal on high-BDP paths",
+    "Enable FQ qdisc (net.core.default_qdisc=fq) alongside BBR; pacing accuracy depends on it",
+    "Use DCTCP with ECN on datacenter-internal traffic for sub-millisecond queuing latency",
+    "Monitor ss --info cwnd and RTT per connection; sustained cwnd at ssthresh indicates chronic loss",
+    "Deploy FQ-CoDel on network egress to protect interactive flows from bulk transfer bufferbloat",
+    "On paths with >2% random loss (mobile, satellite), use BBRv2 not BBRv1 to avoid ignoring real signal"
+  ],
+  "pitfalls": [
+    "Using Cubic on high-BDP intercontinental links; Cubic grows too slowly and achieves a fraction of available bandwidth",
+    "Deploying BBRv1 in a mixed BBR+Cubic deployment without awareness of fairness issues; BBR flows can starve Cubic flows",
+    "Not pairing BBR with FQ qdisc; BBR without FQ bursts packets and measures RTT inaccurately",
+    "Ignoring bufferbloat on network devices; default tail-drop queues add hundreds of ms latency before signaling congestion",
+    "Treating all TCP packet loss as congestion; random loss from channel errors (Wi-Fi, 4G) should not trigger cwnd halving",
+    "Not validating ECN end-to-end before relying on it; a single middlebox that strips ECN bits breaks the whole mechanism"
+  ],
+  "examples": [
+    {
+      "title": "Google BBR Deployment on YouTube",
+      "description": "Google deployed BBR on its global WAN in 2016, replacing Cubic for YouTube streaming. On paths with low RTT (< 30ms), improvement was modest. On paths with high RTT or moderate packet loss—the majority of YouTube's global user base—BBR achieved 4× higher throughput on average and reduced video rebuffering by 80%. The improvement was especially large for users in Africa and Southeast Asia accessing content across intercontinental links."
+    },
+    {
+      "title": "FQ-CoDel on Home Routers",
+      "description": "OpenWrt enabled FQ-CoDel by default starting in 2015. Home routers running FQ-CoDel showed median RTT reductions of 10–50× under load compared to default tail-drop queues. A household running a torrent upload (bulk traffic) no longer experienced 300ms latency on video calls—the per-flow fairness of FQ-CoDel queued the torrent traffic separately and served interactive flows at near-zero queuing delay."
+    },
+    {
+      "title": "DCTCP in AWS Enhanced Networking",
+      "description": "AWS's Enhanced Networking (ENA) uses DCTCP and ECN within availability zones to maintain sub-millisecond latency between instances. When ENA switch buffers start filling (signaled by ECN marking), instances reduce send rates proportionally before buffers overflow. This keeps inter-instance latency at 50–200μs even under heavy cross-rack traffic, compared to 1–5ms with tail-drop Cubic—critical for distributed databases and cache clusters."
+    }
+  ],
+  "keyTakeaways": [
+    "Loss-based congestion control (Cubic) fills buffers before detecting congestion, causing latency spikes and poor behavior on high-BDP paths",
+    "BBR models bottleneck bandwidth and minimum RTT, pacing sends to match bandwidth without queue-filling; 4× throughput improvement on YouTube's WAN",
+    "FQ-CoDel prevents bufferbloat by measuring sojourn time and providing per-flow fairness; deploy it on all network egress",
+    "ECN allows congestion signals without packet drops; DCTCP uses ECN fraction for proportional congestion response in datacenters",
+    "BBRv1 is unfair to Cubic in shared bottlenecks; use BBRv2 in mixed deployments",
+    "Pair BBR with FQ qdisc (net.core.default_qdisc=fq) for accurate pacing; BBR without FQ is less effective"
+  ],
+  "whyItMatters": "Congestion control is why TCP throughput on a 100 Gbps link with 100ms RTT might achieve only 500 Mbps with default settings—and 95 Gbps after proper tuning. It explains why video calls lag when someone downloads a large file on the same network, and why Google's YouTube streaming improved 4× by switching algorithms. Engineers running cross-region replication, bulk data transfers, CDN origin pulls, or any workload sensitive to throughput or latency must understand congestion control to diagnose and fix the right knobs.",
+  "reflectionQuestions": [
+    "Your cross-region database replication is achieving 200 Mbps on a 10 Gbps link with 80ms RTT. The connection has 0.01% packet loss. Walk through the diagnosis: which congestion control algorithm is likely running, what is the theoretical maximum, and what would you change?",
+    "Explain why BBRv1 is unfair when competing with Cubic flows at a shared bottleneck. What specific behavior in each algorithm causes this, and how does BBRv2 address it?",
+    "Design the congestion control strategy for a live video streaming CDN that serves users on mobile networks (1–50 Mbps, 1–5% loss), home broadband (100 Mbps–1 Gbps, <0.1% loss), and enterprise (10 Gbps, 0% loss). Would you use the same algorithm for all three?"
+  ],
+  "numbersToKnow": [
+    "1986: internet congestion collapse that motivated Van Jacobson's congestion control paper",
+    "BDP for 10 Gbps × 100ms RTT = 1.25 GB in flight needed to saturate the link",
+    "4×: BBR throughput improvement over Cubic on YouTube's global WAN deployment",
+    "5ms: CoDel's default target sojourn time; packets queued longer trigger AQM drops",
+    "Linux 4.9 (2016): BBRv1 merged; Linux 5.13 (2021): BBRv2 merged"
+  ],
+  "diagrams": [
+    {
+      "id": "net-congestion-bbr-vs-cubic",
+      "title": "Cubic vs BBR cwnd Behavior Over Time",
+      "mermaid": "flowchart LR\n  subgraph Cubic - Loss Based\n    C1[Slow Start] -->|cwnd doubles each RTT| C2[Congestion Avoidance]\n    C2 -->|Buffer fills - packet drop| C3[cwnd halved - Fast Recovery]\n    C3 -->|Cubic growth resumes| C2\n  end\n  subgraph BBR - Model Based\n    B1[Startup - probe BtlBw] --> B2[Drain - empty queue]\n    B2 --> B3[ProbeBW steady state]\n    B3 -->|Every 10s| B4[ProbeRTT - drain to 4 packets]\n    B4 --> B3\n  end"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "What is the bandwidth-delay product and why does it matter for TCP congestion control tuning? What happens if socket buffers are smaller than the BDP?",
+    "Explain bufferbloat: what causes it, how does it manifest for users, and how do CoDel and FQ-CoDel address it?",
+    "Compare BBR and Cubic: in what network conditions does each perform better, and what are BBRv1's known fairness problems?"
+  ],
+  "exercises": [
+    "Use iperf3 to measure TCP throughput between two machines with 100ms artificially added RTT (tc netem delay 100ms). Compare Cubic vs BBR (sysctl tcp_congestion_control). Calculate the BDP and verify BBR approaches it more closely.",
+    "Simulate bufferbloat: add a 50ms buffer (tc netem delay 50ms limit 1000) on an interface. Run a bulk transfer and measure ping RTT during the transfer with and without FQ-CoDel qdisc. Document the latency difference."
+  ],
+  "sources": [
+    {
+      "title": "Congestion Avoidance and Control — Van Jacobson (1988)",
+      "url": "https://ee.lbl.gov/papers/congavoid.pdf"
+    },
+    {
+      "title": "BBR: Congestion-Based Congestion Control — Cardwell et al. (ACM Queue 2016)",
+      "url": "https://queue.acm.org/detail.cfm?id=3022184"
+    },
+    {
+      "title": "CoDel: Controlling Queue Delay — Nichols & Jacobson (ACM Queue 2012)",
+      "url": "https://queue.acm.org/detail.cfm?id=2209336"
+    },
+    {
+      "title": "RFC 8257 — Data Center TCP (DCTCP)",
+      "url": "https://datatracker.ietf.org/doc/html/rfc8257"
+    }
+  ],
+  "relatedLessons": ["net-tcp-udp", "net-tcp-ip", "net-quic", "net-kernel"]
+}

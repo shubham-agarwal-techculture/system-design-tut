@@ -3,12 +3,12 @@
   "title": "SLOs & Error Budgets",
   "moduleId": "reliability",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "SLOs & Error Budgets — draft awaiting generation and review.",
+  "durationMinutes": 40,
+  "summary": "Service Level Objectives define how reliable a service must be from the user view. Error budgets convert that into a measurable allowance for change velocity vs stability.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "fund-reliability"
@@ -20,82 +20,148 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "SLI, SLO, SLA",
       "paragraphs": [
-        "This draft covers SLOs & Error Budgets. Run content:generate to expand it with a model provider, or edit manually."
+        "SLI: measured indicator (availability, latency). SLO: target on that indicator. SLA: contractual consequences. Engineers manage SLOs; legal owns SLAs.",
+        "Choose SLIs that mirror user pain — successful requests / total, or fraction under latency threshold — not CPU idle."
+      ]
+    },
+    {
+      "title": "Error budgets",
+      "paragraphs": [
+        "If SLO is 99.9% monthly availability, budget is 0.1% failure. Burn the budget with incidents or risky releases; when exhausted, freeze features and fix reliability.",
+        "Multi-window burn-rate alerts catch fast burns (pages) and slow burns (tickets)."
+      ]
+    },
+    {
+      "title": "Setting targets",
+      "paragraphs": [
+        "Tighter than dependencies is impossible long-term. Stack SLOs with dependency math. Leave margin.",
+        "Different user journeys may need different SLOs (checkout vs admin export)."
+      ]
+    },
+    {
+      "title": "Culture",
+      "paragraphs": [
+        "Error budgets only work if leadership honors them. Otherwise they become dashboards nobody follows."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "SLI, SLO, SLA",
         "paragraphs": [
-          "This draft covers SLOs & Error Budgets. Run content:generate to expand it with a model provider, or edit manually."
+          "SLI: measured indicator (availability, latency). SLO: target on that indicator. SLA: contractual consequences. Engineers manage SLOs; legal owns SLAs.",
+          "Choose SLIs that mirror user pain — successful requests / total, or fraction under latency threshold — not CPU idle."
+        ]
+      },
+      {
+        "title": "Error budgets",
+        "paragraphs": [
+          "If SLO is 99.9% monthly availability, budget is 0.1% failure. Burn the budget with incidents or risky releases; when exhausted, freeze features and fix reliability.",
+          "Multi-window burn-rate alerts catch fast burns (pages) and slow burns (tickets)."
+        ]
+      },
+      {
+        "title": "Setting targets",
+        "paragraphs": [
+          "Tighter than dependencies is impossible long-term. Stack SLOs with dependency math. Leave margin.",
+          "Different user journeys may need different SLOs (checkout vs admin export)."
+        ]
+      },
+      {
+        "title": "Culture",
+        "paragraphs": [
+          "Error budgets only work if leadership honors them. Otherwise they become dashboards nobody follows."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "SLOs & Error Budgets — Deep Dive",
+        "title": "SLOs & Error Budgets — Operations",
         "paragraphs": [
-          "Extended treatment of SLOs & Error Budgets: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating SLOs & Error Budgets in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "SLOs & Error Budgets — Failure modes",
+        "paragraphs": [
+          "Common failures around SLOs & Error Budgets include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "SLOs & Error Budgets — Expert Notes",
+        "title": "SLOs & Error Budgets — Expert notes",
         "paragraphs": [
-          "Expert considerations for SLOs & Error Budgets: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, SLOs & Error Budgets intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "SLOs & Error Budgets: core idea"
+    "SLI",
+    "SLO",
+    "Error budget",
+    "Burn rate",
+    "User journey SLIs"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Alert on burn rate, not raw CPU",
+    "Review budget in planning",
+    "Align SLOs to dependencies"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "SLO on vanity metrics",
+    "100% targets",
+    "Ignoring dependency ceilings"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Google SRE workbook",
+      "description": "Canonical error budget practice."
+    }
+  ],
   "keyTakeaways": [
-    "SLOs & Error Budgets belongs in the curriculum as evergreen content"
+    "SLOs quantify reliability as a product feature",
+    "Budgets balance change vs stability"
   ],
-  "whyItMatters": "Understanding SLOs & Error Budgets improves design judgment for production systems.",
+  "whyItMatters": "Without SLOs, teams argue opinions. With them, reliability work gets prioritized rationally.",
   "reflectionQuestions": [
-    "When would you reach for SLOs & Error Budgets in a real design?"
+    "What is the user-facing SLI for your most critical journey?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "fund-slos-overview",
       "title": "SLOs & Error Budgets overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain SLOs & Error Budgets and the main trade-offs in 3 minutes."
+    "Explain SLOs & Error Budgets and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on SLOs & Error Budgets; list 3 trade-offs."
+    "Sketch a design that depends on SLOs & Error Budgets; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
+    "fund-bulkheads",
     "fund-chaos",
-    "fund-incidents",
-    "fund-reliability"
+    "fund-graceful-degradation"
   ]
 }

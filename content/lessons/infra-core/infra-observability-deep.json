@@ -1,0 +1,162 @@
+{
+  "id": "infra-observability-deep",
+  "title": "Metrics, Logs, Traces & Exemplars",
+  "moduleId": "infra-core",
+  "phaseId": "infrastructure",
+  "durationMinutes": 45,
+  "summary": "Observability explains system behavior from outside: metrics for aggregates, logs for events, traces for request journeys, exemplars linking them. Designing telemetry is part of system design.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "infra-networking"
+  ],
+  "tags": [
+    "infra-core",
+    "evergreen",
+    "infrastructure"
+  ],
+  "sections": [
+    {
+      "title": "Three pillars — and linking them",
+      "paragraphs": [
+        "Metrics alert and dashboard. Logs debug specifics. Traces show causal paths across services. Exemplars and trace IDs connect a metric spike to example requests."
+      ]
+    },
+    {
+      "title": "Golden signals and SLIs",
+      "paragraphs": [
+        "Latency, traffic, errors, saturation. Define SLIs from user journeys, not only host CPU."
+      ]
+    },
+    {
+      "title": "Cardinality and cost",
+      "paragraphs": [
+        "High-cardinality labels explode metric cost. Sample traces; structure logs; drop noisy fields. Telemetry has a budget."
+      ]
+    },
+    {
+      "title": "Instrumentation practice",
+      "paragraphs": [
+        "Propagate context across async boundaries. Prefer OpenTelemetry. Make dashboards and alerts owned by the same team as the service."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Three pillars — and linking them",
+        "paragraphs": [
+          "Metrics alert and dashboard. Logs debug specifics. Traces show causal paths across services. Exemplars and trace IDs connect a metric spike to example requests."
+        ]
+      },
+      {
+        "title": "Golden signals and SLIs",
+        "paragraphs": [
+          "Latency, traffic, errors, saturation. Define SLIs from user journeys, not only host CPU."
+        ]
+      },
+      {
+        "title": "Cardinality and cost",
+        "paragraphs": [
+          "High-cardinality labels explode metric cost. Sample traces; structure logs; drop noisy fields. Telemetry has a budget."
+        ]
+      },
+      {
+        "title": "Instrumentation practice",
+        "paragraphs": [
+          "Propagate context across async boundaries. Prefer OpenTelemetry. Make dashboards and alerts owned by the same team as the service."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Metrics, Logs, Traces & Exemplars — Operations",
+        "paragraphs": [
+          "Operating Metrics, Logs, Traces & Exemplars in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+        ],
+        "bullets": [
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Metrics, Logs, Traces & Exemplars — Failure modes",
+        "paragraphs": [
+          "Common failures around Metrics, Logs, Traces & Exemplars include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Metrics, Logs, Traces & Exemplars — Expert notes",
+        "paragraphs": [
+          "At the expert level, Metrics, Logs, Traces & Exemplars intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Golden signals",
+    "Cardinality",
+    "Distributed tracing",
+    "Exemplars",
+    "OpenTelemetry"
+  ],
+  "practices": [
+    "Budget telemetry cost",
+    "Propagate trace context",
+    "Alert on SLIs/burn rates"
+  ],
+  "pitfalls": [
+    "Metric label explosion",
+    "Logs without request ids",
+    "Dashboards nobody owns"
+  ],
+  "examples": [
+    {
+      "title": "OTel + Prometheus + Jaeger",
+      "description": "Common open stack."
+    }
+  ],
+  "keyTakeaways": [
+    "Telemetry is a product requirement",
+    "Link pillars",
+    "Control cardinality"
+  ],
+  "whyItMatters": "You cannot operate what you cannot see — and blind systems fail longer.",
+  "reflectionQuestions": [
+    "Can you jump from an SLO burn alert to an example trace in two clicks?"
+  ],
+  "numbersToKnow": [
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
+  ],
+  "diagrams": [
+    {
+      "id": "infra-observability-deep-overview",
+      "title": "Metrics, Logs, Traces & Exemplars overview",
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Metrics, Logs, Traces & Exemplars and the main trade-offs in three minutes."
+  ],
+  "exercises": [
+    "Sketch a design that depends on Metrics, Logs, Traces & Exemplars; list three trade-offs and one failure mode."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "infra-autoscaling",
+    "infra-cicd-observability",
+    "infra-containers-k8s"
+  ]
+}

@@ -1,101 +1,249 @@
 {
   "id": "fund-search",
-  "title": "Search & Inverted Indexes",
+  "title": "Full-Text Search Systems",
   "moduleId": "storage",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "Search & Inverted Indexes — draft awaiting generation and review.",
+  "durationMinutes": 38,
+  "summary": "Full-text search—returning documents relevant to a user's natural-language query—requires fundamentally different machinery than database lookups. Inverted indexes, relevance scoring, and distributed search clusters are the core building blocks. Understanding how Elasticsearch, Solr, and similar systems work internally enables you to design search features that are fast, accurate, and scalable.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "fund-olap"
+    "fund-storage-types"
   ],
   "tags": [
     "storage",
+    "search",
     "evergreen",
     "fundamentals"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "The Inverted Index: Search's Core Data Structure",
       "paragraphs": [
-        "This draft covers Search & Inverted Indexes. Run content:generate to expand it with a model provider, or edit manually."
+        "A database can answer 'find the row where id=12345' in O(log n) with a B-tree index, but it cannot efficiently answer 'find all documents containing the word coffee.' For that, you need an inverted index: a mapping from each term to the list of document IDs that contain it. 'coffee' → [doc3, doc7, doc22, ...]. To find documents containing both 'coffee' and 'beans,' intersect the posting lists for each term.",
+        "Building an inverted index requires text analysis: tokenization (split 'The quick brown fox' into ['the', 'quick', 'brown', 'fox']), normalization (lowercase all tokens), stemming (reduce 'running' to 'run') or lemmatization (reduce 'better' to 'good'), and stop word removal (drop 'the', 'a', 'is' which appear in almost every document and add no selectivity). The analyzer pipeline is configurable; different languages, domains, and use cases require different analyzer configurations.",
+        "Posting lists are sorted by document ID, enabling efficient set operations (intersection, union, difference). For a phrase query ('quick brown'), positional information is stored: 'quick' appears at position 2 in doc1; 'brown' at position 3. The phrase query requires that positions are consecutive. Skip pointers within posting lists enable fast intersection by allowing the merge to skip large spans of non-matching document IDs—critical for performance when intersecting common terms (like 'the') with rare terms."
+      ],
+      "bullets": [
+        "Inverted index: term → [doc_id, doc_id, ...]; enables O(1) term lookup + O(k) intersection",
+        "Analyzer pipeline: tokenize → lowercase → stem/lemmatize → remove stop words",
+        "Positional index: stores term positions for phrase queries",
+        "Skip pointers: accelerate posting list intersection for common terms"
+      ]
+    },
+    {
+      "title": "Relevance Scoring: BM25 and Beyond",
+      "paragraphs": [
+        "Returning matching documents is necessary but not sufficient—they must be ranked by relevance. BM25 (Best Match 25) is the dominant scoring algorithm, used by default in Elasticsearch and Lucene. BM25 extends TF-IDF: TF (term frequency) rewards documents that contain the query term more often; IDF (inverse document frequency) rewards documents where the term is rare across the corpus (high IDF means the term is discriminative). BM25 adds saturation: beyond a threshold, more occurrences of a term don't proportionally increase the score, preventing documents stuffed with keywords from dominating.",
+        "BM25's formula: score = IDF(t) × (tf(t,d) × (k1+1)) / (tf(t,d) + k1 × (1 - b + b × dl/avgdl)). The parameters k1 (term frequency saturation, typically 1.2) and b (document length normalization, typically 0.75) are tunable. The document length normalization (dl/avgdl) prevents long documents from dominating simply because they contain more words. Tuning k1 and b for your document corpus and query patterns is one of the first search quality improvements after baseline setup.",
+        "Beyond BM25, modern search combines lexical scoring (BM25) with semantic scoring (dense vector similarity from embedding models). Hybrid search retrieves candidates from both BM25 (matches exact terms) and vector similarity (matches semantic meaning), then reranks the combined set using a cross-encoder model for high relevance. This combination—retrieval augmented by neural reranking—achieves significantly higher relevance than either approach alone and is the state of practice for production search engines."
+      ],
+      "bullets": [
+        "BM25: TF-IDF with term frequency saturation and document length normalization",
+        "IDF rewards rare, discriminative terms; TF rewards frequency within a document",
+        "k1 and b are tunable BM25 parameters; tune for your corpus characteristics",
+        "Hybrid search: BM25 + dense vector retrieval + neural reranking = best relevance"
+      ]
+    },
+    {
+      "title": "Elasticsearch Architecture: Shards, Replicas, and Segments",
+      "paragraphs": [
+        "Elasticsearch distributes search across a cluster of nodes using shards. Each index is divided into primary shards (5 by default, though the right number depends on document volume and query patterns); each primary shard has one or more replica shards for fault tolerance and read parallelism. Documents are routed to a shard by hashing the document ID modulo the number of primary shards. A search query is broadcast to all shards; each shard returns its top-k results; the coordinating node merges and re-ranks the global top-k.",
+        "Internally, each shard is a Lucene index consisting of immutable segments. A new document is written to an in-memory buffer, then periodically flushed to a new segment on disk. Segments are immutable: updates are implemented as delete the old version + insert the new version. Deleted documents are marked but not immediately removed; segments are periodically merged, eliminating deleted documents and reducing the number of segments the query engine must consult. Merge policies control the trade-off between write amplification and query performance.",
+        "Near-real-time (NRT) search: Elasticsearch's default refresh interval is 1 second. At each refresh, the in-memory buffer is flushed to a new Lucene segment and becomes searchable. This means newly indexed documents are searchable within ~1 second, not immediately. For use cases requiring instant search after write, disable the refresh interval temporarily during bulk indexing or use the Realtime GET API (which checks the buffer before searching)."
+      ],
+      "bullets": [
+        "Index → primary shards → Lucene segments; each segment is immutable",
+        "Replication: each primary shard has N replicas for fault tolerance and read throughput",
+        "Merge: immutable segments are periodically merged to remove deleted docs and improve query speed",
+        "NRT: default 1-second refresh; newly indexed docs searchable within ~1 second"
+      ]
+    },
+    {
+      "title": "Search Features: Autocomplete, Facets, and Fuzzy Matching",
+      "paragraphs": [
+        "Autocomplete (type-ahead) requires different data structures than full-text search. Completion suggester in Elasticsearch uses an in-memory FST (Finite State Transducer) data structure that maps prefix strings to suggested completions. FSTs are extremely compact and fast for prefix lookups. Edge N-grams (index 'quick' as 'q', 'qu', 'qui', 'quic', 'quick') in a standard inverted index also enable autocomplete but are less memory-efficient for large vocabularies. Autocomplete must handle typos; the suggest API supports fuzzy prefix matching.",
+        "Faceted search (filter by category, price range, rating) uses aggregations: Elasticsearch bucket aggregations on keyword fields return document counts per category. For fast facet counts on large indices, global aggregations post-filter pattern pre-computes counts on the unfiltered set while returning results for the filtered set. For high-cardinality facets (faceting by user_id on a large index), use terms aggregation with collect mode: depth_first to minimize memory, breadth_first for cardinality reduction.",
+        "Fuzzy matching handles spelling errors: Elasticsearch's fuzzy query uses Levenshtein edit distance (1–2 by default). A query for 'cofee' matches 'coffee' (edit distance 1). The AUTO parameter automatically adjusts max edits based on term length. For search quality, combine exact phrase matching (high score) with fuzzy matching (lower score) so that correctly-spelled queries still rank higher than fuzzy matches. Phonetic analysis (Soundex, Metaphone) handles name variations ('Jon'/'John')."
+      ],
+      "bullets": [
+        "Autocomplete: FST completion suggester or edge N-grams; fuzzy prefix for typo tolerance",
+        "Facets: terms aggregation on keyword fields; post_filter to separate facet counts from results",
+        "Fuzzy: Levenshtein edit distance (auto=1 for 1–5 chars, 2 for 6+ chars)",
+        "Phonetic analysis: Soundex/Metaphone for name matching across spelling variants"
+      ]
+    },
+    {
+      "title": "Operational Considerations: Mapping, Sizing, and Monitoring",
+      "paragraphs": [
+        "Mapping (Elasticsearch's schema) is critical. Fields default to dynamic mapping—Elasticsearch infers types from the first document. This causes problems: a date field receiving a malformed value gets mapped as text, breaking date range queries. Define explicit mappings for all fields. Use keyword type (not analyzed) for exact match, sorting, and aggregations; use text type (analyzed) for full-text search. Fields needing both should use multi-fields (map as both keyword and text). Avoid mapping explosion—thousands of dynamic fields from JSON logs—by limiting total fields per index.",
+        "Shard sizing: each shard has overhead; too many small shards is as bad as too few large shards. The recommended size is 10–65 GB per shard. For an index holding 1 TB of data, use 20–50 shards. Total shard count across the cluster should not exceed 20 shards per GB of heap memory. Over-sharding causes query scatter to too many shards, increasing coordinator overhead; under-sharding limits parallelism and creates hot shards under uneven document distribution.",
+        "Critical metrics: JVM heap usage (keep below 75%; >85% risks GC pauses causing latency spikes), disk usage per node (<85% to leave room for segment merge), search latency p99 (track separately for different query types), indexing rate (documents/second), and merge rate. Elasticsearch's hot threads API and slow log settings help diagnose latency spikes without full APM overhead."
+      ],
+      "bullets": [
+        "Explicit mappings: define all fields; avoid dynamic mapping in production",
+        "Shard sizing: 10–65 GB per shard; ≤20 shards per GB of JVM heap",
+        "JVM heap: keep below 75%; >85% risks GC pauses causing search latency spikes",
+        "Slow logs: log queries and indexing operations exceeding configurable thresholds"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Inverted Index",
         "paragraphs": [
-          "This draft covers Search & Inverted Indexes. Run content:generate to expand it with a model provider, or edit manually."
+          "An inverted index maps each term to the list of document IDs containing it. Text analysis (tokenize, lowercase, stem, stop-word remove) prepares terms for indexing. Posting lists enable efficient boolean queries via set intersection.",
+          "Positional information enables phrase queries. Skip pointers accelerate intersection for high-frequency terms.",
+          "BM25 scores relevance: TF (term frequency in document) × IDF (inverse document frequency in corpus), with saturation and length normalization."
+        ]
+      },
+      {
+        "title": "Elasticsearch Architecture",
+        "paragraphs": [
+          "Index → shards → Lucene segments. Each shard is a Lucene index; documents route to shards by hash of document ID. Replicas provide fault tolerance and read throughput.",
+          "Segments are immutable; deletes are soft-marks. Periodic segment merge reclaims space and improves query speed.",
+          "1-second NRT refresh: documents become searchable within ~1 second of indexing."
+        ]
+      },
+      {
+        "title": "Operational Considerations",
+        "paragraphs": [
+          "Define explicit mappings; avoid dynamic mapping in production. Use keyword for exact match/aggregation; text for full-text search.",
+          "Shard sizing: 10–65 GB per shard; ≤20 shards per GB of JVM heap.",
+          "Monitor JVM heap (<75%), disk usage (<85%), search latency p99, and merge rate."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Search & Inverted Indexes — Deep Dive",
+        "title": "Distributed Search Consistency and Split-Brain",
         "paragraphs": [
-          "Extended treatment of Search & Inverted Indexes: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Elasticsearch's master election uses a quorum-based algorithm (since v7.0, a custom Raft-like protocol) to prevent split-brain: a network partition resulting in two cluster halves, each electing its own master. With an even number of master-eligible nodes, split-brain is possible; configure discovery.zen.minimum_master_nodes = (N/2)+1 for odd-N clusters. Elasticsearch 7+ auto-computes this, but understanding it is essential for multi-AZ deployments.",
+          "Index lifecycle management (ILM) automates the hot-warm-cold-delete progression for time-based indices. Hot nodes: fast NVMe SSDs, high CPU, frequent writes and queries. Warm nodes: HDDs, lower cost, infrequent queries on historical data. Cold nodes: S3-backed searchable snapshots, minimal compute, queries restore segments on demand. This tier progression can reduce cluster cost by 70–80% compared to storing all data on hot nodes.",
+          "Searchable snapshots (Elasticsearch 7.10+) allow querying indices stored in S3 without restoring them to local disk. Segments are fetched on demand and cached locally. For compliance archives or infrequent historical queries, this enables 'infinite' index storage at S3 prices while maintaining Elasticsearch query semantics."
+        ]
+      },
+      {
+        "title": "Query Performance Optimization",
+        "paragraphs": [
+          "Filter context vs query context: filters (term, range, exists) are cached and do not contribute to relevance score; queries (match, multi_match) compute BM25 scores and are not cached. Maximize filter usage: apply non-scoring criteria (date range, status = active) as filters, then score only on the full-text match. This combination can be 5–10x faster than putting everything in query context.",
+          "Field data and doc values: aggregations and sorting on text fields require field data (loaded into heap); aggregations on keyword fields use doc values (on-disk columnar structure, memory-efficient). Never enable field data on text fields in production—it blows out heap memory. Use keyword sub-fields for all aggregations and sorting.",
+          "Scroll API vs search_after: for exporting large result sets, avoid deep pagination (from: 10000 is very slow—requires fetching and discarding 10K docs per shard). Use search_after with a sort field for stateless cursor-based pagination, or the Scroll API for sequential bulk export (but Scroll contexts hold resources; set scroll timeout conservatively)."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Search & Inverted Indexes — Expert Notes",
+        "title": "Expert: Neural Retrieval and Hybrid Search",
         "paragraphs": [
-          "Expert considerations for Search & Inverted Indexes: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Dense vector search (ANN—Approximate Nearest Neighbor) using HNSW (Hierarchical Navigable Small World) graphs retrieves semantically similar documents regardless of term overlap. Elasticsearch 8.x and OpenSearch support dense_vector fields with HNSW indexing. Embedding models (OpenAI ada-002, Cohere embed, E5) convert queries and documents to 768–1536 dimensional vectors; ANN search finds nearest neighbors in this semantic space.",
+          "Hybrid retrieval (BM25 + ANN) requires reciprocal rank fusion (RRF) or linear interpolation to combine scores from two different scoring spaces. RRF is parameter-free and robust: score(d) = Σ 1/(k + rank(d)) where k=60 is the constant and ranks come from each retrieval method. This ensemble beats either method alone on BEIR and other retrieval benchmarks. Add a cross-encoder reranker (compute query-document similarity jointly rather than independently) on the top-100 candidates for state-of-the-art relevance."
         ]
       }
     ]
   },
   "concepts": [
-    "Search & Inverted Indexes: core idea"
+    "Inverted index: term → posting list of document IDs; core search data structure",
+    "Analyzer: tokenize → normalize → stem → stop word removal pipeline",
+    "BM25: relevance scoring combining TF, IDF, term saturation, length normalization",
+    "Shard: a Lucene index; unit of distribution in Elasticsearch clusters",
+    "Segment: immutable unit within a shard; merged periodically to reclaim deleted space",
+    "NRT (Near Real-Time): documents searchable within ~1 second via refresh",
+    "Filter context: non-scoring query clauses that are cached; faster than full query context",
+    "HNSW: Hierarchical Navigable Small World graph for approximate nearest neighbor search",
+    "RRF (Reciprocal Rank Fusion): parameter-free score combination for hybrid retrieval",
+    "ILM (Index Lifecycle Management): automates hot→warm→cold→delete progression"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Define explicit index mappings; never rely on dynamic mapping in production",
+    "Use keyword type for fields needing exact match, aggregation, or sorting; text for full-text",
+    "Maximize filter context (non-scoring) vs. query context (scoring) for performance",
+    "Size shards at 10–65 GB; keep total shard count ≤20 per GB of JVM heap",
+    "Use ILM to automatically move old indices to warm/cold tiers and reduce storage cost",
+    "Enable slow logs during query tuning; set thresholds at 100ms for queries, 500ms for indexing",
+    "Use search_after for pagination instead of deep from/size scrolling"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Mapping explosion from dynamic mapping of nested JSON—limits index growth and exhausts heap",
+    "Enabling field data on text fields—blows out JVM heap and causes GC pauses",
+    "Over-sharding: thousands of small shards cause high coordinator overhead and slow queries",
+    "Ignoring JVM heap pressure—Elasticsearch GC pauses at >85% heap cause query timeouts",
+    "Deep pagination (from: 10000+) is O(from × shards) in memory; use search_after instead",
+    "Indexing highly dynamic data (every write updates Elasticsearch)—prefer periodic bulk reindex"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "GitHub Code Search",
+      "description": "GitHub's code search engine indexes billions of files using a custom trigram-based inverted index (not Elasticsearch). Each file is indexed as character trigrams ('fun' → ['fun', 'unc', 'nct', ...]), enabling regex and substring search. At indexing scale, they use a delta-based approach: only re-index files that changed in each commit. Lessons: at extreme scale (billions of documents), custom-built inverted indices beat general-purpose search engines."
+    },
+    {
+      "title": "Shopify's Product Search",
+      "description": "Shopify runs Elasticsearch for storefront product search across thousands of merchant indices. Each merchant gets isolated shards to prevent noisy neighbor effects. Query-time boosting (boost recently viewed products, boost products on sale, boost in-stock products) is implemented via function_score queries layered on BM25. Autocomplete uses edge N-grams on product titles. Zero-results monitoring triggers merchandiser alerts to improve catalog quality."
+    }
+  ],
   "keyTakeaways": [
-    "Search & Inverted Indexes belongs in the curriculum as evergreen content"
+    "Inverted indexes enable O(1) term lookup and efficient boolean query intersection",
+    "BM25 balances term frequency and rarity (IDF) with saturation and length normalization",
+    "Elasticsearch shards data across a cluster; size shards at 10–65 GB for optimal performance",
+    "Filter context (cached, non-scoring) is 5–10x faster than query context—use it for non-scoring criteria",
+    "JVM heap management is Elasticsearch's most critical operational concern",
+    "Hybrid search (BM25 + dense vector ANN) achieves state-of-the-art relevance"
   ],
-  "whyItMatters": "Understanding Search & Inverted Indexes improves design judgment for production systems.",
+  "whyItMatters": "Full-text search is a required feature in nearly every product—from e-commerce product search to documentation search to log analysis. Understanding how search engines work internally helps you design systems that balance relevance, performance, and cost, avoid common operational pitfalls (shard count, JVM heap), and choose between general-purpose search (Elasticsearch) and specialized alternatives (Meilisearch, Typesense, pgvector).",
   "reflectionQuestions": [
-    "When would you reach for Search & Inverted Indexes in a real design?"
+    "An e-commerce search returns hundreds of results for 'red shoes' but ranks a discontinued product first. How would you debug and fix relevance?",
+    "Your Elasticsearch cluster has high GC pauses causing search latency spikes at peak traffic. What are the likely causes and fixes?",
+    "Design a search feature for a code hosting platform: what index structure, analyzer, and query strategy would you use?",
+    "When would you choose Elasticsearch over adding a full-text index to PostgreSQL (pg_trgm)?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Lucene segment merge: triggered when segment count exceeds merge factor (default 10)",
+    "Elasticsearch refresh interval: 1 second default; set to -1 during bulk indexing for 2–3x speed",
+    "BM25 default params: k1=1.2, b=0.75; tunable per field",
+    "Shard size: 10–65 GB recommended; ≤20 shards per GB JVM heap",
+    "HNSW index construction: O(n log n); M=16, ef_construction=100 are common defaults"
   ],
   "diagrams": [
     {
-      "id": "fund-search-overview",
-      "title": "Search & Inverted Indexes overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-search-inverted-index",
+      "title": "Inverted Index Structure",
+      "mermaid": "flowchart LR\n  Doc1[doc1: 'quick brown fox'] --> Tok[Tokenizer + Analyzer]\n  Doc2[doc2: 'quick lazy dog'] --> Tok\n  Tok --> Idx{{Inverted Index}}\n  Idx -->|quick| PL1[1, 2]\n  Idx -->|brown| PL2[1]\n  Idx -->|fox| PL3[1]\n  Idx -->|lazy| PL4[2]\n  Idx -->|dog| PL5[2]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Search & Inverted Indexes and the main trade-offs in 3 minutes."
+    "How does an inverted index differ from a database B-tree index?",
+    "Explain BM25 scoring. What does TF, IDF, term saturation, and length normalization each contribute?",
+    "How does Elasticsearch distribute a search query across a cluster?",
+    "Design the search architecture for an e-commerce platform with 10M products.",
+    "What is the difference between filter context and query context in Elasticsearch?"
   ],
   "exercises": [
-    "Design a small system that depends on Search & Inverted Indexes; list 3 trade-offs."
+    "Design the Elasticsearch mapping for a product search system: fields, types (keyword vs text), multi-fields, and analyzed sub-fields.",
+    "Write a BM25 score calculation by hand for a 3-word query over 2 candidate documents.",
+    "Design an ILM policy for a logging index: hot for 7 days, warm for 30, cold for 90, then delete."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "Elasticsearch documentation — mapping, BM25, and query DSL"
+    },
+    {
+      "title": "Introduction to Information Retrieval — Manning, Raghavan & Schütze (free online)"
+    },
+    {
+      "title": "Elasticsearch: The Definitive Guide — Clinton Gormley & Zachary Tong (Elastic)"
+    },
+    {
+      "title": "BEIR benchmark — beir.ai; heterogeneous retrieval benchmark for search models"
+    }
+  ],
   "relatedLessons": [
+    "fund-blob-storage",
     "fund-olap",
-    "fund-storage-types",
-    "fund-vector-db"
+    "fund-storage-types"
   ]
 }

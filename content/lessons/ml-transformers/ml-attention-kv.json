@@ -13,8 +13,7 @@
   "prerequisites": [],
   "tags": [
     "ml-transformers",
-    "evergreen",
-    "ml-foundations"
+    "evergreen"
   ],
   "sections": [
     {
@@ -109,7 +108,5 @@
   "interviewQuestions": [],
   "exercises": [],
   "sources": [],
-  "relatedLessons": [
-    "ml-context-memory"
-  ]
+  "relatedLessons": []
 }

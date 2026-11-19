@@ -3,12 +3,12 @@
   "title": "AuthN, AuthZ, Encryption & Secrets",
   "moduleId": "security",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "AuthN, AuthZ, Encryption & Secrets — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "Authentication establishes identity; authorization decides permissions; encryption protects data in transit and at rest; secrets management prevents credential sprawl. System designs that bolt these on late leak.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [],
   "tags": [
@@ -18,80 +18,147 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "AuthN patterns",
       "paragraphs": [
-        "This draft covers AuthN, AuthZ, Encryption & Secrets. Run content:generate to expand it with a model provider, or edit manually."
+        "Sessions, JWTs, mTLS for service identity, OAuth/OIDC for delegated user login. Know token lifetime, revocation, and audience restrictions."
+      ]
+    },
+    {
+      "title": "AuthZ models",
+      "paragraphs": [
+        "RBAC, ABAC, ReBAC. Enforce on every data path — UI checks are not security. Central policy engines help, but local enforcement must fail closed."
+      ]
+    },
+    {
+      "title": "Encryption",
+      "paragraphs": [
+        "TLS everywhere in transit. At rest: disk encryption plus field-level for sensitive columns. Key rotation and envelope encryption are part of the design."
+      ]
+    },
+    {
+      "title": "Secrets",
+      "paragraphs": [
+        "No secrets in images or git. Use a vault/KMS with short-lived credentials. Audit access. Rotate on incident without redeploying everywhere."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "AuthN patterns",
         "paragraphs": [
-          "This draft covers AuthN, AuthZ, Encryption & Secrets. Run content:generate to expand it with a model provider, or edit manually."
+          "Sessions, JWTs, mTLS for service identity, OAuth/OIDC for delegated user login. Know token lifetime, revocation, and audience restrictions."
+        ]
+      },
+      {
+        "title": "AuthZ models",
+        "paragraphs": [
+          "RBAC, ABAC, ReBAC. Enforce on every data path — UI checks are not security. Central policy engines help, but local enforcement must fail closed."
+        ]
+      },
+      {
+        "title": "Encryption",
+        "paragraphs": [
+          "TLS everywhere in transit. At rest: disk encryption plus field-level for sensitive columns. Key rotation and envelope encryption are part of the design."
+        ]
+      },
+      {
+        "title": "Secrets",
+        "paragraphs": [
+          "No secrets in images or git. Use a vault/KMS with short-lived credentials. Audit access. Rotate on incident without redeploying everywhere."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "AuthN, AuthZ, Encryption & Secrets — Deep Dive",
+        "title": "AuthN, AuthZ, Encryption & Secrets — Operations",
         "paragraphs": [
-          "Extended treatment of AuthN, AuthZ, Encryption & Secrets: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating AuthN, AuthZ, Encryption & Secrets in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "AuthN, AuthZ, Encryption & Secrets — Failure modes",
+        "paragraphs": [
+          "Common failures around AuthN, AuthZ, Encryption & Secrets include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "AuthN, AuthZ, Encryption & Secrets — Expert Notes",
+        "title": "AuthN, AuthZ, Encryption & Secrets — Expert notes",
         "paragraphs": [
-          "Expert considerations for AuthN, AuthZ, Encryption & Secrets: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, AuthN, AuthZ, Encryption & Secrets intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "AuthN, AuthZ, Encryption & Secrets: core idea"
+    "OIDC/OAuth",
+    "JWT claims",
+    "RBAC/ABAC",
+    "mTLS",
+    "Envelope encryption",
+    "Secret rotation"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Fail closed on authz errors",
+    "Short-lived credentials",
+    "Encrypt in transit by default"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Unsigned/weak JWT verification",
+    "Authz only in UI",
+    "Long-lived static cloud keys"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "OIDC login + API gateway",
+      "description": "User identity propagated as verified claims."
+    },
+    {
+      "title": "SPIFFE/mTLS mesh",
+      "description": "Workload identity without static keys."
+    }
+  ],
   "keyTakeaways": [
-    "AuthN, AuthZ, Encryption & Secrets belongs in the curriculum as evergreen content"
+    "Identity and policy must cover every path",
+    "Secrets are a lifecycle, not a string"
   ],
-  "whyItMatters": "Understanding AuthN, AuthZ, Encryption & Secrets improves design judgment for production systems.",
+  "whyItMatters": "Security design failures become breaches; they are system design topics, not optional polish.",
   "reflectionQuestions": [
-    "When would you reach for AuthN, AuthZ, Encryption & Secrets in a real design?"
+    "Where can an internal service call another without identity?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "fund-security-overview",
       "title": "AuthN, AuthZ, Encryption & Secrets overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain AuthN, AuthZ, Encryption & Secrets and the main trade-offs in 3 minutes."
+    "Explain AuthN, AuthZ, Encryption & Secrets and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on AuthN, AuthZ, Encryption & Secrets; list 3 trade-offs."
+    "Sketch a design that depends on AuthN, AuthZ, Encryption & Secrets; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
+    "fund-supply-chain",
+    "fund-zero-trust",
     "security-auth"
   ]
 }

@@ -1,99 +1,248 @@
 {
   "id": "fund-olap",
-  "title": "OLAP & Columnar Storage",
+  "title": "OLAP & Analytical Databases",
   "moduleId": "storage",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "OLAP & Columnar Storage — draft awaiting generation and review.",
-  "kind": "living",
+  "durationMinutes": 40,
+  "summary": "OLAP (Online Analytical Processing) databases are optimized for complex aggregations over large historical datasets—the opposite of OLTP systems optimized for fast point lookups on current data. Understanding columnar storage, the data warehouse model, and when to separate analytics from operational systems is essential for designing data-intensive applications at scale.",
+  "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [],
+  "prerequisites": [
+    "fund-storage-types"
+  ],
   "tags": [
     "storage",
-    "living",
+    "analytics",
+    "evergreen",
     "fundamentals"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "OLTP vs OLAP: Fundamentally Different Access Patterns",
       "paragraphs": [
-        "This draft covers OLAP & Columnar Storage. Run content:generate to expand it with a model provider, or edit manually."
+        "OLTP (Online Transaction Processing) systems serve real-time user-facing requests: 'get this user's orders,' 'update this product's inventory,' 'insert a new payment.' These queries access a small number of rows by primary or index key, run in milliseconds, and execute thousands to millions of times per second. PostgreSQL, MySQL, and DynamoDB are OLTP systems. They optimize for point reads and writes on current data.",
+        "OLAP (Online Analytical Processing) systems serve business analytics and reporting: 'what were total sales by product category in Q3,' 'which users churned in the last 30 days,' 'show me the trend in p99 API latency over 6 months.' These queries scan millions to billions of rows, compute aggregations, and may run for seconds to minutes. They require a fundamentally different storage architecture—columnar rather than row-oriented.",
+        "Running analytics queries on an OLTP database is dangerous: a full table scan for a report can saturate I/O, consuming resources needed for real-time user requests. The industry solution is CQRS at the infrastructure level: separate your write path (OLTP system) from your read path (OLAP system) and replicate data from one to the other. This separation also allows OLAP systems to be optimized independently without affecting production uptime."
+      ],
+      "bullets": [
+        "OLTP: row-oriented, point queries, milliseconds, high concurrency, current data",
+        "OLAP: column-oriented, full scans + aggregations, seconds to minutes, batch analytics",
+        "Never run expensive analytics on OLTP—protect production latency by separating workloads",
+        "CQRS at infrastructure level: replicate from OLTP to OLAP for independent optimization"
+      ]
+    },
+    {
+      "title": "Columnar Storage: Why It Matters for Analytics",
+      "paragraphs": [
+        "Row-oriented storage (PostgreSQL, MySQL) stores all columns of a row together on disk: (user_id=1, name='Alice', age=28, country='US'), (user_id=2, name='Bob', age=35, country='UK'). To answer 'average age of all users,' the database reads every row, loading all columns even though it only needs age. For a 100-column table with 1 billion rows and a 100-byte average row size, that's 100 GB of disk I/O just to aggregate one column.",
+        "Columnar storage stores each column contiguously: all user_ids together, all names together, all ages together. The same query reads only the age column—1 billion × 4 bytes = 4 GB of I/O, a 25x reduction. Additionally, columnar data compresses extremely well: an age column holds integers in the range 0–120; run-length encoding or dictionary encoding achieves 10–50x compression, reducing that 4 GB to under 100 MB. This combination—column pruning plus compression—is why columnar analytical databases are 10–1000x faster than row-oriented databases for analytics workloads.",
+        "Vectorized query execution further accelerates columnar analytics. Modern CPUs have SIMD (Single Instruction, Multiple Data) instructions that can apply the same operation to 8–32 values simultaneously. When columns are stored as contiguous arrays of a uniform type, the query engine can process them with SIMD operations—computing 'sum all ages' at near-memory-bandwidth speed. Apache Arrow provides a standardized in-memory columnar format that enables zero-copy interoperability between analytical engines."
+      ],
+      "bullets": [
+        "Column pruning: read only the needed columns; 10–100x less I/O for sparse queries",
+        "Compression: uniform columns (integers, enums) achieve 10–50x compression",
+        "Vectorized execution: SIMD operations on column arrays; near-memory-bandwidth speeds",
+        "Apache Arrow: standardized in-memory columnar format; enables zero-copy engine interop"
+      ]
+    },
+    {
+      "title": "Data Warehouse Architecture: Redshift, BigQuery, Snowflake",
+      "paragraphs": [
+        "Amazon Redshift, Google BigQuery, and Snowflake are the dominant managed cloud data warehouses. All use columnar storage and massively parallel processing (MPP). Redshift: nodes store data on attached SSDs; queries execute across all nodes in parallel; best for structured SQL analytics with predictable workloads. BigQuery: fully serverless; no infrastructure to manage; scales to petabytes automatically; charges per query based on bytes scanned (optimize by partitioning and clustering tables to reduce scan size). Snowflake: separates storage (S3) from compute (virtual warehouses); scale compute without re-loading data; popular for multi-tenant workloads.",
+        "The star schema and snowflake schema are the standard data modeling patterns for warehouses. A central fact table (e.g., sales_transactions) stores events with foreign keys to dimension tables (date, product, customer, store). Analytics queries join the fact table with dimensions to answer 'total sales by product category in Q3 for US customers.' Pre-aggregated rollup tables (materialized views or summary tables) speed up common queries by precomputing aggregations at load time.",
+        "ELT (Extract, Load, Transform) has largely replaced ETL for modern data warehouses. With cloud warehouses that can transform data in-place with SQL, it's cheaper and faster to load raw data first (into a staging area) and transform it inside the warehouse using SQL or dbt. This decouples ingestion from transformation, allows re-running transformations without re-extracting data, and leverages the warehouse's compute for transformation rather than separate ETL infrastructure."
+      ],
+      "bullets": [
+        "Redshift: MPP on attached SSDs; best for predictable, structured SQL analytics",
+        "BigQuery: serverless; charges per bytes scanned; optimize with partitioning + clustering",
+        "Snowflake: separate storage/compute; scale compute independently; multi-tenant friendly",
+        "ELT > ETL: load raw data first, transform inside warehouse with SQL/dbt"
+      ]
+    },
+    {
+      "title": "The Modern Data Stack: Lakehouse and Streaming Analytics",
+      "paragraphs": [
+        "The data lakehouse architecture (Delta Lake, Apache Iceberg, Apache Hudi) combines the scalability of data lakes (cheap object storage) with the reliability of data warehouses (ACID transactions, schema enforcement, time-travel). Data is stored as Parquet files in S3 or GCS, but a metadata layer manages transactions, file pruning (partition elimination), and versioning. This enables SQL analytics engines (Spark, Trino, Athena) to query the lake with warehouse semantics at object storage prices ($0.023/GB vs. $0.025/GB for Redshift).",
+        "Streaming analytics bridges the latency gap between real-time events and batch analytics. Apache Flink and Kafka Streams can compute aggregations over data streams with sub-second latency, enabling real-time dashboards and anomaly detection. Apache Spark Structured Streaming provides micro-batch processing (latency in seconds to minutes) with batch-compatible semantics. The choice between streaming and batch depends on how fresh your analytics must be: dashboards refreshed hourly can use batch; fraud detection needing real-time decisions needs streaming.",
+        "The Lambda Architecture (batch layer + speed layer + serving layer) has been largely superseded by the Kappa Architecture (unified streaming pipeline). In Kappa, all data flows through a streaming system (Kafka + Flink); batch analytics are just streaming with a larger window. This simplification reduces operational complexity—one pipeline instead of two—at the cost of needing a streaming framework expressive enough to handle historical reprocessing."
+      ],
+      "bullets": [
+        "Lakehouse (Delta/Iceberg): ACID + time-travel on cheap object storage; Parquet + metadata layer",
+        "Flink: sub-second streaming aggregations; stateful operators; exactly-once semantics",
+        "Kappa Architecture: unified streaming pipeline; batch is just large-window streaming",
+        "dbt (data build tool): SQL-based transformations with version control and testing"
+      ]
+    },
+    {
+      "title": "Operational Patterns: Partitioning, Clustering, and Query Optimization",
+      "paragraphs": [
+        "Partitioning is the most impactful optimization for analytical query performance. Partitioning a fact table by date means a query filtering to 'last 7 days' scans only 7 partitions instead of the entire table. BigQuery's partition pruning is automatic when you filter on the partition key; Redshift requires SORTKEY definitions to achieve similar effects. Always partition large analytical tables by the most common filter dimension—usually date/time for time-series data or tenant_id for multi-tenant platforms.",
+        "Clustering (sort keys) further narrows scans within a partition. If queries frequently filter by country after partitioning by date, clustering by country means country='US' rows are physically adjacent on disk—the database can skip entire blocks that don't contain US records. BigQuery clustering, Redshift SORTKEY, and Iceberg sort orders all implement this. The rule: partition on the first filter dimension, cluster on the second.",
+        "Query optimization in columnar databases requires different mental models than OLTP. CTEs (Common Table Expressions) in BigQuery can cost more than joins depending on query plan materialization. APPROX_COUNT_DISTINCT is 100x cheaper than COUNT(DISTINCT) for large cardinality columns with acceptable approximation error. EXPLAIN ANALYZE reveals scan sizes; reducing bytes scanned (column selection, partition pruning, clustering) is the primary lever for cost and performance."
+      ],
+      "bullets": [
+        "Partition by date/tenant: partition pruning eliminates irrelevant data before scanning",
+        "Cluster/sort by filter dimensions: adjacent blocks enable block-level skip",
+        "APPROX_COUNT_DISTINCT: 100x cheaper than exact for cardinality estimation",
+        "EXPLAIN ANALYZE: start every optimization with query plan inspection"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "OLTP vs OLAP",
         "paragraphs": [
-          "This draft covers OLAP & Columnar Storage. Run content:generate to expand it with a model provider, or edit manually."
+          "OLTP: point queries on current data, milliseconds, high concurrency. OLAP: full scans with aggregations, seconds to minutes, batch analytics.",
+          "Never run OLAP queries on OLTP systems—full table scans starve real-time user requests of I/O.",
+          "CQRS at infrastructure level: separate read (OLAP) from write (OLTP) paths; replicate data between them."
+        ]
+      },
+      {
+        "title": "Columnar Storage Benefits",
+        "paragraphs": [
+          "Column pruning: only read needed columns; 10–100x less I/O for sparse queries. Critical when queries touch 5 of 100 columns.",
+          "Compression: uniform column data (integers, enums) compresses 10–50x better than mixed row data.",
+          "Vectorized SIMD execution processes column arrays at near-memory-bandwidth speed."
+        ]
+      },
+      {
+        "title": "Query Optimization",
+        "paragraphs": [
+          "Partition large tables by the most common filter dimension (usually date). Partition pruning eliminates irrelevant data before scanning.",
+          "Cluster/sort by secondary filter dimensions to enable block-level skipping.",
+          "APPROX_COUNT_DISTINCT for cardinality; EXPLAIN ANALYZE for query plan inspection."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "OLAP & Columnar Storage — Deep Dive",
+        "title": "Lakehouse Architecture Deep Dive",
         "paragraphs": [
-          "Extended treatment of OLAP & Columnar Storage: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Apache Iceberg manages a metadata tree (catalog → snapshot → manifest list → manifest files → data files). Each write creates a new snapshot; reading at a snapshot timestamp enables time-travel queries. Manifest files contain column statistics (min/max per column per file), enabling aggressive file pruning before scanning—Iceberg can skip 99% of files for selective queries.",
+          "Delta Lake and Iceberg both provide ACID transactions via optimistic concurrency control. Concurrent writes to different partitions succeed independently; writes to overlapping partitions are serialized via conflict detection in the transaction log. This enables multiple writers without full table locks—critical for streaming ingestion pipelines writing to the same table as batch processes.",
+          "Z-ordering (space-filling curves) in Delta Lake colocates rows that share values across multiple columns, enabling multi-column file pruning. If your queries frequently filter by both country AND product_category, Z-ordering by (country, product_category) can reduce files scanned by 10–100x compared to ordering by either column alone."
+        ]
+      },
+      {
+        "title": "Cost Optimization in Cloud Data Warehouses",
+        "paragraphs": [
+          "BigQuery charges $5/TB scanned (on-demand) or flat-rate slot reservations. Reducing bytes scanned is the primary cost lever: add partition filters to every query, select only needed columns, use clustering to enable block skipping. A query scanning 100 TB costs $500; the same query with partition pruning scanning 1 TB costs $5. Materialized views precompute expensive aggregations; BigQuery's smart tuning automatically routes queries through materialized views when applicable.",
+          "Redshift pricing: cluster cost (RA3 nodes at ~$0.26/node-hour) is fixed regardless of query volume. Redshift Spectrum queries against S3 at $5/TB scanned—same model as BigQuery for cold data. The optimal strategy: hot data in Redshift for frequent queries; cold historical data in S3 queried via Spectrum. Concurrency scaling adds on-demand cluster capacity for query bursts at $0.013/second."
         ]
       }
     ],
     "expert": [
       {
-        "title": "OLAP & Columnar Storage — Expert Notes",
+        "title": "Expert: Approximate Query Processing and Sketches",
         "paragraphs": [
-          "Expert considerations for OLAP & Columnar Storage: multi-region behavior, cost envelopes, and edge cases under overload."
+          "For analytics on truly massive datasets (petabytes), exact computation is often prohibitively expensive. Approximate Query Processing (AQP) uses statistical sampling and probabilistic data structures to deliver answers within 1–5% error at 10–1000x lower cost. HyperLogLog (HLL) estimates cardinality (COUNT DISTINCT) using O(log log n) space. Count-Min Sketch estimates frequency of elements in a stream. Bloom filters test set membership in O(1) with controllable false-positive rate.",
+          "T-Digest computes approximate percentiles (p50, p95, p99) over streaming data with high accuracy at the tails where precision matters most for SLO monitoring. Databricks and BigQuery both have built-in sketch functions; ClickHouse exposes HLL and t-digest natively. When exact answers aren't required—trending topics, DAU estimates, percentile dashboards—sketches enable analytics at scale that would be impractical with exact computation."
         ]
       }
     ]
   },
   "concepts": [
-    "OLAP & Columnar Storage: core idea"
+    "OLTP: row-oriented, point queries, milliseconds, current data",
+    "OLAP: columnar, full scans with aggregations, seconds to minutes, historical data",
+    "Columnar storage: each column stored contiguously; enables pruning and high compression",
+    "MPP (Massively Parallel Processing): split query across all nodes; horizontal query scaling",
+    "Star schema: central fact table with dimension table foreign keys",
+    "ELT: load raw data into warehouse first; transform with SQL/dbt inside warehouse",
+    "Partition pruning: skip irrelevant partitions before scanning; date partitioning is most common",
+    "Lakehouse: ACID transactions + time-travel on cheap object storage; Delta Lake, Iceberg",
+    "HyperLogLog: probabilistic cardinality estimation in O(log log n) space",
+    "Kappa Architecture: unified streaming pipeline; batch is streaming with large window"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Separate OLAP from OLTP; replicate asynchronously to avoid analytics impacting production",
+    "Always partition large analytical tables by date or tenant_id as first partition key",
+    "Use ELT with dbt for transformations; version-control your SQL transformations like code",
+    "Prefer APPROX_COUNT_DISTINCT for cardinality estimation; exact is 100x more expensive",
+    "Size BigQuery/Snowflake costs by bytes scanned before running expensive queries",
+    "Use materialized views for common aggregations accessed by multiple dashboards",
+    "Profile queries with EXPLAIN before optimizing—identify scan size as the key metric"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Running heavy analytics reports on the OLTP primary—causes latency spikes for users",
+    "Forgetting to add partition filters in BigQuery queries—results in full table scans and large bills",
+    "Using star schema normalization in BigQuery/Redshift without considering JOIN cost at scale",
+    "Not clustering tables in BigQuery/Redshift—queries filter on non-ordered columns, scanning entire partitions",
+    "Over-relying on SELECT *—reads all columns even in columnar DBs, negating the pruning benefit",
+    "Using Redshift for small datasets—fixed cluster cost makes it expensive for low-volume analytics"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Airbnb's Data Warehouse Evolution",
+      "description": "Airbnb runs thousands of analysts and data scientists on a Hive → Spark → Presto → dbt stack with data stored as Parquet on S3 (Delta Lake). Key insight: standardizing on dbt for transformations gave them version-controlled, tested, documented SQL pipelines. Partitioning their booking fact table by check-in date and clustering by property_category reduced average query costs by 80% by eliminating full table scans for time-range queries."
+    },
+    {
+      "title": "Stripe's Real-Time Analytics Pipeline",
+      "description": "Stripe requires real-time fraud detection (sub-100ms decisions) and historical analytics (batch reports). They run a dual pipeline: Kafka → Flink for real-time feature computation feeding the fraud model, and Kafka → S3 → Iceberg → Trino for historical analytics. The same event stream feeds both pipelines; the lakehouse gives them the ability to reprocess historical data when models change."
+    }
+  ],
   "keyTakeaways": [
-    "OLAP & Columnar Storage belongs in the curriculum as living content"
+    "OLAP and OLTP have fundamentally different access patterns requiring different storage architectures",
+    "Columnar storage achieves 10–100x performance improvement over row-oriented for analytics workloads",
+    "Partition by date/tenant and cluster by secondary filter dimensions to minimize bytes scanned",
+    "ELT with dbt is the modern pattern: load raw, transform inside the warehouse with version-controlled SQL",
+    "The lakehouse (Delta Lake, Iceberg) combines cheap object storage with warehouse reliability",
+    "BigQuery costs by bytes scanned—partition pruning and column selection directly reduce cost"
   ],
-  "whyItMatters": "Understanding OLAP & Columnar Storage improves design judgment for production systems.",
+  "whyItMatters": "As systems scale, analytical queries on operational databases become existential threats to production latency. Every senior engineer needs to understand when to separate OLAP from OLTP, how to design a data model that enables efficient analytics, and how to reason about query cost. Data warehouse and lakehouse architecture is also increasingly a first-class system design interview topic as data-driven products become the norm.",
   "reflectionQuestions": [
-    "When would you reach for OLAP & Columnar Storage in a real design?"
+    "Your analytics team is running daily reports directly against your PostgreSQL production database, causing latency spikes. Design a solution.",
+    "Compare BigQuery and Snowflake pricing models. For what workload is each more economical?",
+    "Design the data warehouse for a ride-sharing app that needs to answer: 'daily revenue by city by driver tier over the last 2 years.'",
+    "When would you choose a lakehouse architecture over a traditional data warehouse?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Columnar compression: 10–50x vs row-oriented for analytics workloads",
+    "BigQuery on-demand: $5/TB scanned; $5K/month flat-rate for 500 slots",
+    "Redshift RA3 node: ~$0.26/node-hour; 48TB managed storage per node",
+    "Parquet compression: typically 4–10x over raw CSV for structured data",
+    "Partition pruning effectiveness: 10–1000x reduction in bytes scanned for date-filtered queries"
   ],
   "diagrams": [
     {
-      "id": "fund-olap-overview",
-      "title": "OLAP & Columnar Storage overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-olap-architecture",
+      "title": "Modern Data Stack Architecture",
+      "mermaid": "flowchart LR\n  OLTP[(PostgreSQL\nOLTP)] -->|CDC / replication| Kafka[Kafka]\n  Kafka -->|streaming| Flink[Flink\nReal-time]\n  Kafka -->|batch load| S3[(S3 / Iceberg\nData Lake)]\n  S3 -->|ELT| DW[Data Warehouse\nRedshift/BigQuery]\n  DW -->|dbt transforms| Mart[Data Mart]\n  Mart --> BI[BI Tools\nTableau/Looker]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain OLAP & Columnar Storage and the main trade-offs in 3 minutes."
+    "What is the difference between OLAP and OLTP? Why can't you use the same database for both?",
+    "Explain how columnar storage makes analytics queries faster.",
+    "Design the data pipeline for an e-commerce platform that needs both real-time fraud detection and weekly sales reports.",
+    "What is a star schema and why is it used in data warehouses?",
+    "How do you optimize a BigQuery query that is scanning 10 TB and costing $50 per run?"
   ],
   "exercises": [
-    "Design a small system that depends on OLAP & Columnar Storage; list 3 trade-offs."
+    "Design a data warehouse for a SaaS company: define the fact table, dimension tables, partition key, and cluster key for subscription revenue analytics.",
+    "Calculate the monthly BigQuery cost for a query that scans 500 GB, runs 1000 times/month, with and without partition pruning that reduces scan to 5 GB.",
+    "Design a streaming + batch Lambda (or Kappa) architecture for real-time recommendation plus historical A/B test analysis."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Martin Kleppmann, Chapter 3 (Storage and Retrieval)"
+    },
+    {
+      "title": "BigQuery documentation — partitioning, clustering, and query optimization"
+    },
+    {
+      "title": "Apache Iceberg specification — iceberg.apache.org/spec"
+    },
+    {
+      "title": "The Data Warehouse Toolkit — Ralph Kimball (star schema design)"
+    }
+  ],
   "relatedLessons": [
+    "fund-blob-storage",
     "fund-search",
-    "fund-storage-types",
-    "fund-vector-db"
+    "fund-storage-types"
   ]
 }

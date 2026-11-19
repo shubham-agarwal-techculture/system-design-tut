@@ -1,0 +1,168 @@
+{
+  "id": "infra-service-mesh",
+  "title": "Service Mesh Deep Dive",
+  "moduleId": "infra-core",
+  "phaseId": "infrastructure",
+  "durationMinutes": 45,
+  "summary": "A service mesh inserts a data plane (usually Envoy sidecars or ambient proxies) to provide mTLS, retries, timeouts, observability, and traffic splitting uniformly — at the cost of complexity and latency.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "infra-observability-deep"
+  ],
+  "tags": [
+    "infra-core",
+    "living",
+    "infrastructure"
+  ],
+  "sections": [
+    {
+      "title": "Problem statement",
+      "paragraphs": [
+        "Microservices reimplement RPC concerns inconsistently. A mesh centralizes policy in proxies next to workloads or on nodes.",
+        "Control planes (Istio, Linkerd, Consul) push configuration; data planes carry traffic."
+      ]
+    },
+    {
+      "title": "Features that matter",
+      "paragraphs": [
+        "mTLS identity, retries with budgets, timeouts, outlier detection, canaries, and golden signals telemetry.",
+        "Ambition creep — turning the mesh into a business-rules engine — creates opaque failure domains."
+      ]
+    },
+    {
+      "title": "Costs",
+      "paragraphs": [
+        "Sidecar CPU/RAM, added hops, upgrade coupling, and debugging difficulty. Ambient/mode alternatives reduce per-pod sidecars but change trust boundaries."
+      ]
+    },
+    {
+      "title": "When to adopt",
+      "paragraphs": [
+        "Adopt when you have many services needing uniform security/telemetry and a platform team to own it. Skip for small monolith-adjacent estates."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Problem statement",
+        "paragraphs": [
+          "Microservices reimplement RPC concerns inconsistently. A mesh centralizes policy in proxies next to workloads or on nodes.",
+          "Control planes (Istio, Linkerd, Consul) push configuration; data planes carry traffic."
+        ]
+      },
+      {
+        "title": "Features that matter",
+        "paragraphs": [
+          "mTLS identity, retries with budgets, timeouts, outlier detection, canaries, and golden signals telemetry.",
+          "Ambition creep — turning the mesh into a business-rules engine — creates opaque failure domains."
+        ]
+      },
+      {
+        "title": "Costs",
+        "paragraphs": [
+          "Sidecar CPU/RAM, added hops, upgrade coupling, and debugging difficulty. Ambient/mode alternatives reduce per-pod sidecars but change trust boundaries."
+        ]
+      },
+      {
+        "title": "When to adopt",
+        "paragraphs": [
+          "Adopt when you have many services needing uniform security/telemetry and a platform team to own it. Skip for small monolith-adjacent estates."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Service Mesh Deep Dive — Operations",
+        "paragraphs": [
+          "Operating Service Mesh Deep Dive in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+        ],
+        "bullets": [
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Service Mesh Deep Dive — Failure modes",
+        "paragraphs": [
+          "Common failures around Service Mesh Deep Dive include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Service Mesh Deep Dive — Expert notes",
+        "paragraphs": [
+          "At the expert level, Service Mesh Deep Dive intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Data plane vs control plane",
+    "Sidecar vs ambient",
+    "mTLS identity",
+    "Outlier detection"
+  ],
+  "practices": [
+    "Start with mTLS + telemetry only",
+    "Budget retries carefully",
+    "Own the mesh as a platform product"
+  ],
+  "pitfalls": [
+    "Mesh as business logic dump",
+    "No platform ownership",
+    "Ignoring latency tax"
+  ],
+  "examples": [
+    {
+      "title": "Istio + Envoy",
+      "description": "Widely deployed, feature-rich."
+    },
+    {
+      "title": "Linkerd",
+      "description": "Simpler operational focus."
+    }
+  ],
+  "keyTakeaways": [
+    "Meshes standardize cross-cutting RPC policy",
+    "Complexity must be justified by estate size"
+  ],
+  "whyItMatters": "Service mesh decisions shape security and reliability for years; they are hard to undo.",
+  "reflectionQuestions": [
+    "Which mesh features do you truly need in the next year?"
+  ],
+  "numbersToKnow": [
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
+  ],
+  "diagrams": [
+    {
+      "id": "infra-service-mesh-overview",
+      "title": "Service Mesh Deep Dive overview",
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Service Mesh Deep Dive and the main trade-offs in three minutes."
+  ],
+  "exercises": [
+    "Sketch a design that depends on Service Mesh Deep Dive; list three trade-offs and one failure mode."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "infra-autoscaling",
+    "infra-cicd-observability",
+    "infra-containers-k8s"
+  ]
+}

@@ -1,0 +1,167 @@
+{
+  "id": "ti-prefill-decode",
+  "title": "Prefill/Decode Disaggregation",
+  "moduleId": "inference-serving",
+  "phaseId": "training-inference",
+  "durationMinutes": 45,
+  "summary": "LLM inference has two phases with different bottlenecks: prefill (compute-heavy prompt processing) and decode (memory-bandwidth heavy token generation). Disaggregating them onto specialized pools can raise utilization — at the cost of KV transfer complexity.",
+  "kind": "living",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "ti-fleet"
+  ],
+  "tags": [
+    "inference-serving",
+    "living",
+    "training-inference"
+  ],
+  "sections": [
+    {
+      "title": "Two phases, two bottlenecks",
+      "paragraphs": [
+        "Prefill processes the prompt in parallel-friendly matmuls — often compute bound. Decode generates one token at a time while reading a growing KV cache — often memory-bandwidth bound.",
+        "A single mixed batch forces GPUs to compromise. Long prompts stall short interactive decodes and vice versa."
+      ]
+    },
+    {
+      "title": "Disaggregation idea",
+      "paragraphs": [
+        "Run prefill on compute-optimized nodes; ship KV cache (or references) to decode nodes optimized for bandwidth and concurrency. Schedulers route based on phase.",
+        "The hard part is KV transfer latency, memory ownership, and failure handling mid-request."
+      ]
+    },
+    {
+      "title": "When it pays off",
+      "paragraphs": [
+        "Workloads with long prompts and moderate output lengths, or highly variable mixes, benefit most. Short prompt/short output chat may not justify the complexity.",
+        "Measure GPU goodput, KV bytes moved, and p99 end-to-end — not just theoretical FLOPs."
+      ]
+    },
+    {
+      "title": "Design checklist",
+      "paragraphs": [
+        "Define SLOs separately for time-to-first-token and inter-token latency. Autoscaling signals should include KV memory and queue time per phase."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Two phases, two bottlenecks",
+        "paragraphs": [
+          "Prefill processes the prompt in parallel-friendly matmuls — often compute bound. Decode generates one token at a time while reading a growing KV cache — often memory-bandwidth bound.",
+          "A single mixed batch forces GPUs to compromise. Long prompts stall short interactive decodes and vice versa."
+        ]
+      },
+      {
+        "title": "Disaggregation idea",
+        "paragraphs": [
+          "Run prefill on compute-optimized nodes; ship KV cache (or references) to decode nodes optimized for bandwidth and concurrency. Schedulers route based on phase.",
+          "The hard part is KV transfer latency, memory ownership, and failure handling mid-request."
+        ]
+      },
+      {
+        "title": "When it pays off",
+        "paragraphs": [
+          "Workloads with long prompts and moderate output lengths, or highly variable mixes, benefit most. Short prompt/short output chat may not justify the complexity.",
+          "Measure GPU goodput, KV bytes moved, and p99 end-to-end — not just theoretical FLOPs."
+        ]
+      },
+      {
+        "title": "Design checklist",
+        "paragraphs": [
+          "Define SLOs separately for time-to-first-token and inter-token latency. Autoscaling signals should include KV memory and queue time per phase."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Prefill/Decode Disaggregation — Operations",
+        "paragraphs": [
+          "Operating Prefill/Decode Disaggregation in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+        ],
+        "bullets": [
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Prefill/Decode Disaggregation — Failure modes",
+        "paragraphs": [
+          "Common failures around Prefill/Decode Disaggregation include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Prefill/Decode Disaggregation — Expert notes",
+        "paragraphs": [
+          "At the expert level, Prefill/Decode Disaggregation intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Prefill vs decode",
+    "KV cache transfer",
+    "TTFT vs TPOT",
+    "Phase-aware scheduling"
+  ],
+  "practices": [
+    "Split SLOs for TTFT and decode rate",
+    "Benchmark KV transfer overhead before committing",
+    "Keep a non-disaggregated fallback path"
+  ],
+  "pitfalls": [
+    "Disaggregating before measuring phase mix",
+    "Ignoring failure mid-transfer",
+    "Autoscaling on GPU util alone"
+  ],
+  "examples": [
+    {
+      "title": "vLLM / research systems",
+      "description": "Ongoing work on PD disaggregation and KV-aware routing."
+    }
+  ],
+  "keyTakeaways": [
+    "Prefill and decode stress hardware differently",
+    "Disaggregation can help mixed workloads",
+    "KV movement is the central design cost"
+  ],
+  "whyItMatters": "Inference cost curves at scale are dominated by phase mix. Architects who treat 'LLM serving' as one uniform stage will mis-size fleets.",
+  "reflectionQuestions": [
+    "What is your traffic's prompt length vs output length distribution?"
+  ],
+  "numbersToKnow": [
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
+  ],
+  "diagrams": [
+    {
+      "id": "ti-prefill-decode-overview",
+      "title": "Prefill/Decode Disaggregation overview",
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Prefill/Decode Disaggregation and the main trade-offs in three minutes."
+  ],
+  "exercises": [
+    "Sketch a design that depends on Prefill/Decode Disaggregation; list three trade-offs and one failure mode."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ti-batching",
+    "ti-fleet",
+    "ti-routing"
+  ]
+}

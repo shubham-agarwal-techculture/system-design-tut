@@ -13,8 +13,7 @@
   "prerequisites": [],
   "tags": [
     "inference-serving",
-    "living",
-    "training-inference"
+    "living"
   ],
   "sections": [
     {
@@ -94,8 +93,5 @@
   "interviewQuestions": [],
   "exercises": [],
   "sources": [],
-  "relatedLessons": [
-    "ti-fleet",
-    "ti-spec-quant"
-  ]
+  "relatedLessons": []
 }

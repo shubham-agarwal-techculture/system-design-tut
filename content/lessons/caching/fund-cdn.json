@@ -1,100 +1,249 @@
 {
   "id": "fund-cdn",
-  "title": "CDN Design",
+  "title": "Content Delivery Networks",
   "moduleId": "caching",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "CDN Design — draft awaiting generation and review.",
+  "durationMinutes": 38,
+  "summary": "A CDN (Content Delivery Network) is a globally distributed network of edge servers that cache and serve content close to end users, reducing latency, offloading origin bandwidth, and improving availability. CDNs are non-negotiable infrastructure for any globally-accessed web service, handling static assets, dynamic API responses, video streaming, and DDoS mitigation.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "fund-caching"
   ],
   "tags": [
     "caching",
+    "cdn",
+    "networking",
     "evergreen",
     "fundamentals"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "How CDNs Work: Anycast, PoPs, and Cache Hierarchies",
       "paragraphs": [
-        "This draft covers CDN Design. Run content:generate to expand it with a model provider, or edit manually."
+        "A CDN operator (Cloudflare, Akamai, Fastly, AWS CloudFront) maintains hundreds to thousands of Points of Presence (PoPs) globally—data centers near major population centers. When a user requests your website, Anycast DNS routing directs them to the nearest PoP. Instead of your request crossing the Atlantic to reach a US-East origin server (100–300ms round-trip), it hits a Frankfurt PoP 20ms away. The PoP checks its local cache; on a hit, it responds immediately. On a miss, it fetches from origin, caches the response, and returns it.",
+        "CDNs use a hierarchical cache architecture. Edge nodes (closest to users) are backed by regional shield nodes, which are backed by origin. A cache miss at the edge first checks the regional shield (another cache layer), reducing direct origin hits. This hierarchy dramatically reduces origin load: even with a 70% edge hit rate, the shield may serve 80% of the remaining misses, reducing origin traffic by 94%. Shield caching is particularly important for large-object delivery (video, large file downloads) where repeated origin fetches would be expensive.",
+        "Anycast works by advertising the same IP address from multiple PoPs via BGP. When a user sends a packet to that IP, the internet's routing protocol naturally directs it to the topologically nearest PoP. This is different from DNS-based load balancing (which requires TTL expiry to redirect) and provides true per-packet routing. Anycast is also the mechanism behind DDoS mitigation: attack traffic from thousands of sources is absorbed across hundreds of PoPs, each handling a fraction of the total attack volume rather than concentrating it at a single origin."
+      ],
+      "bullets": [
+        "PoPs: hundreds to thousands of globally distributed edge data centers",
+        "Anycast DNS: routes user to nearest PoP via BGP topology; per-packet routing",
+        "Cache hierarchy: edge -> regional shield -> origin; shield cuts origin traffic 80–90%",
+        "DDoS mitigation: attack traffic distributed across all PoPs rather than concentrated at origin"
+      ]
+    },
+    {
+      "title": "Cache-Control Headers: Directing CDN Behavior",
+      "paragraphs": [
+        "Cache-Control headers are the primary interface between your application and CDN caching behavior. The key directives: max-age=N tells the browser to cache for N seconds. s-maxage=N tells CDNs (shared caches) to cache for N seconds, overriding max-age. public indicates the response may be cached by any cache (CDN, proxy). private indicates the response is user-specific and must not be cached by shared caches—CDNs honor this and do not cache the response. no-cache means validate with origin before serving (not 'do not cache'; use no-store for truly no caching).",
+        "Combining s-maxage and stale-while-revalidate creates a powerful pattern: Cache-Control: s-maxage=300, stale-while-revalidate=60. The CDN serves the cached response for 300 seconds. After expiry, for the next 60 seconds it serves the stale response while asynchronously refreshing from origin in the background. The user never sees a slow cache-miss response; they get immediate responses, with staleness bounded at 360 seconds. This is ideal for content that changes periodically but where brief staleness is tolerable.",
+        "Surrogate keys (also called cache tags) are a CDN feature for targeted bulk invalidation. Tag responses with headers like Surrogate-Key: product-123 or Cache-Tag: category-electronics. When a product is updated, issue an API call to invalidate all responses tagged product-123—potentially thousands of cached URLs purged with one API call. Fastly, Cloudflare, and Varnish all support surrogate key invalidation. Without this, purging all cached pages for a product requires knowing and enumerating every URL that shows that product."
+      ],
+      "bullets": [
+        "s-maxage: CDN-specific max age; overrides max-age for shared caches",
+        "stale-while-revalidate: serve stale while refreshing in background; zero-latency on expiry",
+        "private: CDN must not cache; use for user-specific responses",
+        "Surrogate keys / cache tags: tag responses; bulk invalidate by tag with one API call"
+      ]
+    },
+    {
+      "title": "What to Cache: Static vs Dynamic Content",
+      "paragraphs": [
+        "Static assets (JS, CSS, images, fonts, videos) are the ideal CDN candidates: they are identical for all users, rarely change, and can be cached for hours to years. Use content-addressed URLs (include a hash of the file content in the URL: /main.a3f9c2.js) with Cache-Control: max-age=31536000, immutable. When you deploy new code, the URL changes, forcing a cache miss and serving the new file. Old URLs continue to be served from CDN cache until TTL expires—a natural, safe rollout mechanism.",
+        "Dynamic API responses can also be cached at the CDN if they are shared across users. 'Top 10 products this week,' 'current weather for London,' and 'homepage content' are the same for every user requesting them and change infrequently. Cache these at the CDN with appropriate TTLs. The cache key must exclude user-specific headers (cookies, Authorization headers) to avoid caching personalized responses. CDNs allow cache key configuration to include/exclude specific headers and query parameters.",
+        "User-specific content must not be cached by the CDN. User dashboards, shopping carts, and authenticated API responses that differ per user: either serve these from origin (CDN passes through) or use edge-side includes (ESIs) to assemble the page at the CDN from a mix of cached and uncached fragments. Edge computing (Cloudflare Workers, Fastly Compute@Edge) enables user-specific logic at the CDN edge—authentication, A/B testing, personalization—without round-tripping to origin."
+      ],
+      "bullets": [
+        "Static assets: content-addressed URLs + immutable TTL; ideal CDN use case",
+        "Public dynamic responses: same for all users; cache with TTL; exclude auth headers from cache key",
+        "Private responses: set Cache-Control: private; CDN passes through to origin",
+        "Edge computing (Cloudflare Workers): run auth/personalization logic at CDN without origin round-trip"
+      ]
+    },
+    {
+      "title": "CDN Invalidation and Cache Purge Strategies",
+      "paragraphs": [
+        "CDN cache purge: when you deploy a critical bug fix or update content, waiting for TTL expiry is unacceptable. All major CDNs provide an API to purge cached objects by URL, path pattern, or surrogate key. Cloudflare's purge API clears a URL from all PoPs within 150ms globally. The challenge: purge by URL requires knowing every cached URL—for parameterized URLs (search results, product pages with query parameters), the number of cached variants can be enormous. Surrogate keys solve this by grouping related URLs under a single tag.",
+        "Versioned deployments are the alternative to cache purging. By using content-addressed URLs for all assets, there is nothing to purge—the new version has a new URL, and old users on the old version continue working until they reload (at which point they get the new URL). This zero-invalidation approach requires your build tooling to generate hashed URLs (webpack, Vite, and other modern bundlers do this automatically). For CDN-cached HTML pages, a short TTL (60–300 seconds) combined with stale-while-revalidate provides a good balance.",
+        "Instant purge is not always instant. Even 150ms global propagation means thousands of requests in-flight during propagation. Design your application to tolerate brief periods of mixed old/new content after a purge. Semantic versioning in API responses (include a version field) allows clients to detect and handle version mismatches gracefully."
+      ],
+      "bullets": [
+        "CDN purge API: clears URL/path/tag from all PoPs within seconds",
+        "Surrogate keys: group related URLs under a tag; bulk purge with one API call",
+        "Content-addressed URLs: new deploy = new URL; no purge needed; best practice for static assets",
+        "Design for brief mixed-version windows; purge is not instantaneous at all PoPs"
+      ]
+    },
+    {
+      "title": "CDN for Video, Security, and Advanced Use Cases",
+      "paragraphs": [
+        "Video streaming over CDN uses HTTP streaming protocols (HLS, MPEG-DASH). Video is segmented into 2–10 second chunks; each chunk is a separate cacheable HTTP object. The CDN caches each segment independently; different users watching the same video at different points are served from cache. For live streaming, the latest segments may not be cached (or cached with TTL=0), requiring origin fetches, while older segments of the same livestream are heavily cached. At Netflix and YouTube scale, CDN is the entire delivery backbone, with ISPs hosting CDN nodes for maximum proximity.",
+        "CDN as security perimeter: CDNs terminate user connections at the edge, keeping your origin's IP secret. Without a CDN, a DDoS attacker targeting your origin IP can bypass your CDN entirely. With a CDN, your origin only accepts connections from CDN IP ranges (enforced by firewall rules). The CDN absorbs DDoS traffic distributed across its PoPs, while your origin remains unreachable from the public internet. Cloudflare Spectrum, Akamai Prolexic, and similar products extend this model to protect non-HTTP TCP/UDP services.",
+        "Edge functions (Cloudflare Workers, Lambda@Edge, Fastly Compute) allow running arbitrary code at CDN PoPs. Use cases: A/B testing (split traffic at the edge without origin involvement), authentication (validate JWT at edge, reject unauthenticated requests before they reach origin), URL rewriting and redirects, geographic content customization, and request coalescing. The key constraint: edge functions must run in a few milliseconds; they have limited CPU and memory. For complex logic, use edge functions for fast path decisions and origin for complex processing."
+      ],
+      "bullets": [
+        "HLS/DASH: video segmented into cacheable chunks; each segment cached independently",
+        "Security: CDN IP allowlist at origin prevents origin IP exposure; absorbs DDoS",
+        "Edge functions: run auth, A/B testing, redirects at CDN; must complete in <10ms",
+        "Origin shield: single PoP designated as the CDN-to-origin gateway; reduces origin fan-out"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "CDN Fundamentals",
         "paragraphs": [
-          "This draft covers CDN Design. Run content:generate to expand it with a model provider, or edit manually."
+          "CDNs cache content at globally distributed PoPs near users. Anycast DNS routes requests to nearest PoP. Cache hits serve in 20ms vs 300ms round-trip to origin.",
+          "Cache hierarchy: edge -> regional shield -> origin. Shield absorbs 80–90% of edge misses, dramatically reducing origin load.",
+          "Cache-Control headers direct behavior: s-maxage for CDN TTL, private to prevent CDN caching, stale-while-revalidate for zero-latency background refresh."
+        ]
+      },
+      {
+        "title": "What to Cache and How to Invalidate",
+        "paragraphs": [
+          "Static assets: content-addressed URLs (hashed filename) + max-age=31536000 immutable. No purge needed; new deploy = new URL.",
+          "Public dynamic responses: cache with TTL; exclude auth/session headers from cache key.",
+          "Surrogate keys: tag responses; bulk invalidate by tag. Use for product/article updates affecting many cached URLs."
+        ]
+      },
+      {
+        "title": "CDN Security",
+        "paragraphs": [
+          "CDN terminates user connections at edge; origin IP hidden behind CDN. Restrict origin to CDN IP ranges via firewall.",
+          "DDoS absorption: attack traffic distributed across hundreds of PoPs; each handles a fraction.",
+          "Edge functions: run JWT validation, redirects, A/B testing at edge without origin round-trip."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "CDN Design — Deep Dive",
+        "title": "CDN Architecture for Dynamic Sites",
         "paragraphs": [
-          "Extended treatment of CDN Design: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Full-site delivery CDN (Cloudflare full-proxy) routes all traffic through the CDN, including dynamic requests. The CDN terminates TLS, routes to origin via optimized backbone, and applies WAF rules. Even uncacheable dynamic requests benefit: Cloudflare's private backbone between PoP and origin is faster than the public internet (Argo Smart Routing reports 30–60% latency improvement for dynamic content via backbone routing versus public internet routing).",
+          "API acceleration: CDNs can cache API responses with fine-grained cache key control. Cache by URL path + specific query parameters, excluding user identity parameters. Vary headers specify which request headers affect caching: Vary: Accept-Language causes separate caches per language. Excessive Vary headers fragment the cache and reduce hit rate. Normalize headers at the edge (lowercase Accept-Language value, map regional variants to canonical codes) before using them as cache dimensions.",
+          "Real-time cache telemetry: CDNs expose cache metrics via API (hit rate, bytes transferred, requests by cache status: HIT, MISS, STALE, REVALIDATING, EXPIRED). Monitor hit rate per URL pattern; a drop in hit rate for a critical URL often indicates a misconfigured Cache-Control header or an inadvertent cache-busting header added to responses."
+        ]
+      },
+      {
+        "title": "CDN Cost Optimization",
+        "paragraphs": [
+          "CDN pricing models vary: Cloudflare charges flat-rate per plan tier (unlimited bandwidth for most plans); Akamai and AWS CloudFront charge per GB transferred and per 10K HTTP requests. For high-bandwidth workloads (video, large file distribution), flat-rate CDN pricing is dramatically cheaper. For low-bandwidth, high-request-count workloads (API acceleration), per-GB pricing is more economical.",
+          "Cache warming: after a cache purge or new PoP addition, the cache is cold and traffic flows to origin until the cache warms up. Proactive cache warming (pre-fetching popular URLs to new PoP caches before serving live traffic) reduces origin load spikes. For large static assets, use CDN pre-positioning: push content to CDN PoPs before launch (CDN vendors offer this via API). For critical events (product launches, sports finals), coordinate with your CDN vendor—they can pre-stage content."
         ]
       }
     ],
     "expert": [
       {
-        "title": "CDN Design — Expert Notes",
+        "title": "Expert: Multi-CDN Strategies",
         "paragraphs": [
-          "Expert considerations for CDN Design: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Large-scale platforms (Netflix, Apple, Facebook) run multi-CDN: routing traffic across multiple CDN providers simultaneously. Benefits: resilience (CDN outage redirects to another provider), performance (route each user to whichever CDN PoP has lower latency for them at that moment), and negotiating leverage (competition keeps pricing competitive). Real-time CDN selection uses performance probing (each provider is probed periodically; the fastest one for a given user gets traffic) or steering based on CDN telemetry APIs.",
+          "CDN failover: a CDN provider outage (Fastly June 2021, Cloudflare July 2020) can take down thousands of customers simultaneously. Multi-CDN with DNS-based or anycast-based failover provides resilience. The challenge is cache state: if CDN A has a warmed cache and CDN B doesn't, failing over to CDN B causes a cold cache and origin overload. Solutions: origin shield with pre-warmed cache shared between CDN providers, or accept temporary origin overload during failover with origin auto-scaling."
         ]
       }
     ]
   },
   "concepts": [
-    "CDN Design: core idea"
+    "CDN PoP (Point of Presence): edge data center near users; serves cached content",
+    "Anycast: same IP advertised from multiple PoPs; BGP routes to nearest",
+    "Cache-Control: s-maxage, private, stale-while-revalidate, immutable directives",
+    "Content-addressed URLs: hash of file content in URL; enables immutable caching",
+    "Surrogate keys (cache tags): tag responses for targeted bulk invalidation",
+    "Origin shield: designated CDN-to-origin gateway; prevents fan-out to origin",
+    "Edge functions (Workers): code running at CDN PoP; auth, A/B testing, redirects",
+    "Vary header: specifies which request headers create separate cache entries",
+    "Multi-CDN: routing across multiple CDN providers for resilience and performance",
+    "Cache warming: proactively pre-fetching content to cold caches before serving live traffic"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Use content-addressed URLs for all static assets; enables immutable long TTLs",
+    "Set s-maxage on public API responses; set Cache-Control: private on user-specific responses",
+    "Implement surrogate keys on all cacheable content types for targeted invalidation",
+    "Restrict origin to CDN IP ranges; never expose origin IP publicly",
+    "Monitor CDN hit rate per path; alert on drops that indicate misconfigured Cache-Control",
+    "Use stale-while-revalidate for content where brief staleness is acceptable; eliminates miss latency",
+    "Pre-warm caches before major launches; coordinate with CDN vendor for traffic spikes"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Caching user-specific responses at the CDN by not setting Cache-Control: private—leaks user data",
+    "Forgetting to exclude Authorization or Cookie headers from CDN cache key—serves one user's data to another",
+    "Excessive Vary headers fragment the cache; every unique header value creates a separate cache entry",
+    "No origin IP protection—attackers can bypass CDN by targeting the origin IP directly",
+    "Assuming CDN purge is instant everywhere—design for brief mixed-version windows post-purge",
+    "Cold cache overload: CDN outage or mass purge causes all traffic to hit origin simultaneously"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Netflix's CDN: Open Connect",
+      "description": "Netflix operates Open Connect, its own CDN, by deploying proprietary appliances inside ISPs worldwide. These appliances store the most popular Netflix titles for that ISP's subscriber base, pre-positioned during off-peak hours. During peak evening viewing, 95%+ of Netflix traffic is served from these ISP-embedded appliances, never touching Netflix's AWS infrastructure. This radical proximity to end users provides consistent low-latency streaming while dramatically reducing Netflix's transit costs."
+    },
+    {
+      "title": "Cloudflare Blocking DDoS for Krebs on Security",
+      "description": "In 2016, security journalist Brian Krebs's website was targeted by a 620 Gbps DDoS attack—then the largest recorded. Cloudflare's global network distributed the attack traffic across its PoPs, absorbing it without origin disruption. Each PoP received a fraction of the total attack volume, within its capacity. This demonstrated that Anycast DDoS absorption scales with PoP count and capacity, making it effectively unbounded for distributed volumetric attacks."
+    }
+  ],
   "keyTakeaways": [
-    "CDN Design belongs in the curriculum as evergreen content"
+    "CDN Anycast routes users to the nearest PoP; cache hits serve at 20ms vs 300ms origin round-trip",
+    "s-maxage controls CDN TTL; stale-while-revalidate enables zero-latency background refresh",
+    "Content-addressed URLs with immutable TTL are the best practice for static assets—zero purge complexity",
+    "Surrogate keys enable bulk invalidation by tag, solving the many-URL-per-entity purge problem",
+    "CDN hides origin IP; restrict origin to CDN IP ranges for security and DDoS protection",
+    "Edge functions at the CDN enable auth, redirects, and A/B testing without origin round-trips"
   ],
-  "whyItMatters": "Understanding CDN Design improves design judgment for production systems.",
+  "whyItMatters": "CDN is table-stakes infrastructure for any user-facing web service. Without it, global users experience unacceptable latency, origin bandwidth is exhausted by repeated static file delivery, and DDoS attacks can take down the service. Understanding how to configure Cache-Control headers, design cacheable URL structures, and implement invalidation strategies is a practical skill every infrastructure engineer needs.",
   "reflectionQuestions": [
-    "When would you reach for CDN Design in a real design?"
+    "Your CDN hit rate is 60% for your homepage but 95% for your product pages. What is likely causing the difference?",
+    "A product image is updated but users continue seeing the old image for up to 24 hours. How would you redesign the caching strategy?",
+    "Design the CDN configuration for a live sports streaming platform that must handle 10M concurrent viewers.",
+    "How do you prevent a CDN from caching an authentication error response (401) and serving it to future users?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "CDN edge PoP to user: 10–50ms typical; origin round-trip without CDN: 100–300ms globally",
+    "Cloudflare purge propagation: ~150ms globally",
+    "CloudFront pricing: $0.0085/GB (Americas/Europe), $0.012/GB (Asia); $0.0075/10K HTTP requests",
+    "CDN DDoS capacity: Cloudflare >320 Tbps, Akamai >325 Tbps network capacity",
+    "Typical CDN offload for media sites: 70–95% of bytes; 50–90% of requests"
   ],
   "diagrams": [
     {
-      "id": "fund-cdn-overview",
-      "title": "CDN Design overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-cdn-architecture",
+      "title": "CDN Request Flow",
+      "mermaid": "flowchart LR\n  User1[User EU] -->|Anycast DNS| PoP1[Frankfurt PoP]\n  User2[User US] -->|Anycast DNS| PoP2[Virginia PoP]\n  PoP1 -->|cache miss| Shield[Regional Shield]\n  PoP2 -->|cache miss| Shield\n  Shield -->|cache miss| Origin[Origin Server]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain CDN Design and the main trade-offs in 3 minutes."
+    "How does a CDN reduce latency for globally distributed users?",
+    "What is the difference between Cache-Control: max-age and s-maxage?",
+    "Design the CDN and caching strategy for a news website that publishes breaking news articles.",
+    "How do surrogate keys solve the cache invalidation problem for a product update affecting 10,000 cached URLs?",
+    "How does a CDN protect against DDoS attacks?"
   ],
   "exercises": [
-    "Design a small system that depends on CDN Design; list 3 trade-offs."
+    "Design the full Cache-Control header strategy for an e-commerce site: homepage, product pages, images, user cart API, and checkout API.",
+    "Calculate the monthly CDN cost savings of moving from origin-only to CDN delivery for a site serving 500TB/month via AWS CloudFront.",
+    "Design a cache invalidation system for a CMS that must update all CDN-cached pages containing a specific product within 30 seconds of an update."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "HTTP Caching — MDN Web Docs; Cache-Control header reference"
+    },
+    {
+      "title": "Cloudflare Learning Center — cloudflare.com/learning/cdn"
+    },
+    {
+      "title": "AWS CloudFront documentation — cache behavior configuration"
+    },
+    {
+      "title": "Netflix Open Connect — netflixtech.wordpress.com/open-connect"
+    }
+  ],
   "relatedLessons": [
     "cache-strategies",
-    "fund-caching"
+    "fund-cache-coherence",
+    "fund-cache-stampede"
   ]
 }

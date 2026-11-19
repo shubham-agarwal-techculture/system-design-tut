@@ -3,97 +3,286 @@
   "title": "Infrastructure as Code",
   "moduleId": "infra-core",
   "phaseId": "infrastructure",
-  "durationMinutes": 30,
-  "summary": "Infrastructure as Code — draft awaiting generation and review.",
-  "kind": "living",
+  "durationMinutes": 45,
+  "summary": "Infrastructure as Code (IaC) treats infrastructure configuration as software: versioned, reviewed, tested, and deployed through automated pipelines. Terraform, Pulumi, AWS CDK, and CloudFormation define cloud resources declaratively or imperatively, enabling reproducible environments, drift detection, and collaborative infrastructure management. IaC is foundational to modern platform engineering and site reliability.",
+  "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "infra-containers-k8s"
   ],
   "tags": [
     "infra-core",
-    "living",
+    "terraform",
+    "iac",
+    "devops",
+    "platform-engineering",
     "infrastructure"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Why Infrastructure as Code",
       "paragraphs": [
-        "This draft covers Infrastructure as Code. Run content:generate to expand it with a model provider, or edit manually."
+        "Before IaC, infrastructure was provisioned manually through web consoles or CLI commands. The result: environments that existed only in an operator's memory, that could not be reproduced reliably, that drifted over time as incremental changes accumulated, and that were impossible to review or audit. A single misconfigured security group could expose a database to the internet for months before anyone noticed. The click-ops era created environments that were artisanal, undocumented, and unreliable.",
+        "IaC treats infrastructure configuration as source code: committed to Git, reviewed in pull requests, tested in CI pipelines, and applied through automated deployment systems. The benefits compound: every environment (dev, staging, production) is defined identically from the same source, reducing 'works on staging, fails in prod' failures. Changes are auditable—you know exactly when a security group was added, who approved it, and why. Rollbacks are possible by reverting the commit and re-applying. New environments (disaster recovery region, feature branch environment) spin up in minutes.",
+        "Idempotency is the core property: applying the same IaC configuration twice produces the same infrastructure state. This means you can re-apply after a partial failure, run apply on a schedule to detect and fix drift, and confidently apply configuration changes knowing the tool will only make the minimum necessary changes. Declarative tools like Terraform track desired state and converge actual state to match; imperative tools like Pulumi (Python/TypeScript) describe the same desired state through code that generates the same resource graph.",
+        "The cultural shift is as significant as the technical one. Infrastructure changes go through the same review process as code changes: a pull request, automated plan output showing exactly what will change (Terraform plan), peer review, and approval before apply. This eliminates the 'lone hero' operations model where one person holds all the infrastructure knowledge and makes changes directly in production. Infrastructure becomes a collaborative, auditable team practice."
+      ],
+      "bullets": [
+        "Idempotent: applying the same configuration twice produces the same result",
+        "Declarative: describe desired state; tool figures out how to reach it",
+        "Drift detection: compare actual infrastructure state to declared state; alert on deviations",
+        "GitOps: infrastructure changes via pull request with plan review before apply"
+      ]
+    },
+    {
+      "title": "Terraform: The De-Facto Standard",
+      "paragraphs": [
+        "Terraform by HashiCorp has become the most widely adopted IaC tool, primarily because of its provider ecosystem: 3,000+ providers covering AWS, GCP, Azure, Kubernetes, Datadog, PagerDuty, GitHub, and virtually every cloud service. HCL (HashiCorp Configuration Language) is a declarative DSL that describes resources and their dependencies. Terraform builds a dependency graph and applies changes in the correct order, parallelizing independent resources for speed.",
+        "Terraform's state file is the source of truth for what Terraform has deployed. It maps HCL resources to real infrastructure IDs (e.g., resource 'aws_instance.web' → i-1234567890abcdef0). Remote state storage (S3 + DynamoDB locking) is essential for team environments: state is shared across the team, and the DynamoDB lock prevents concurrent applies from corrupting the state file. Never commit state files to Git—they contain secrets and become a security liability.",
+        "The module system enables reuse and standardization. A module encapsulates a set of resources into a reusable component: a 'vpc' module creates VPC, subnets, route tables, and internet gateway with configurable parameters. A 'ecs-service' module creates ECR repository, ECS task definition, ECS service, ALB target group, and security groups from a single module call. Modules enforce organizational standards—security defaults, naming conventions, mandatory tags—across all teams without requiring every team to remember every detail.",
+        "Workspaces and environments: Terraform workspaces allow multiple state files from the same configuration (useful for staging/prod environments with identical structure but different parameters). Many teams prefer separate state files per environment (separate directories or separate backend configurations) for stronger isolation and clearer blast radius. Terragrunt (a Terraform wrapper) adds DRY configuration, automatic remote state, and ordered applies across dependent modules—widely adopted in large organizations with many modules."
+      ],
+      "bullets": [
+        "terraform plan: shows exactly what will be created, modified, or destroyed before applying",
+        "terraform apply: makes changes idempotently; records result in state file",
+        "terraform import: bring existing resources under Terraform management without recreating them",
+        "terraform state: manipulate state directly when resources move or references change"
+      ]
+    },
+    {
+      "title": "Alternative IaC Tools: CDK, Pulumi, CloudFormation",
+      "paragraphs": [
+        "AWS CDK (Cloud Development Kit) lets you define AWS infrastructure in TypeScript, Python, Java, or Go using real programming languages. CDK synthesizes CloudFormation templates, which AWS deploys. The advantage over HCL: full programming language power—loops, conditions, abstractions, unit tests, and type safety. CDK Constructs are reusable components (L1 = raw CloudFormation, L2 = opinionated defaults, L3 = complete patterns like Application Load Balanced Fargate Service). CDK is excellent for AWS-only environments with complex infrastructure logic.",
+        "Pulumi uses mainstream programming languages (TypeScript, Python, Go, .NET) to define infrastructure on any cloud. Unlike CDK, Pulumi manages its own state (Pulumi Service or self-hosted) rather than delegating to CloudFormation. This makes it cloud-agnostic: the same codebase provisions AWS, GCP, Kubernetes, and Datadog resources. Pulumi's programming model enables true abstractions—classes, inheritance, generics—that are awkward in HCL. The tradeoff: a steeper learning curve and a smaller community than Terraform.",
+        "AWS CloudFormation and Azure Resource Manager (ARM) / Bicep are the native IaC tools for their respective clouds. CloudFormation is deeply integrated with AWS—stack events, change sets, stack sets for multi-account deployment, and AWS Service Catalog for self-service provisioning. The JSON/YAML syntax is verbose and limited (Conditions and Fn::If replace loops), but CloudFormation has zero additional cost and deep AWS integration. Many organizations start with CloudFormation and migrate to Terraform for multi-cloud consistency.",
+        "Choosing an IaC tool depends on: multi-cloud vs. single-cloud (Terraform/Pulumi vs. CDK/CloudFormation), team preference for DSL vs. programming language, existing ecosystem investments, and operational needs. The most common enterprise pattern: Terraform for infrastructure (VPCs, databases, IAM), Helm/ArgoCD for Kubernetes application deployments, and Ansible for OS configuration—each tool for the layer it handles best."
+      ],
+      "bullets": [
+        "CDK: TypeScript/Python/Go → CloudFormation templates; AWS-only; full language power",
+        "Pulumi: mainstream languages; cloud-agnostic; Pulumi state backend",
+        "CloudFormation: AWS-native; free; deep integration; verbose syntax",
+        "Terraform: HCL; 3000+ providers; most community modules; gold standard for multi-cloud"
+      ]
+    },
+    {
+      "title": "Testing and Validating Infrastructure Code",
+      "paragraphs": [
+        "IaC without testing is just manual infrastructure with extra steps. Static analysis validates HCL syntax (terraform validate), enforces naming conventions, checks for security misconfigurations (tfsec, Checkov, KICS), and verifies module interfaces. These run in <30 seconds and catch the majority of common errors before anything is applied to real infrastructure. Policy-as-code tools (OPA/Rego with Conftest, HashiCorp Sentinel, AWS Config Rules) encode organizational standards—'all S3 buckets must have versioning enabled', 'no public security groups except for port 443'—as automated checks.",
+        "Integration testing with Terratest (Go library) provisions real infrastructure in a test environment, runs assertions against the provisioned resources, and tears down afterward. A Terratest for a VPC module: provision the VPC in a real AWS account, assert the CIDR range is correct, verify the NAT gateway was created, SSH into a test instance to verify outbound internet access, then destroy everything. These tests take 5–20 minutes and require real AWS credentials—run them on PR merge, not on every commit.",
+        "Plan-based review is the most valuable daily practice. The terraform plan output shows exact changes: 'aws_security_group.app will be modified: ingress rule 0.0.0.0/0 port 22 will be added'. A reviewer examining this plan can catch a security misconfiguration that the author missed. Automate plan output on every pull request (Atlantis, Terraform Cloud, GitHub Actions) so reviewers always have current, accurate change previews. Require plan approval before apply in production environments."
+      ],
+      "bullets": [
+        "tfsec / Checkov: static analysis for security misconfigurations in Terraform HCL",
+        "terraform validate: syntax and reference correctness check (runs in <1s, free)",
+        "Terratest: Go integration testing against real infrastructure; create/verify/destroy pattern",
+        "Policy-as-code: OPA/Rego or Sentinel rules enforce organizational standards as automated gates"
+      ]
+    },
+    {
+      "title": "GitOps Workflows and IaC in CI/CD",
+      "paragraphs": [
+        "GitOps for infrastructure: Git is the single source of truth. All infrastructure changes go through pull requests. Automated pipelines run terraform plan on PR open (plan preview), require approval, then run terraform apply on merge. Tools like Atlantis (self-hosted) or Terraform Cloud (SaaS) integrate with GitHub/GitLab to manage the plan-apply workflow. This eliminates 'cowboy applies' and ensures every change is reviewed, traceable, and reversible.",
+        "Environment promotion pipelines: a change to a module is first applied to a development environment, then to staging (automated), then requires manual approval for production. The same commit applies to all environments, ensuring they're always in sync with the declared state. Drift detection jobs run nightly: terraform plan against each environment and alert if the actual state differs from the declared state (indicating someone made a manual change).",
+        "Secrets management in IaC deserves special attention. Never hardcode secrets in IaC files. Use external secrets management: AWS Secrets Manager or Parameter Store for secret values referenced in IaC (not stored in IaC), Vault for dynamic secrets (IAM credentials generated on-demand), and OIDC-based authentication for CI/CD pipelines (GitHub Actions OIDC → AWS IAM Role, eliminating long-lived AWS credentials in CI secrets). The IaC pipeline should assume a role with the minimum necessary permissions scoped to the specific environment being managed."
+      ],
+      "bullets": [
+        "Atlantis: open-source GitOps for Terraform; runs plan/apply via PR comments",
+        "Terraform Cloud: SaaS plan-apply with remote state, policy enforcement, audit logging",
+        "Drift detection: nightly terraform plan to detect unauthorized manual changes",
+        "OIDC authentication: CI/CD assumes AWS IAM role via GitHub OIDC—no long-lived credentials"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Why Infrastructure as Code",
         "paragraphs": [
-          "This draft covers Infrastructure as Code. Run content:generate to expand it with a model provider, or edit manually."
+          "IaC treats infrastructure as versioned, reviewed, tested source code. Benefits: reproducible environments, audit trail, collaborative review, drift detection, and fast environment provisioning.",
+          "Idempotency is the core property: applying the same config twice produces the same state. Declarative tools (Terraform) converge actual state to desired state.",
+          "Cultural shift: infrastructure changes go through pull requests with plan preview and peer review before apply—the end of click-ops."
+        ],
+        "bullets": [
+          "Git is the source of truth for all infrastructure",
+          "Drift detection: compare actual state to declared state; alert on deviations",
+          "Every environment defined identically from same source code"
+        ]
+      },
+      {
+        "title": "Terraform Deep Dive",
+        "paragraphs": [
+          "HCL defines resources and dependencies. Terraform builds a dependency graph and applies in correct order, parallelizing independent resources.",
+          "State file maps HCL to real IDs. Remote state (S3 + DynamoDB locking) is required for teams. Never commit state to Git.",
+          "Modules encapsulate reusable infrastructure patterns. They enforce organizational standards and reduce per-team knowledge requirements."
+        ],
+        "bullets": [
+          "terraform plan: exact change preview before applying",
+          "Remote state: S3 backend + DynamoDB locking for team concurrency safety",
+          "Modules: reusable components with input variables and output values"
+        ]
+      },
+      {
+        "title": "GitOps and Testing",
+        "paragraphs": [
+          "GitOps: all changes via PRs, automated plan on PR open, apply on merge. Atlantis or Terraform Cloud manage the workflow.",
+          "Static analysis (tfsec, Checkov) catches security misconfigurations. Policy-as-code (OPA, Sentinel) enforces organizational standards.",
+          "Terratest runs integration tests against real infrastructure with create/verify/destroy pattern."
+        ],
+        "bullets": [
+          "Plan preview on every PR: reviewers see exact changes before approving",
+          "Nightly drift detection: alert if actual state deviates from declared",
+          "Secrets: never in IaC; use Secrets Manager or Vault; OIDC for CI auth"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Infrastructure as Code — Deep Dive",
+        "title": "Terraform State Management at Scale",
         "paragraphs": [
-          "Extended treatment of Infrastructure as Code: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "At scale, a single Terraform state file becomes a bottleneck: apply time grows as more resources are managed, concurrent applies are blocked by the DynamoDB lock, and a single plan shows thousands of resources making reviews difficult. The solution is state file partitioning: separate state files per team, per environment, and per logical layer (network, compute, data, application). Terragrunt's dependency blocks allow cross-state references (the VPC ID from the network state is an input to the compute state).",
+          "State file corruption is a real operational risk. When a apply is interrupted (network failure, timeout, process kill), the state may be partially updated. The solution: always use remote state with locking (DynamoDB), enable S3 versioning on the state bucket (rollback to a previous state version if corruption occurs), and test state repair procedures in a non-production environment before needing them in production. Keep state backups; test restoring from them.",
+          "Importing existing infrastructure is the most painful part of adopting Terraform. terraform import brings a resource under Terraform management but requires manually writing the HCL to match the existing resource's configuration—there's no automatic reverse-engineering of HCL from an existing resource (though tools like terraformer help). Strategy: import the most critical/frequently-changed resources first; leave stable resources unmanaged or manage them with data sources until resources are free for a migration sprint."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "State partitioning: separate state per team/env/layer reduces blast radius and lock contention",
+          "Terragrunt: DRY configuration, ordered applies, cross-state references via dependency blocks",
+          "S3 versioning on state bucket: rollback to previous state on corruption",
+          "terraformer: open source tool for reverse-engineering Terraform from existing cloud resources"
+        ]
+      },
+      {
+        "title": "Multi-Account, Multi-Region IaC Architecture",
+        "paragraphs": [
+          "Enterprise AWS architectures use the AWS Organizations multi-account pattern: separate accounts per environment (dev, staging, prod), per team, and per compliance boundary (PCI, HIPAA). IaC must manage resources across these accounts. Terraform assumes IAM roles in target accounts using the AWS provider's assume_role configuration. A central 'management' account runs the CI/CD pipeline and assumes roles in target accounts—no long-lived credentials exist in target accounts.",
+          "Account vending machines automate new account provisioning. When a new team needs an environment, a Terraform module provisions the AWS account via AWS Organizations API, applies account-level security baselines (CloudTrail, Config, GuardDuty, budget alerts), creates the team's IAM roles, and configures the networking baseline. This turns a week-long manual process into a 15-minute automated pipeline. AWS Control Tower + Account Factory for Terraform (AFT) is the AWS-native pattern for this.",
+          "Service Control Policies (SCPs) in AWS Organizations implement guardrails that no account can override—even the root user. SCPs enforce: 'no resources outside approved regions', 'deny deletion of CloudTrail logs', 'deny disabling GuardDuty'. These are defined in Terraform and applied via the AWS Organizations provider, creating organization-wide compliance guardrails that complement per-account IaC standards."
+        ],
+        "bullets": [
+          "AWS Organizations: separate accounts per environment and team; SCPs for guardrails",
+          "IAM role assumption: CI/CD assumes roles in target accounts; no long-lived credentials",
+          "Account vending machine: automated account provisioning with security baselines",
+          "Control Tower + AFT: AWS-native multi-account IaC with account factory automation"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Infrastructure as Code — Expert Notes",
+        "title": "IaC for Platform Engineering: Self-Service Infrastructure",
         "paragraphs": [
-          "Expert considerations for Infrastructure as Code: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Platform engineering teams build internal developer platforms (IDPs) on top of IaC. Rather than requiring every team to write Terraform, the platform team publishes standardized Terraform modules with sensible defaults and guardrails baked in. A 'microservice deployment' module takes: service name, container image, and desired replicas—and provisions ECS service, task definition, ALB listener rule, security groups, IAM task role, CloudWatch log group, and X-Ray tracing in a single module call. This abstraction layer reduces cognitive overhead for application teams and enforces platform standards.",
+          "Service Catalog (AWS) or Backstage (open source) provides the UI/API for self-service infrastructure provisioning. Teams request infrastructure through a catalog of approved templates, which invoke Terraform under the hood. This keeps platform teams out of the critical path for every deployment while maintaining governance. The IDP tracks all provisioned resources, their owners, and their costs—enabling showback and chargeback across teams.",
+          "Drift remediation automation: when nightly drift detection finds a discrepancy (someone manually changed a security group), the response options are: auto-remediate (apply the declared state, reverting the change), alert and require manual fix, or update the declared state to match the actual state (if the change was intentional and approved). The right policy depends on the resource type—a security group rule deserves auto-revert; a database parameter change might require investigation before auto-remediation."
         ]
       }
     ]
   },
   "concepts": [
-    "Infrastructure as Code: core idea"
+    "Infrastructure as Code: defining infrastructure via versioned, reviewed, tested configuration files",
+    "Idempotency: applying the same configuration multiple times produces the same infrastructure state",
+    "Declarative IaC: describe desired end state; tool determines the operations to reach it (Terraform, CloudFormation)",
+    "Imperative IaC: code that executes infrastructure operations; desired state is implied (Pulumi, CDK)",
+    "State file: Terraform's record mapping declared resources to real infrastructure identifiers",
+    "Remote state: state stored in S3/GCS with DynamoDB locking for team-safe concurrent operations",
+    "Module: a reusable, parameterized package of infrastructure resources",
+    "Drift: when actual infrastructure state diverges from the declared IaC configuration",
+    "GitOps: Git as the single source of truth; all changes via pull requests",
+    "Policy-as-code: organizational security and compliance standards expressed as automated checks",
+    "Terragrunt: a Terraform wrapper that adds DRY configuration, ordered applies, and cross-state references",
+    "Account vending machine: automated provisioning of new cloud accounts with security baselines"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Store Terraform state in S3 with versioning enabled and DynamoDB locking; never commit state to Git",
+    "Run terraform plan in CI on every pull request; require plan approval before apply to production",
+    "Use tfsec or Checkov as a mandatory CI gate to catch security misconfigurations before review",
+    "Partition state files by team, environment, and layer to reduce blast radius and apply time",
+    "Enforce required tags (owner, environment, cost-center) on all resources via policy-as-code",
+    "Use OIDC-based authentication for CI/CD pipelines—eliminate long-lived AWS access keys in CI secrets",
+    "Pin provider and module versions explicitly; test upgrades in a development environment first"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Storing the Terraform state file in Git or locally—causes corruption in team environments",
+    "Applying Terraform directly from a developer's local machine in production—bypasses review and audit",
+    "Using a single giant state file for all resources—creates long apply times, lock contention, and large blast radius",
+    "Not testing IaC modules—security misconfigurations and resource limit issues appear in production",
+    "Hardcoding secrets (database passwords, API keys) in Terraform files committed to Git",
+    "Ignoring drift—manual changes accumulate until the declared state diverges significantly from reality",
+    "Over-using dynamic blocks and complex templating in HCL—creates unmaintainable configuration that no one can review"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Terraform VPC Module",
+      "description": "An organization's platform team builds a reusable 'vpc' module that provisions a VPC with public and private subnets across three AZs, internet gateway, NAT gateways, route tables, and VPC Flow Logs to S3. Teams invoke it with two parameters: vpc_cidr and environment. The module enforces standards: Flow Logs always enabled, private subnets always larger than public, DNS hostnames always enabled. 50 engineers across 10 teams use the same module; security standards are enforced without each team remembering every detail."
+    },
+    {
+      "title": "GitOps Pipeline with Atlantis",
+      "description": "An infrastructure team uses Atlantis to manage 200 Terraform workspaces across 5 AWS accounts. When an engineer opens a PR to change an ECS service's container image, Atlantis automatically runs terraform plan and posts the output as a PR comment showing exactly which resources will change. A team lead reviews the plan, approves the PR, and Atlantis runs terraform apply. All plan and apply outputs are stored in Atlantis logs, providing a complete audit trail. Manual applies to production are blocked by IAM policy—the Atlantis role is the only principal with apply permissions."
+    }
+  ],
   "keyTakeaways": [
-    "Infrastructure as Code belongs in the curriculum as living content"
+    "IaC replaces manual, undocumented infrastructure with reviewed, versioned, reproducible configuration",
+    "Terraform is the de-facto standard for multi-cloud IaC with its rich provider ecosystem and module system",
+    "Remote state with locking is mandatory for team environments—never use local state in production",
+    "GitOps workflows (Atlantis, Terraform Cloud) enforce review and audit for all infrastructure changes",
+    "Policy-as-code (tfsec, OPA) encodes security and compliance standards as automated gates",
+    "Module partitioning and state file segmentation are essential for scaling IaC in large organizations",
+    "Drift detection and remediation close the loop between declared and actual infrastructure state"
   ],
-  "whyItMatters": "Understanding Infrastructure as Code improves design judgment for production systems.",
+  "whyItMatters": "IaC is the foundation of modern platform engineering. Without it, infrastructure cannot be reproduced reliably, security misconfigurations go unreviewed, environments drift apart, and the organization depends on individual knowledge rather than documented systems. With it, every infrastructure change is reviewed, audited, testable, and reversible—the same engineering practices applied to code now apply to the systems that run it.",
   "reflectionQuestions": [
-    "When would you reach for Infrastructure as Code in a real design?"
+    "Your team discovers that someone manually changed a production security group to allow SSH from 0.0.0.0/0, and it's been that way for two weeks without anyone noticing. What IaC practices would have prevented this, and how do you detect it going forward?",
+    "You're onboarding 10 new microservice teams who all need AWS environments. How would you use Terraform modules and an account vending machine to give them self-service infrastructure without manual intervention for each request?",
+    "Compare Terraform and AWS CDK for a team that runs exclusively on AWS and writes TypeScript. What are the trade-offs? Which would you recommend and why?",
+    "How do you safely migrate 50 existing AWS resources to Terraform management without recreating them?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Terraform apply time: 2-10 minutes for 50-200 resources; partition state if approaching 500+ resources",
+    "DynamoDB lock timeout: default 10 minutes; a stale lock requires manual removal from DynamoDB",
+    "tfsec/Checkov scan time: <30 seconds for a typical Terraform repo—zero excuse for skipping in CI",
+    "S3 state file size: typically 1-10MB per 1,000 resources; trivial storage cost",
+    "Terratest execution: 5-20 minutes for integration tests provisioning real AWS infrastructure",
+    "Module versioning: pin to specific versions (e.g., '= 1.5.2') in production; allow patches ('~> 1.5') in dev"
   ],
   "diagrams": [
     {
-      "id": "infra-iac-overview",
-      "title": "Infrastructure as Code overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "infra-iac-gitops-flow",
+      "title": "GitOps Infrastructure Pipeline",
+      "mermaid": "flowchart LR\n  Dev[Developer] -->|PR| GH[GitHub PR]\n  GH --> CI1[CI: tfsec + validate]\n  CI1 -->|pass| ATL[Atlantis: terraform plan]\n  ATL -->|plan comment| GH\n  GH -->|PR Approve| ATL2[Atlantis: terraform apply]\n  ATL2 -->|assumes role| AWS_Dev[AWS Dev Account]\n  ATL2 -->|on merge to main| AWS_Stg[AWS Staging]\n  ATL2 -->|manual approval| AWS_Prod[AWS Production]\n  AWS_Prod --> TFS[(Remote State: S3 + DDB Lock)]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Infrastructure as Code and the main trade-offs in 3 minutes."
+    "What is infrastructure drift, how does it occur, and how do you detect and remediate it with Terraform?",
+    "Explain the Terraform state file. Why must it be stored remotely for team use, and what happens if it's corrupted?",
+    "Compare Terraform modules to Helm charts. When would you use each for infrastructure management?",
+    "How would you implement a GitOps workflow for infrastructure changes that requires peer review and audit logging for all production changes?"
   ],
   "exercises": [
-    "Design a small system that depends on Infrastructure as Code; list 3 trade-offs."
+    "Design a Terraform module for a 'standard microservice' that provisions: ECS Fargate service, ALB target group, security group, CloudWatch log group, and IAM task role. Define input variables, output values, and what standards the module enforces by default.",
+    "Given a team that has been making manual AWS changes for a year, design a migration plan to bring their infrastructure under Terraform management. Address: how to import existing resources, how to prevent new manual changes, and how to structure state files.",
+    "Write a CI pipeline (GitHub Actions) that: validates Terraform syntax, runs tfsec for security checks, runs terraform plan on PR open, and runs terraform apply on merge to main—with appropriate secrets management."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "HashiCorp — Terraform Documentation (developer.hashicorp.com/terraform)"
+    },
+    {
+      "title": "Yevgeniy Brikman — Terraform: Up & Running, 3rd ed. (O'Reilly, 2022)"
+    },
+    {
+      "title": "Gruntwork.io — Terragrunt documentation and IaC best practices"
+    },
+    {
+      "title": "tfsec.dev — Terraform security scanner documentation"
+    },
+    {
+      "title": "AWS — Infrastructure as Code at Scale (AWS re:Invent session recordings)"
+    }
+  ],
   "relatedLessons": [
+    "infra-autoscaling",
     "infra-cicd-observability",
     "infra-containers-k8s"
   ]

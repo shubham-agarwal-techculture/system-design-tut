@@ -1,0 +1,204 @@
+{
+  "id": "net-timeouts",
+  "title": "Timeouts, Retries & Tail Latency",
+  "moduleId": "networking",
+  "phaseId": "foundations",
+  "durationMinutes": 35,
+  "summary": "Timeouts, Retries & Tail Latency is a core topic in modern system design. This lesson builds a first-principles model around packet flow, latency, loss, and middleboxes, then connects that model to capacity, failure modes, and operational practice so you can use it in real architectures.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "net-tcp-udp"
+  ],
+  "tags": [
+    "networking",
+    "evergreen",
+    "foundations"
+  ],
+  "sections": [
+    {
+      "title": "What Timeouts, Retries & Tail Latency is solving",
+      "paragraphs": [
+        "Timeouts, Retries & Tail Latency exists because naive designs around packet flow, latency, loss, and middleboxes break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
+        "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map Timeouts, Retries & Tail Latency onto those constraints.",
+        "A useful mental model separates the control plane (how you configure and observe Timeouts, Retries & Tail Latency) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
+      ]
+    },
+    {
+      "title": "Core mechanics",
+      "paragraphs": [
+        "Mechanically, Timeouts, Retries & Tail Latency involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
+        "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
+        "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand Timeouts, Retries & Tail Latency."
+      ],
+      "bullets": [
+        "Inputs → state/protocol → outputs/side effects",
+        "Name consistency and delivery guarantees",
+        "Identify the bottleneck resource early"
+      ]
+    },
+    {
+      "title": "Designing with it",
+      "paragraphs": [
+        "When incorporating Timeouts, Retries & Tail Latency into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
+        "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to Timeouts, Retries & Tail Latency.",
+        "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of Timeouts, Retries & Tail Latency should be observable on day one."
+      ]
+    },
+    {
+      "title": "Operations and failure modes",
+      "paragraphs": [
+        "Operate Timeouts, Retries & Tail Latency with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
+        "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
+        "Chaos and game days should include slow dependencies and network delay, not only hard kills. Timeouts, Retries & Tail Latency often fails in the gray area."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "What Timeouts, Retries & Tail Latency is solving",
+        "paragraphs": [
+          "Timeouts, Retries & Tail Latency exists because naive designs around packet flow, latency, loss, and middleboxes break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
+          "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map Timeouts, Retries & Tail Latency onto those constraints.",
+          "A useful mental model separates the control plane (how you configure and observe Timeouts, Retries & Tail Latency) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
+        ]
+      },
+      {
+        "title": "Core mechanics",
+        "paragraphs": [
+          "Mechanically, Timeouts, Retries & Tail Latency involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
+          "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
+          "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand Timeouts, Retries & Tail Latency."
+        ],
+        "bullets": [
+          "Inputs → state/protocol → outputs/side effects",
+          "Name consistency and delivery guarantees",
+          "Identify the bottleneck resource early"
+        ]
+      },
+      {
+        "title": "Designing with it",
+        "paragraphs": [
+          "When incorporating Timeouts, Retries & Tail Latency into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
+          "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to Timeouts, Retries & Tail Latency.",
+          "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of Timeouts, Retries & Tail Latency should be observable on day one."
+        ]
+      },
+      {
+        "title": "Operations and failure modes",
+        "paragraphs": [
+          "Operate Timeouts, Retries & Tail Latency with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
+          "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
+          "Chaos and game days should include slow dependencies and network delay, not only hard kills. Timeouts, Retries & Tail Latency often fails in the gray area."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Timeouts, Retries & Tail Latency — deeper internals",
+        "paragraphs": [
+          "Under the hood, Timeouts, Retries & Tail Latency typically exposes knobs for batching, buffering, concurrency, retention, and timeouts. Each knob trades latency, throughput, and cost. Change one at a time and measure.",
+          "Instrumentation should include high-signal histograms and exemplars that jump to traces. For data systems, watch amplification and compaction/GC; for RPC systems, watch queue time and saturation; for ML systems, watch memory and tokens/s."
+        ],
+        "bullets": [
+          "One knob at a time with a hypothesis",
+          "Histograms > averages",
+          "Tie dashboards to runbooks"
+        ]
+      },
+      {
+        "title": "Timeouts, Retries & Tail Latency — integration patterns",
+        "paragraphs": [
+          "Integrate via stable contracts: schemas, idempotency keys, and versioned APIs. Dual-write carefully or prefer CDC/outbox patterns when crossing storage and messaging.",
+          "Boundary tests should prove behavior under duplicate delivery, reordering, and clock skew where relevant to Timeouts, Retries & Tail Latency."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Timeouts, Retries & Tail Latency — multi-region and cost",
+        "paragraphs": [
+          "Across regions, RTT and quorum placement dominate. Keep user-critical paths region-local when invariants allow; replicate asynchronously otherwise. Spell out the conflict/staleness model.",
+          "Track unit economics for Timeouts, Retries & Tail Latency: cost per million requests, per GB stored, or per million tokens. Many scalability projects are cost projects — make the objective explicit."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Timeouts, Retries & Tail Latency: problem framing and constraints",
+    "Control plane vs data plane",
+    "Amplification, locality, contention",
+    "Failure observations for clients",
+    "SLIs and capacity headroom",
+    "Versioned contracts / idempotency"
+  ],
+  "practices": [
+    "Start from constraints before selecting a Timeouts, Retries & Tail Latency approach",
+    "Define SLIs and dashboards with the feature",
+    "Make retries idempotent and budgeted",
+    "Roll out reversibly with measurement"
+  ],
+  "pitfalls": [
+    "Tool-first design without invariants",
+    "Ignoring brownout/slow dependency behavior",
+    "Unbounded retries and queues",
+    "Missing ownership for ops/runbooks"
+  ],
+  "examples": [
+    {
+      "title": "Production pattern",
+      "description": "Teams that succeed with Timeouts, Retries & Tail Latency treat measurement, failure drills, and contracts as part of the design — not afterthoughts."
+    },
+    {
+      "title": "Common review question",
+      "description": "In design reviews, expect to explain what breaks first when load spikes 10× and how Timeouts, Retries & Tail Latency sheds or scales."
+    }
+  ],
+  "keyTakeaways": [
+    "Timeouts, Retries & Tail Latency should be chosen from constraints, not fashion",
+    "Mechanics + failure model + capacity math are the core",
+    "Operations and contracts decide long-term success"
+  ],
+  "whyItMatters": "Without a solid model of Timeouts, Retries & Tail Latency, designs either overbuild or fail in production in ways that are hard to debug. This lesson gives a working framework you can reuse across systems involving packet flow, latency, loss, and middleboxes.",
+  "reflectionQuestions": [
+    "What invariant does Timeouts, Retries & Tail Latency protect in your system?",
+    "What is the scarcest resource when you apply Timeouts, Retries & Tail Latency?",
+    "How would you rehearse the top failure mode for Timeouts, Retries & Tail Latency?"
+  ],
+  "numbersToKnow": [
+    "Plan 2–3× headroom above peak for incidents and rebalancing",
+    "Cross-region RTT often ~50–150ms one way",
+    "p99 matters more than average for user-facing paths"
+  ],
+  "diagrams": [
+    {
+      "id": "net-timeouts-overview",
+      "title": "Timeouts, Retries & Tail Latency context",
+      "mermaid": "flowchart LR\n  Client --> Boundary\n  Boundary --> Timeouts__Retries___Tail\n  Timeouts__Retries___Tail --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Timeouts, Retries & Tail Latency and the main trade-offs.",
+    "How does Timeouts, Retries & Tail Latency behave under overload or partition?",
+    "What would you measure after changing a Timeouts, Retries & Tail Latency-related knob?"
+  ],
+  "exercises": [
+    "Sketch an architecture that depends on Timeouts, Retries & Tail Latency; estimate capacity and list three failure modes.",
+    "Write a one-page runbook for the most likely Timeouts, Retries & Tail Latency outage."
+  ],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications (concepts)"
+    }
+  ],
+  "relatedLessons": [
+    "net-bgp-anycast",
+    "net-congestion",
+    "net-http"
+  ]
+}

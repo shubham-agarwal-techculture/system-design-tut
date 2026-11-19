@@ -497,5 +497,711 @@
     ],
     "status": "published",
     "phaseId": "low-latency"
+  },
+  {
+    "id": "notification-system",
+    "title": "Notification System (Advanced)",
+    "difficulty": "intermediate",
+    "description": "Design a scalable, multi-channel notification system handling push, email, SMS, and in-app alerts for 500M+ users with per-user preferences, deduplication, and guaranteed delivery.",
+    "hints": [
+      "Fan-out fan-in: publish one event, fan-out per channel, aggregate delivery receipts",
+      "Use priority queues to separate critical (OTP, security) from bulk (marketing) notifications",
+      "Store a notification inbox in Cassandra keyed by user_id for in-app retrieval",
+      "Deduplication window: check a Redis bloom filter before enqueuing to avoid duplicate sends",
+      "Respect per-user quiet hours by scheduling delivery into a future-time bucket"
+    ],
+    "checklist": [
+      "Define channel types: push (APNs/FCM), email (SES/SendGrid), SMS (Twilio), in-app",
+      "Capacity estimate: 500M users, 10 notifications/user/day, peak burst factor",
+      "Event ingestion: single event bus (Kafka) fans out to per-channel workers",
+      "User preference service: opt-outs, frequency caps, quiet hours, language/locale",
+      "Delivery guarantee: at-least-once with idempotency tokens, dead-letter queue",
+      "Deduplication: bloom filter or Redis set keyed on (event_id, user_id, channel)",
+      "Status tracking: sent → delivered → opened pipeline, analytics aggregation",
+      "Rate limiting per third-party provider (APNs, Twilio) to avoid bans"
+    ],
+    "estimatedMinutes": 45,
+    "rubric": [
+      "Fan-out strategy (write-time vs read-time) is explicitly justified",
+      "Deduplication mechanism prevents double-delivery across retries",
+      "Provider rate limits and backpressure are handled",
+      "Failure modes: provider down, user device unreachable, queue overflow"
+    ],
+    "scaleVariants": [
+      "Support 100k notifications/second during a flash sale event",
+      "Add multi-region: route users to nearest notification cluster",
+      "Introduce templating engine with A/B variant selection"
+    ],
+    "tags": [
+      "messaging",
+      "fanout",
+      "reliability"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "news-feed",
+    "title": "News Feed (Twitter/Instagram)",
+    "difficulty": "intermediate",
+    "description": "Design a personalized news feed that aggregates posts from followed accounts and surfaces them in reverse-chronological or ranked order with low latency.",
+    "hints": [
+      "Fan-out on write (push) works for most users; fan-out on read (pull) for celebrity accounts",
+      "Pre-compute feeds using an async worker so reads are O(1) from a user feed cache",
+      "Score posts with a ranking model that considers recency, engagement, and relationship strength",
+      "Use Redis sorted sets (ZSET) keyed by user_id to store feed post IDs with score = timestamp",
+      "Celebrity problem: >1M followers → skip write fan-out; merge at read time from celebrity timeline"
+    ],
+    "checklist": [
+      "Functional scope: who can post, follow, what content types (text, images, videos)",
+      "Capacity estimate: 300M DAU, 5 posts/user/day, 500 followers avg, celebrity tail",
+      "Fan-out model chosen and justified (push vs pull vs hybrid)",
+      "Feed storage: Redis ZSET per user, capped at 1000 entries with TTL",
+      "Ranking: chronological baseline, optional ML scorer microservice",
+      "Pagination: cursor-based keyset pagination, not offset",
+      "Consistency trade-off: eventual consistency acceptable for feed updates",
+      "Cache warming for new users and re-login after cache eviction"
+    ],
+    "estimatedMinutes": 50,
+    "rubric": [
+      "Fan-out model justified with capacity numbers",
+      "Celebrity/high-follower edge case explicitly addressed",
+      "Read latency target met with proposed cache architecture",
+      "Stale feed scenario and refresh strategy described"
+    ],
+    "scaleVariants": [
+      "Add algorithmic ranking replacing pure chronological order",
+      "Support 10% of users with >100k followers (celebrity tier)",
+      "Extend to multi-media feed (video thumbnails, story rings)"
+    ],
+    "tags": [
+      "social",
+      "fanout",
+      "caching"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "distributed-lock",
+    "title": "Distributed Lock Service",
+    "difficulty": "intermediate",
+    "description": "Design a distributed lock service that provides mutual exclusion across processes and machines, with TTL-based expiry, fencing tokens, and high availability.",
+    "hints": [
+      "Use Redlock (5-node Redis quorum) for AP lock or Zookeeper/etcd for CP semantics",
+      "Always return a fencing token (monotonically increasing version) with each lock grant",
+      "Lock TTL must be much shorter than the critical section duration to avoid false expiry",
+      "Processes must re-validate fencing token before committing the guarded resource",
+      "Distinguish lock acquire timeout from lock hold timeout in your API"
+    ],
+    "checklist": [
+      "Define semantics: advisory vs mandatory, reentrant or not",
+      "Choose consistency model: CP (etcd/ZooKeeper) vs AP (Redlock) with trade-off rationale",
+      "Fencing token mechanism to handle zombie processes holding stale locks",
+      "TTL and heartbeat renewal to auto-release locks from crashed holders",
+      "Lock wait queue: fair FIFO or try-and-fail with exponential backoff",
+      "Deadlock detection or prevention strategy",
+      "Observability: lock contention metrics, holder identity, wait time histograms"
+    ],
+    "estimatedMinutes": 40,
+    "rubric": [
+      "CP vs AP choice is justified with concrete failure scenario",
+      "Fencing tokens prevent split-brain writes on the guarded resource",
+      "TTL and renewal heartbeat prevent indefinite lock holds",
+      "Clock skew and network partition failure modes are addressed"
+    ],
+    "scaleVariants": [
+      "Scale to 1M lock operations/second across thousands of distinct resources",
+      "Add lock hierarchy to avoid deadlocks across nested critical sections",
+      "Support read-write locks (shared/exclusive) in addition to exclusive locks"
+    ],
+    "tags": [
+      "concurrency",
+      "distributed-systems",
+      "coordination"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "metrics-tsdb",
+    "title": "Metrics & Time-Series Database",
+    "difficulty": "advanced",
+    "description": "Design a time-series metrics store (like Prometheus + Thanos or InfluxDB) that ingests billions of data points per day, supports range queries, and retains data with configurable downsampling.",
+    "hints": [
+      "Store metrics as (metric_name, label_set, timestamp, value); label_set is the high-cardinality enemy",
+      "Chunk time series into fixed-window blocks (e.g., 2h) for compact columnar storage",
+      "Use delta-of-delta + XOR compression (Gorilla encoding) for timestamps and float values",
+      "Inverted index on label key=value pairs for fast series lookup during query",
+      "Downsampling: keep 1-min resolution for 15 days, 5-min for 90 days, 1-hour forever"
+    ],
+    "checklist": [
+      "Ingestion path: write-ahead log → in-memory head block → periodic flush to disk blocks",
+      "Series cardinality management: reject or cap very high-cardinality label sets",
+      "Compression scheme (Gorilla or similar) for time and value columns",
+      "Query engine: PromQL-style range queries, aggregation, rate() computation",
+      "Retention policy and downsampling pipeline",
+      "Long-term storage: compact blocks uploaded to object storage (S3)",
+      "Query federation across multiple TSDB instances for global view",
+      "Alerting integration: rules evaluated against recent data with sub-minute latency"
+    ],
+    "estimatedMinutes": 60,
+    "rubric": [
+      "Compression strategy meaningfully reduces storage vs naive approach",
+      "High-cardinality problem identified and mitigated",
+      "Query path latency target met with proposed index structure",
+      "Retention and downsampling pipeline is operationally coherent"
+    ],
+    "scaleVariants": [
+      "10x ingestion rate: 10B data points per day across 10M active series",
+      "Global federation: query across 20 regional TSDB clusters in a single request",
+      "Add anomaly detection pipeline on top of the ingestion stream"
+    ],
+    "tags": [
+      "observability",
+      "storage",
+      "databases"
+    ],
+    "status": "published",
+    "phaseId": "observability"
+  },
+  {
+    "id": "collab-doc-editor",
+    "title": "Collaborative Document Editor",
+    "difficulty": "advanced",
+    "description": "Design a real-time collaborative document editor like Google Docs that lets multiple users edit the same document simultaneously with conflict-free merges and persistent history.",
+    "hints": [
+      "Operational Transformation (OT) or CRDTs (e.g., YATA, RGA) are the two main approaches to conflict resolution",
+      "CRDTs simplify peer-to-peer architectures but have higher memory overhead; OT requires a central server for ordering",
+      "Store document as an event log (operations), not full snapshots, for efficient history and undo",
+      "Cursor and selection presence should be broadcast via a separate lightweight presence channel",
+      "Checkpoint snapshots periodically to avoid replaying the full operation log on load"
+    ],
+    "checklist": [
+      "Choose concurrency model: OT with server authority vs CRDT with peer broadcast",
+      "Operation model: insert(pos, char), delete(pos, len), retain(len) or character-level CRDT nodes",
+      "Real-time transport: WebSocket per document session, reconnect with catch-up replay",
+      "Persistent storage: operation log in Postgres/Cassandra, snapshots in object storage",
+      "Presence service: who is online, cursor positions, named selections (ephemeral, Redis pub/sub)",
+      "Undo/redo: per-user undo stack that composes with concurrent operations correctly",
+      "Access control: owner, editor, commenter, viewer roles enforced at operation application",
+      "Export pipeline: render document state to DOCX, PDF on demand"
+    ],
+    "estimatedMinutes": 60,
+    "rubric": [
+      "Concurrency model (OT vs CRDT) chosen and trade-offs articulated",
+      "Convergence guarantee: all clients reach identical document state after network partition",
+      "Latency: local edits reflected instantly (optimistic), remote edits merged within 200ms",
+      "Data model supports full edit history, comments, and undo without redesign"
+    ],
+    "scaleVariants": [
+      "Scale to 1000 simultaneous editors on a single large document",
+      "Add offline editing with sync-on-reconnect using CRDT merge",
+      "Support structured content: spreadsheet cells, drawing canvas alongside text"
+    ],
+    "tags": [
+      "real-time",
+      "crdt",
+      "collaboration"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "video-cdn",
+    "title": "Video Streaming CDN",
+    "difficulty": "advanced",
+    "description": "Design the CDN layer for a video streaming platform — including edge cache hierarchy, adaptive bitrate selection, segment pre-fetching, and cache eviction — to serve petabytes of video globally with sub-second start time.",
+    "hints": [
+      "Split manifest (.m3u8/.mpd) delivery from segment delivery: manifests are tiny and can be served with stricter caching rules",
+      "Use consistent hashing at edge PoPs to route a given video's segments to a predictable set of cache servers",
+      "Pre-warm edge caches for anticipated high-demand content (live events, viral uploads) using a push CDN model",
+      "Byte-range requests allow partial segment caching; store segments as immutable objects keyed by (video_id, resolution, segment_index)",
+      "ABR algorithm (e.g., BOLA, MPC) runs in the client player and selects bitrate based on measured bandwidth and buffer level"
+    ],
+    "checklist": [
+      "CDN topology: origin → regional PoP → edge PoP → client, with cache-fill hierarchy",
+      "Segment naming convention and immutability guarantee for effective caching",
+      "Cache eviction policy per edge node: LRU with popularity boosting (LFU hybrid)",
+      "Live vs VOD distinction: live requires low-latency segment availability at edge",
+      "Failover: edge miss → parent PoP → origin, with timeout budgets at each hop",
+      "Bandwidth estimation and adaptive bitrate ladder (e.g., 240p, 480p, 720p, 1080p, 4K)",
+      "DRM and signed URL token validation at edge without origin round-trip",
+      "Analytics: rebuffering ratio, start time, bitrate switches reported per session"
+    ],
+    "estimatedMinutes": 55,
+    "rubric": [
+      "Cache hit ratio strategy is quantified with expected storage vs bandwidth saved",
+      "Live streaming latency path is distinct from VOD and meets <10s end-to-end delay",
+      "Failure modes (edge node down, origin overload) have clear fallback paths",
+      "Security: DRM and token auth prevent unauthorized segment download"
+    ],
+    "scaleVariants": [
+      "Support a simultaneous live event with 50M concurrent viewers",
+      "Add multi-CDN failover: automatically route around a provider outage",
+      "Optimize for mobile-first markets with high packet loss and low bandwidth"
+    ],
+    "tags": [
+      "cdn",
+      "streaming",
+      "media"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "multiplayer-game-session",
+    "title": "Multiplayer Game Session Service",
+    "difficulty": "advanced",
+    "description": "Design a backend service that manages real-time multiplayer game sessions: matchmaking, game server allocation, authoritative state sync, and session lifecycle for a 10M DAU action game.",
+    "hints": [
+      "Authoritative server model prevents cheating; clients send inputs, server sends canonical state",
+      "Client-side prediction + rollback reconciliation hides network latency from the player",
+      "Match state is ephemeral — store it in memory on the game server, only persist final results to DB",
+      "Game servers are stateful; use a session directory (Redis) to map session_id → game server address",
+      "UDP with custom reliability (e.g., QUIC or ENet) beats TCP for low-latency state updates"
+    ],
+    "checklist": [
+      "Matchmaking service: skill-based (ELO/Glicko), queue timeout, party grouping",
+      "Game server fleet management: allocate from warm pool, scale on queue depth",
+      "Session registry: Redis mapping session_id → game server IP:port with TTL",
+      "Network protocol: UDP/QUIC for game state, WebSocket for lobby/chat",
+      "Client-side prediction and server reconciliation (rollback netcode or state interpolation)",
+      "Session lifecycle: lobby → in-game → post-game summary → cleanup",
+      "Cheat detection: server-authoritative validation of all inputs",
+      "Persistent storage: match results, replay file, stats delta written post-game"
+    ],
+    "estimatedMinutes": 60,
+    "rubric": [
+      "Authoritative server model is justified and cheat surface minimized",
+      "Latency mitigation (prediction + rollback) is clearly described",
+      "Game server fleet scales to absorb burst demand within seconds",
+      "Session failure (server crash mid-game) has a defined recovery or compensation path"
+    ],
+    "scaleVariants": [
+      "Scale to 1M concurrent sessions during a major tournament event",
+      "Support cross-region lobbies where players span 3+ continents",
+      "Add spectator mode: broadcast authoritative state to 10k viewers per match"
+    ],
+    "tags": [
+      "gaming",
+      "real-time",
+      "low-latency"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "feature-flag-service",
+    "title": "Feature Flag Service",
+    "difficulty": "intermediate",
+    "description": "Design a feature flag (feature toggle) service that enables trunk-based development, percentage rollouts, A/B experiments, and kill switches with sub-millisecond evaluation latency.",
+    "hints": [
+      "Evaluate flags client-side from a local in-process cache; never call the flag service on the hot path",
+      "Push flag config updates via SSE or WebSocket so SDK caches refresh within seconds of a change",
+      "Target rules: user_id, cohort, region, plan tier — store as a decision tree serialized to JSON",
+      "Assignment must be sticky: same user always gets the same variant — hash(user_id + flag_key) % 100",
+      "Audit log every flag change with who, what, when — critical for debugging production incidents"
+    ],
+    "checklist": [
+      "Flag model: boolean toggle, multivariate (A/B/C), and gradual percentage rollout",
+      "Targeting rules: user attributes, segments, anonymous users (device ID)",
+      "SDK architecture: local in-process evaluation against a cached config snapshot",
+      "Config delivery: polling (simple) vs streaming SSE (low-latency updates)",
+      "Stickiness: deterministic assignment via hashing ensures consistent user experience",
+      "Kill switch: immediate global disable with <1s propagation SLA",
+      "Experiment analysis: impression and conversion event collection for statistical significance",
+      "Audit log and change history with rollback capability"
+    ],
+    "estimatedMinutes": 35,
+    "rubric": [
+      "Flag evaluation is local (sub-millisecond) with no synchronous network call",
+      "Stickiness mechanism guarantees consistent variant per user across SDKs",
+      "Config propagation latency is bounded and meets the stated SLA",
+      "Experiment integrity: assignment cannot be gamed by user-supplied attributes"
+    ],
+    "scaleVariants": [
+      "Scale to 500M flag evaluations per second across all SDK instances",
+      "Add multi-environment support: dev, staging, prod with promotion workflow",
+      "Integrate with a stats engine for real-time experiment significance alerts"
+    ],
+    "tags": [
+      "experimentation",
+      "devops",
+      "feature-management"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "secret-manager",
+    "title": "Secret Manager",
+    "difficulty": "intermediate",
+    "description": "Design a secret management service like HashiCorp Vault or AWS Secrets Manager that stores, rotates, and audits credentials with fine-grained access control and zero long-lived plaintext exposure.",
+    "hints": [
+      "Envelope encryption: each secret encrypted with a data encryption key (DEK), DEK encrypted with a key encryption key (KEK) stored in an HSM or KMS",
+      "Seal/unseal ceremony: master key sharded via Shamir Secret Sharing so no single operator can unseal alone",
+      "Dynamic secrets: generate short-lived DB credentials on demand rather than storing static passwords",
+      "Every read and write must produce an immutable audit log entry — this is non-negotiable for compliance",
+      "Lease and renewal model: clients get a lease token; server revokes on expiry or explicit revoke call"
+    ],
+    "checklist": [
+      "Encryption model: envelope encryption with DEK/KEK hierarchy and HSM/KMS backing",
+      "Authentication backends: IAM role, Kubernetes service account, LDAP, AppRole",
+      "Authorization model: policy as code (HCL/YAML) with path-based ACLs",
+      "Dynamic secrets engine: on-demand credential generation for databases, cloud IAM",
+      "Secret versioning and rollback for safe rotation",
+      "Lease lifecycle: TTL, renewal, revocation, and cascading revocation on compromise",
+      "Audit log: append-only, tamper-evident (WORM storage or Merkle chain)",
+      "High availability: Raft consensus cluster, sealed state on startup"
+    ],
+    "estimatedMinutes": 50,
+    "rubric": [
+      "Encryption at rest and in transit leaves no plaintext secret on disk",
+      "Access control model is least-privilege and testable by policy unit tests",
+      "Rotation and revocation paths work without downtime for consuming services",
+      "Compromise scenario: leaked DEK does not expose all secrets (KEK isolation)"
+    ],
+    "scaleVariants": [
+      "Scale to 100k secret read requests per second across 10k services",
+      "Add cross-region replication with strong consistency for secret writes",
+      "Support BYOK (bring your own key) for enterprise tenants with their own HSMs"
+    ],
+    "tags": [
+      "security",
+      "cryptography",
+      "infrastructure"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "webhook-delivery",
+    "title": "Webhook Delivery Service",
+    "difficulty": "intermediate",
+    "description": "Design a reliable webhook delivery system that sends HTTP callbacks to customer-registered endpoints with guaranteed at-least-once delivery, retry backoff, signature verification, and observability.",
+    "hints": [
+      "Decouple event production from delivery: publish events to Kafka, workers consume and attempt delivery",
+      "Exponential backoff with jitter: retry at 1s, 2s, 4s, 8s … up to 24h before moving to DLQ",
+      "Sign each payload with HMAC-SHA256 using the endpoint's secret; customer verifies the X-Signature header",
+      "Track delivery status per (event_id, endpoint_id): pending → delivered / failed / dlq",
+      "Circuit breaker per endpoint: after N consecutive failures, pause delivery and alert the customer"
+    ],
+    "checklist": [
+      "Event ingestion: producers publish to Kafka; consumer workers handle delivery",
+      "Endpoint registry: customer-registered URLs, secrets, event type subscriptions",
+      "Retry policy: exponential backoff, max attempts, dead-letter queue after exhaustion",
+      "Idempotency: include event_id in payload; customer endpoint should deduplicate",
+      "Payload signing: HMAC-SHA256, include timestamp to prevent replay attacks",
+      "Circuit breaker per endpoint to avoid hammering consistently failing URLs",
+      "Delivery log: immutable record of all attempts (timestamp, status code, response body snippet)",
+      "Dashboard and alerting: failed delivery rate per endpoint, DLQ depth"
+    ],
+    "estimatedMinutes": 40,
+    "rubric": [
+      "At-least-once delivery is guaranteed even across worker restarts",
+      "Retry storm is prevented by backoff + jitter and circuit breaker",
+      "Security: signature scheme prevents payload tampering and replay",
+      "Customer visibility: delivery log is accessible via API and UI"
+    ],
+    "scaleVariants": [
+      "Scale to 1M webhook deliveries per minute across 100k customer endpoints",
+      "Add fan-out: a single internal event triggers webhooks to multiple subscribers",
+      "Support ordered delivery per endpoint with a per-endpoint serial queue"
+    ],
+    "tags": [
+      "messaging",
+      "reliability",
+      "api"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "llm-chat-tools",
+    "title": "LLM Chat Service with Tool Calling",
+    "difficulty": "advanced",
+    "description": "Design a production LLM chat service that supports multi-turn conversations, tool/function calling, streaming responses, and durable session history for millions of users.",
+    "hints": [
+      "Streaming: use server-sent events (SSE) to push tokens to the client as they are generated; never buffer a full response",
+      "Tool execution is synchronous within the model loop: model emits tool_call → service executes tool → result injected into context → model continues",
+      "Context window management: when history exceeds token budget, summarize older turns or use sliding window with lossless compression of system instructions",
+      "Persist conversation turns in a append-only store (DynamoDB or Cassandra) keyed by (session_id, turn_index)",
+      "Rate limit at the token level, not just request level, to control GPU cost per user"
+    ],
+    "checklist": [
+      "Session model: session_id, system prompt, turn history, tool registry per session",
+      "Streaming transport: SSE for browser, gRPC stream for server-to-server",
+      "Tool registry: manifest of available tools (name, description, JSON schema), dispatched to sandboxed executors",
+      "Context window management: token counting, summarization or eviction strategy",
+      "Tool execution safety: sandboxed, timeout-bounded, with output size limits",
+      "Conversation persistence: append-only turn store for history retrieval and audit",
+      "Token metering: prompt tokens + completion tokens logged per user per request",
+      "Fallback and error handling: model timeout, tool failure, context overflow"
+    ],
+    "estimatedMinutes": 55,
+    "rubric": [
+      "Streaming latency to first token is minimized and not blocked by tool calls",
+      "Tool execution is safe: cannot access resources outside declared permissions",
+      "Context management strategy does not silently drop critical conversation context",
+      "Cost and latency SLOs are stated and the design shows how they are met"
+    ],
+    "scaleVariants": [
+      "Support 100k concurrent streaming sessions with sub-500ms time-to-first-token",
+      "Add multi-modal tool calls: image input, file upload, code execution sandbox",
+      "Implement long-term memory: persist and retrieve relevant past conversations via vector search"
+    ],
+    "tags": [
+      "ai",
+      "llm",
+      "streaming",
+      "agents"
+    ],
+    "status": "published",
+    "phaseId": "agentic-systems"
+  },
+  {
+    "id": "autocomplete-typeahead",
+    "title": "Autocomplete / Typeahead Service",
+    "difficulty": "intermediate",
+    "description": "Design a low-latency autocomplete service that returns ranked suggestions within 50ms as users type in a search box, supporting billions of queries per day and personalised results.",
+    "hints": [
+      "Trie or prefix hash index (Radix tree) for sub-millisecond prefix lookup; persist to disk with serialization",
+      "Top-K suggestions per prefix: store (prefix → sorted list of top-K completions by score) in Redis for direct O(1) lookup",
+      "Aggregate query logs daily to update suggestion scores via a MapReduce/Spark job feeding back into the index",
+      "Personalization layer: re-rank top-K using user history, location, and language after prefix lookup",
+      "Cache warmup: pre-compute and cache suggestions for the most popular 10M prefixes at deploy time"
+    ],
+    "checklist": [
+      "Index structure: Trie vs prefix table in Redis; trade-offs in memory and update latency",
+      "Scoring: global popularity + recency + user personalization signal weights",
+      "Query path: edge PoP cache → Redis prefix table → (miss) Trie service → response",
+      "Index update pipeline: event log → Spark aggregation → incremental prefix table update",
+      "Latency budget: <50ms p99 at 100k QPS including network round-trip",
+      "Filtering: exclude adult/illegal content, apply SafeSearch at suggestion generation time",
+      "Multi-language and locale support: separate indexes or locale-aware prefix normalization",
+      "Fallback: return most popular global suggestions when personalization service is degraded"
+    ],
+    "estimatedMinutes": 40,
+    "rubric": [
+      "Latency target (<50ms) is met by the described index + caching architecture",
+      "Index update frequency balances freshness with write amplification cost",
+      "Personalization is applied without blocking the critical read path",
+      "Safety filtering is applied before suggestions reach the client"
+    ],
+    "scaleVariants": [
+      "Scale to 1M QPS globally with <20ms p99 using edge caching",
+      "Add real-time trending: surface queries spiking in the last 60 seconds",
+      "Support entity-aware autocomplete: distinguish queries from named entities (people, products)"
+    ],
+    "tags": [
+      "search",
+      "indexing",
+      "caching"
+    ],
+    "status": "published"
+  },
+  {
+    "id": "payment-ledger",
+    "title": "Payment Ledger",
+    "difficulty": "advanced",
+    "description": "Design a double-entry payment ledger system that records all financial transactions with immutability, strong consistency, idempotency, and auditability, processing millions of transactions per day.",
+    "hints": [
+      "Double-entry bookkeeping: every transaction debits one account and credits another; sum of all entries must always be zero",
+      "Idempotency key on every write: clients include a UUID; server deduplicates using a unique index on idempotency_key",
+      "Use a serializable isolation level (or optimistic locking) to prevent double-spend and race conditions",
+      "Immutability: ledger entries are never updated or deleted; reversals are new credit/debit entries with a reference to the original",
+      "Partition ledger by account_id for horizontal scale; cross-partition transfers require two-phase commit or Saga"
+    ],
+    "checklist": [
+      "Data model: accounts table, ledger_entries table (account_id, amount, currency, type, idempotency_key, created_at)",
+      "Double-entry invariant enforcement: application-level and database constraint checks",
+      "Idempotency: unique constraint on idempotency_key with upsert-or-return-existing semantics",
+      "Concurrency control: optimistic locking on account balance or serializable transactions",
+      "Multi-currency support: store amounts in minor units (cents), handle FX conversion rates",
+      "Saga pattern for distributed transfers: debit source → (failure rollback) → credit destination",
+      "Reconciliation job: nightly balance check, cross-system reconciliation with payment processors",
+      "Audit log: immutable append-only trail queryable by account, time range, and transaction type"
+    ],
+    "estimatedMinutes": 60,
+    "rubric": [
+      "Double-entry invariant is enforced at the database level, not just application level",
+      "Idempotency prevents double charges even under network retries",
+      "Concurrency model prevents overdraft and race conditions under load",
+      "Failure scenario: partial transfer failure leaves system in consistent, recoverable state"
+    ],
+    "scaleVariants": [
+      "Scale to 100k transactions per second while maintaining ACID guarantees",
+      "Add multi-currency real-time FX conversion with rate lock window",
+      "Support multi-tenant ledger: isolate balances per merchant while sharing infrastructure"
+    ],
+    "tags": [
+      "fintech",
+      "databases",
+      "consistency"
+    ],
+    "status": "published",
+    "phaseId": "fintech"
+  },
+  {
+    "id": "metrics-platform",
+    "title": "Metrics / Time-Series Platform",
+    "difficulty": "advanced",
+    "description": "Design a metrics system for high-cardinality ingest, rollups, and query with retention tiers.",
+    "hints": [
+      "Write path batching",
+      "Downsampling",
+      "Cardinality explosion"
+    ],
+    "checklist": [
+      "Ingest API",
+      "Storage layout",
+      "Query model",
+      "Retention",
+      "Alerting integration"
+    ],
+    "estimatedMinutes": 60,
+    "rubric": [
+      "Cardinality plan",
+      "Write amplification considered",
+      "Query latency path",
+      "Cost/retention tiers"
+    ],
+    "scaleVariants": [
+      "10x series",
+      "Long retention"
+    ],
+    "tags": [
+      "observability"
+    ],
+    "status": "published",
+    "phaseId": "design-systems"
+  },
+  {
+    "id": "collab-doc",
+    "title": "Collaborative Document Editor",
+    "difficulty": "advanced",
+    "description": "Design multiplayer document editing with conflict resolution, presence, and durable history.",
+    "hints": [
+      "CRDT vs OT",
+      "Presence channel",
+      "Snapshot+ops"
+    ],
+    "checklist": [
+      "Sync protocol",
+      "Conflict strategy",
+      "Presence",
+      "Persistence",
+      "ACLs"
+    ],
+    "estimatedMinutes": 65,
+    "rubric": [
+      "Conflict model sound",
+      "Offline support considered",
+      "Security/ACL",
+      "Scale of rooms"
+    ],
+    "scaleVariants": [
+      "10k concurrent editors on one doc",
+      "Org-wide ACLs"
+    ],
+    "tags": [
+      "realtime"
+    ],
+    "status": "published",
+    "phaseId": "design-systems"
+  },
+  {
+    "id": "feature-flags",
+    "title": "Feature Flag Service",
+    "difficulty": "intermediate",
+    "description": "Design a feature-flag platform with targeting, percentage rollouts, and low-latency evaluation.",
+    "hints": [
+      "Client-side vs server eval",
+      "Config push",
+      "Sticky bucketing"
+    ],
+    "checklist": [
+      "Flag model",
+      "Targeting rules",
+      "Eval latency",
+      "Audit log",
+      "Kill switch"
+    ],
+    "estimatedMinutes": 40,
+    "rubric": [
+      "Eval performance",
+      "Consistency of bucketing",
+      "Safety controls",
+      "Multi-env story"
+    ],
+    "scaleVariants": [
+      "Edge evaluation",
+      "100k flags"
+    ],
+    "tags": [
+      "platform"
+    ],
+    "status": "published",
+    "phaseId": "design-systems"
+  },
+  {
+    "id": "typeahead",
+    "title": "Typeahead / Autocomplete",
+    "difficulty": "beginner",
+    "description": "Design low-latency prefix search for queries with personalization and abuse controls.",
+    "hints": [
+      "Trie/prefix index",
+      "Edge cache",
+      "Rate limits"
+    ],
+    "checklist": [
+      "Index structure",
+      "Update pipeline",
+      "Latency budget",
+      "Personalization",
+      "Abuse"
+    ],
+    "estimatedMinutes": 30,
+    "rubric": [
+      "Latency path credible",
+      "Freshness strategy",
+      "Scale of suggestions",
+      "Safety"
+    ],
+    "scaleVariants": [
+      "10x QPS",
+      "Multi-language"
+    ],
+    "tags": [
+      "search"
+    ],
+    "status": "published",
+    "phaseId": "design-systems"
+  },
+  {
+    "id": "llm-tool-chat",
+    "title": "LLM Chat with Tools",
+    "difficulty": "advanced",
+    "description": "Design a ChatGPT-like service with tool calling, streaming, memory, and cost controls.",
+    "hints": [
+      "Stream tokens",
+      "Tool sandbox",
+      "Prompt injection"
+    ],
+    "checklist": [
+      "Chat API",
+      "Streaming",
+      "Tools/sandbox",
+      "Memory",
+      "Rate/cost limits"
+    ],
+    "estimatedMinutes": 70,
+    "rubric": [
+      "Streaming design",
+      "Tool security",
+      "Memory/ACL",
+      "Cost controls"
+    ],
+    "scaleVariants": [
+      "Enterprise tenants",
+      "Long-running agents"
+    ],
+    "tags": [
+      "ai"
+    ],
+    "status": "published",
+    "phaseId": "agentic-systems"
   }
 ]

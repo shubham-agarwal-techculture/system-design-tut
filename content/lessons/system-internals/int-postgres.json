@@ -3,99 +3,271 @@
   "title": "PostgreSQL Internals",
   "moduleId": "system-internals",
   "phaseId": "internal-designs",
-  "durationMinutes": 30,
-  "summary": "PostgreSQL Internals — draft awaiting generation and review.",
+  "durationMinutes": 55,
+  "summary": "PostgreSQL is the world's most advanced open-source relational database. Its MVCC-based concurrency model, advanced index types (B-tree, GIN, GiST, BRIN), write-ahead log, query planner, and extensibility make it the first choice for OLTP workloads requiring correctness and flexibility. Understanding its internals—how transactions work, how indexes are chosen, how replication operates—enables both effective schema design and confident production operation.",
   "kind": "living",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "int-nginx-envoy"
-  ],
-  "tags": [
-    "system-internals",
-    "living",
-    "internal-designs"
-  ],
+  "prerequisites": ["db-transactions", "db-indexes-replication"],
+  "tags": ["system-internals", "postgres", "databases", "mvcc", "replication"],
   "sections": [
     {
-      "title": "Overview",
+      "title": "MVCC: Multi-Version Concurrency Control",
       "paragraphs": [
-        "This draft covers PostgreSQL Internals. Run content:generate to expand it with a model provider, or edit manually."
+        "PostgreSQL's concurrency model is built on MVCC: rather than locking rows for reads, it maintains multiple versions of each row. Every row has hidden system columns: xmin (transaction ID that created this version) and xmax (transaction ID that deleted or updated this version; 0 if still live). When a transaction reads a row, it sees the version whose xmin was committed before the transaction started and whose xmax is either 0 or was not committed before the transaction started. This snapshot-based visibility allows reads and writes to proceed concurrently without blocking each other.",
+        "MVCC enables PostgreSQL's isolation levels. Read Committed (default): each statement sees a fresh snapshot; a transaction may see different data at different points. Repeatable Read: the transaction sees a snapshot taken at its first statement—it never sees changes committed by other transactions during its lifetime. Serializable (SSI): uses predicate locking to detect and abort transactions that form a serialization conflict cycle, providing true serializability without traditional locking overhead.",
+        "The cost of MVCC is dead tuples. When a row is updated, PostgreSQL doesn't modify it in place—it creates a new version and marks the old version's xmax with the updating transaction ID. The old version becomes 'dead' (not visible to any active transaction) but remains on disk. VACUUM reclaims dead tuple space by marking it as reusable. Without regular VACUUM, tables grow unboundedly with dead tuples, queries slow down, and the dreaded 'transaction ID wraparound' threatens data corruption (transaction IDs are 32-bit and wrap around at 4 billion). autovacuum runs continuously in the background but may need tuning for high-update tables.",
+        "Row locks in PostgreSQL are lightweight: they don't consume lock table entries like table locks do—they're stored in the row's tuple header (xmax field, combined with HEAP_XMAX_IS_MULTI). SELECT FOR UPDATE acquires a row lock by setting xmax to the current transaction ID with appropriate flags. SKIP LOCKED allows a worker to skip rows locked by other workers—the primitive for concurrent queue implementations (each worker claims a batch of rows atomically). FOR NO KEY UPDATE is lighter than FOR UPDATE and doesn't block foreign key checks."
+      ],
+      "bullets": [
+        "xmin/xmax: hidden transaction ID columns determining row visibility",
+        "VACUUM: reclaims dead tuples; prevents transaction ID wraparound",
+        "autovacuum: background vacuum daemon; tune scale_factor and cost_delay for write-heavy tables",
+        "SELECT FOR UPDATE SKIP LOCKED: implement concurrent work queue in SQL"
+      ]
+    },
+    {
+      "title": "Index Types and When to Use Them",
+      "paragraphs": [
+        "B-tree is the default index type: sorted, balanced tree supporting equality, range, ordering, and LIKE 'prefix%' queries. Almost every column that appears in a WHERE clause, ORDER BY, or JOIN condition benefits from a B-tree index. Multi-column B-tree indexes work for queries that filter on leading columns (index on (a, b, c) can be used for WHERE a=X, WHERE a=X AND b=Y, but not for WHERE b=Y alone). The key performance insight: an index is only used if the planner estimates the selectivity justifies the extra I/O of an index scan over a sequential scan.",
+        "GIN (Generalized Inverted Index) indexes composite values where each element maps to the row: ideal for full-text search (tsvector columns), JSONB containment queries (@>), and array elements (@>). A GIN index on a JSONB column makes jsonb @> '{'type': 'payment'}' fast regardless of JSONB document structure. GIN indexes are larger and slower to update than B-tree (each array/document update may touch many index entries) but essential for document and full-text search workloads. Use gin_pending_list_limit to control the fast-update pending list size.",
+        "GiST (Generalized Search Tree) indexes geometric, range, and fuzzy data: perfect for PostGIS spatial queries (ST_DWithin, ST_Intersects), range types (overlaps, contains), and trigram-based fuzzy text search (pg_trgm extension). A GiST index on a geometry column enables spatial queries to avoid full table scans—essential for location-based services. BRIN (Block Range Index) is an ultra-compact index for naturally ordered large tables: a temperature sensor table with timestamps can use a BRIN index covering millions of rows in kilobytes, since each block range maps to a min/max timestamp value.",
+        "Partial indexes cover only rows matching a WHERE clause: CREATE INDEX ON orders (customer_id) WHERE status = 'pending'. This index is small and fast for the common case of querying pending orders, without indexing the 99% of orders that are completed. Expression indexes index the result of a function: CREATE INDEX ON users (lower(email)) enables case-insensitive email lookup. Covering indexes (INCLUDE clause) add non-key columns to the index leaf, allowing index-only scans that never touch the main table: CREATE INDEX ON orders (customer_id) INCLUDE (order_date, total)."
+      ],
+      "bullets": [
+        "B-tree: default; equality, range, ordering, LIKE prefix; multi-column with leading column rule",
+        "GIN: inverted index; full-text search, JSONB @> containment, array membership",
+        "GiST: geometric and range data; PostGIS spatial, pg_trgm fuzzy search",
+        "BRIN: compact for naturally ordered large tables; min/max per block range"
+      ]
+    },
+    {
+      "title": "Query Planning and Execution",
+      "paragraphs": [
+        "The PostgreSQL query planner generates an execution plan by estimating the cost of alternative strategies using table statistics. The statistics daemon (autovacuum/ANALYZE) maintains per-column histograms, most common values (MCVs), and null fractions. The planner uses these to estimate row counts, selectivity, and join sizes. When statistics are stale (freshly loaded data before ANALYZE runs) or the data distribution is unusual (highly skewed), estimates diverge from reality and the planner makes poor choices (sequential scan instead of index scan, nested loop instead of hash join).",
+        "EXPLAIN ANALYZE is the essential diagnostic tool: it shows the actual execution plan with real row counts, actual execution times, and I/O statistics (enable track_io_timing for I/O details). Key things to look for: estimated vs. actual rows (large discrepancy → stale statistics or complex condition the planner can't estimate); sequential scans on large tables (missing index or planner correctly prefers seqscan for high-selectivity queries); nested loop with millions of inner iterations (use Hash Join or Merge Join instead); and sort operations that exceed work_mem and spill to disk.",
+        "work_mem controls the memory available for each sort, hash table, or aggregate operation. The default of 4MB is appropriate for many queries but causes disk spills for large sorts or joins. A query with three sort nodes can use 3x work_mem simultaneously. With 100 concurrent queries, total memory used could be 100 × 3 × work_mem—be careful when setting work_mem high globally. Use SET LOCAL work_mem = '256MB' per session for specific heavy analytical queries rather than raising the global default.",
+        "The connection overhead in PostgreSQL is significant: each backend process consumes ~5MB of memory and fork overhead. A PostgreSQL instance with 1,000 direct connections consumes 5GB just for connection overhead before serving a single query. PgBouncer connection pooling in transaction mode allows thousands of application connections to share a small pool of PostgreSQL backend connections, reducing memory consumption and fork overhead dramatically. This is not optional for production systems with more than ~200 application instances."
+      ],
+      "bullets": [
+        "EXPLAIN (ANALYZE, BUFFERS): actual vs. estimated rows; buffer hit/miss ratio",
+        "Statistics: autovacuum runs ANALYZE; stale stats → bad plans; run ANALYZE manually after bulk loads",
+        "work_mem: sort/hash memory per operation (not per connection); 4MB default; raise selectively",
+        "PgBouncer: connection pooler; transaction mode allows thousands of app connections to 100 PG backends"
+      ]
+    },
+    {
+      "title": "Write-Ahead Log and Replication",
+      "paragraphs": [
+        "PostgreSQL's Write-Ahead Log (WAL) is the mechanism for both durability and replication. Every data modification is first written to WAL (a sequential log file on disk) before the data pages are modified. On crash, PostgreSQL replays WAL from the last checkpoint to restore a consistent state. WAL writes are sequential (much faster than random data page writes), and synchronous commit ensures WAL is flushed to disk before acknowledging the transaction (guaranteeing durability). With synchronous_commit = off, WAL is buffered—up to 200ms of data loss on crash but 2-10x higher write throughput for small transactions.",
+        "Streaming replication sends WAL to standby servers in real time. The standby continuously applies WAL from the primary, maintaining an up-to-date copy. Replication lag (pg_stat_replication.write_lag, flush_lag, replay_lag on the primary) measures how far behind the standby is. Under normal operation, lag is milliseconds. Synchronous replication (synchronous_standby_names) requires the primary to wait for at least one standby to confirm WAL receipt before acknowledging writes—eliminates data loss on failover at the cost of write latency.",
+        "Logical replication (PostgreSQL 10+) replicates specific tables or all tables at the SQL row level rather than block level. This enables: replicating a subset of tables to another database, replicating between different PostgreSQL versions (major version upgrades with minimal downtime), and publishing changes to external consumers (Debezium uses logical replication to publish CDC events to Kafka). Logical replication requires wal_level = logical and creates a replication slot that retains WAL until the subscriber confirms consumption—a replication slot with a stalled subscriber will fill the disk with accumulated WAL.",
+        "Failover and high availability: Patroni is the de-facto standard for PostgreSQL HA. Patroni uses etcd, Consul, or ZooKeeper as a distributed consensus store to coordinate primary election and prevent split-brain scenarios. When the primary fails, Patroni elects the standby with the most up-to-date WAL as the new primary, promotes it, and reconfigures other standbys to follow the new primary. Failover takes 10-30 seconds. HAProxy or pgBouncer routes application traffic to the current primary via DNS or Patroni's REST API."
+      ],
+      "bullets": [
+        "WAL: sequential write before data page modification; enables crash recovery and replication",
+        "synchronous_commit = off: 200ms data loss window; 2-10x write throughput improvement",
+        "Logical replication: row-level, table-selective; enables CDC, cross-version replication",
+        "Patroni: etcd/Consul-based HA; automatic failover in 10-30 seconds; prevents split-brain"
+      ]
+    },
+    {
+      "title": "Partitioning, Extensions, and Operational Tuning",
+      "paragraphs": [
+        "Table partitioning divides a large table into smaller physical partitions, enabling partition pruning (the planner skips irrelevant partitions), faster VACUUM (each partition vacuumed independently), and partition-level operations (drop old partitions as a range partition instead of DELETE). Declarative partitioning (PostgreSQL 10+): PARTITION BY RANGE (created_at) with monthly partitions allows dropping a month of data as ALTER TABLE detach + DROP TABLE—instant, without table lock and without VACUUM overhead. Partition-wise joins and aggregates allow the planner to parallelize operations across partitions.",
+        "PostgreSQL's extension system is uniquely powerful. PostGIS adds world-class geospatial types and functions—used by Uber, Lyft, and virtually every location-based service. pg_trgm enables trigram-based fuzzy search and fast LIKE/ILIKE queries. TimescaleDB converts PostgreSQL into a time-series database with hypertables, compression, and continuous aggregates. pgvector adds vector similarity search (HNSW and IVFFlat indexes for nearest-neighbor queries)—enabling PostgreSQL as a vector database for ML applications. pg_partman automates partition management. These extensions make PostgreSQL viable for use cases beyond pure OLTP.",
+        "Critical tuning parameters: shared_buffers (25% of RAM for dedicated instances), effective_cache_size (inform the planner how much OS page cache is available; 75% of RAM), random_page_cost (reduce from 4.0 to 1.1-2.0 for SSD to favor index scans), checkpoint_completion_target (0.9 spreads checkpoint writes over 90% of the checkpoint interval, reducing I/O spikes), wal_buffers (auto is usually correct; increase for high WAL write workloads), max_parallel_workers_per_gather (number of workers for parallel queries; default 2; increase for OLAP workloads on multi-core machines)."
+      ],
+      "bullets": [
+        "PARTITION BY RANGE: monthly partitions; drop old data with ALTER TABLE DETACH + DROP (instant, no VACUUM)",
+        "PostGIS: geospatial types; ST_DWithin, ST_Contains, ST_Intersects with GiST index",
+        "pgvector: HNSW/IVFFlat indexes for vector similarity search in PostgreSQL",
+        "shared_buffers: 25% RAM; effective_cache_size: 75% RAM (planner hint, not allocation)"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "MVCC and Transactions",
         "paragraphs": [
-          "This draft covers PostgreSQL Internals. Run content:generate to expand it with a model provider, or edit manually."
+          "MVCC provides non-blocking reads: each row version has xmin (creator TXN) and xmax (deleter TXN). Readers see consistent snapshots without blocking writers.",
+          "Dead tuples accumulate from MVCC updates; VACUUM reclaims space. Without VACUUM, tables bloat and transaction ID wraparound looms at 4B transactions.",
+          "Isolation levels: Read Committed (default), Repeatable Read, Serializable (SSI). Use Serializable for correctness in concurrent financial operations."
+        ],
+        "bullets": [
+          "VACUUM prevents table bloat and transaction ID wraparound",
+          "autovacuum: tune scale_factor (0.01 for high-update tables) and cost_delay",
+          "SELECT FOR UPDATE SKIP LOCKED: safe concurrent row-level queue processing"
+        ]
+      },
+      {
+        "title": "Indexes and Query Planning",
+        "paragraphs": [
+          "B-tree: default; equality, range, ORDER BY. GIN: JSONB, full-text, arrays. GiST: geometry, ranges. BRIN: compact for ordered tables.",
+          "EXPLAIN (ANALYZE, BUFFERS): actual vs. estimated rows reveals statistics issues; buffer hits vs reads reveals cache efficiency.",
+          "work_mem: per-operation sort/hash memory; raise selectively per session, not globally."
+        ],
+        "bullets": [
+          "Partial index: WHERE clause reduces index size for selective queries",
+          "Covering index (INCLUDE): index-only scans avoid heap fetch",
+          "PgBouncer transaction mode: pool connections; essential at >100 app instances"
+        ]
+      },
+      {
+        "title": "WAL and Replication",
+        "paragraphs": [
+          "WAL: sequential write-ahead log; crash recovery + replication. synchronous_commit=off for 2-10x write throughput with 200ms data loss window.",
+          "Streaming replication: async (ms lag) or synchronous (zero data loss, higher write latency).",
+          "Patroni: etcd-based HA with automatic failover in 10-30 seconds."
+        ],
+        "bullets": [
+          "Logical replication: row-level, table-selective; enables CDC via Debezium",
+          "Replication slot: retains WAL until subscriber consumes; stalled slot fills disk",
+          "pg_stat_replication: monitor write_lag, flush_lag, replay_lag per standby"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "PostgreSQL Internals — Deep Dive",
+        "title": "VACUUM Internals and Bloat Management",
         "paragraphs": [
-          "Extended treatment of PostgreSQL Internals: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "VACUUM scans the table, identifies dead tuples (xmax committed and not visible to any active transaction), and marks their space as reusable. It updates the Free Space Map (FSM), the Visibility Map (VM, used for index-only scans and aggressive vacuum), and the transaction ID freeze map. VACUUM FULL rewrites the entire table, compacting it to minimum size but holding an exclusive lock for the duration—use with extreme care in production (pg_repack is a non-blocking alternative).",
+          "Autovacuum configuration for high-update tables: reduce autovacuum_vacuum_scale_factor from 0.2 (20% of table modified) to 0.01 (1%), add autovacuum_vacuum_cost_delay = 2ms (reduce I/O throttling), and increase autovacuum_vacuum_cost_limit to 400. For the most write-heavy tables, trigger VACUUM manually during low-traffic windows rather than relying on autovacuum. Monitor pg_stat_user_tables.n_dead_tup and pg_stat_user_tables.last_autovacuum to detect tables where autovacuum isn't keeping up.",
+          "Table bloat occurs when dead tuples accumulate faster than VACUUM can reclaim them. At 2x bloat, a 100GB table occupies 200GB of disk and all queries read twice as many pages as necessary. bloat detection: SELECT schemaname, tablename, pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS total, round(100 * pg_total_relation_size(...) / NULLIF(pg_relation_size(...), 0)) AS bloat_ratio FROM pg_stat_user_tables. For severe bloat without table downtime, pg_repack rebuilds the table concurrently using triggers to maintain consistency."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "VACUUM vs VACUUM FULL: VACUUM reclaims space in-place (non-blocking); VACUUM FULL rewrites (exclusive lock)",
+          "pg_repack: non-blocking table compaction; uses triggers to track concurrent changes during repack",
+          "Visibility Map: tracks all-visible pages; enables index-only scans to skip heap fetch",
+          "Transaction ID freeze: VACUUM freezes old xmin values; prevents 4B transaction ID wraparound"
+        ]
+      },
+      {
+        "title": "Advanced Features: CTEs, Window Functions, and JSONB",
+        "paragraphs": [
+          "CTEs (Common Table Expressions) with WITH RECURSIVE enable graph traversal queries—finding all descendants in an org chart or all reachable nodes in a network. PostgreSQL 12 changed CTEs to be inlined by default (the optimizer can push predicates into the CTE), but WITH ... AS MATERIALIZED forces the old behavior of materializing the CTE result first. Use materialized CTEs as a fence to prevent the planner from pushing a filter inside a CTE that has side effects or should run exactly once.",
+          "Window functions compute values across related rows without collapsing them into groups. ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY created_at) assigns rank within each customer's orders. LAG()/LEAD() access previous/next row values for time-series analysis. NTILE(100) for percentile buckets. Window functions execute after WHERE and GROUP BY but before HAVING and ORDER BY—this ordering determines how to combine them with aggregates correctly. They're often 10x faster than self-joins for the same computation.",
+          "JSONB (binary JSON) enables schemaless storage with full indexing capabilities within a relational table. Use JSONB for genuinely variable attributes (product metadata with 100 different schemas across product categories), not as a replacement for proper relational schema (the 'JSON as a dumping ground' antipattern). GIN indexes on JSONB enable fast @> (containment), @? (path exists), and @@ (JSONPath) queries. Generated columns can extract frequently-queried JSONB fields into typed, indexed columns: ALTER TABLE products ADD COLUMN price NUMERIC GENERATED ALWAYS AS ((metadata->>'price')::numeric) STORED."
+        ],
+        "bullets": [
+          "WITH RECURSIVE: graph traversal (org charts, network paths) in pure SQL",
+          "Window functions: row_number, lag, lead, ntile—compute across rows without grouping",
+          "JSONB GIN index: fast @> containment queries; use for variable-schema attribute storage",
+          "Generated columns: auto-compute from JSONB fields; can be indexed like regular columns"
         ]
       }
     ],
     "expert": [
       {
-        "title": "PostgreSQL Internals — Expert Notes",
+        "title": "PostgreSQL at Scale: Citus, pgBouncer, and Read Scaling",
         "paragraphs": [
-          "Expert considerations for PostgreSQL Internals: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Citus (now part of Azure and available as an extension) shards PostgreSQL tables across a cluster of PostgreSQL nodes. The coordinator node routes queries to the appropriate shards; for distributed queries it pushes down filter predicates and aggregations to workers, returning only the final result to the coordinator. Citus excels for multi-tenant SaaS (shard by tenant_id, ensuring tenant data collocates) and for OLAP workloads on large tables. Limitations: cross-shard joins are expensive, foreign keys across shard boundaries are unsupported, and Citus-specific DDL must be used for distributed tables.",
+          "Read scaling with physical standbys: direct read-heavy analytical queries to synchronous standbys to offload the primary. Use PgBouncer to route: read queries to a pool connected to the standby, write queries to a pool connected to the primary. The application must be designed to tolerate replication lag on read queries. pgpool-II can route queries automatically based on whether they're in a transaction (force primary) or standalone read queries (route to standby). For highest-volume reads (product catalog, public leaderboards), materialized views on the standby with periodic refresh eliminate live query load entirely.",
+          "Connection pooling strategy at scale: PgBouncer in transaction mode allows the highest connection multiplexing but prohibits session-level features (SET, prepared statements, advisory locks). For applications using prepared statements or explicit transactions heavily, use session mode with a larger pool. Multiple PgBouncer instances for HA: clients connect to PgBouncer behind a load balancer; each PgBouncer maintains its own pool. Use pgBouncer's PAUSE command for zero-downtime failover: pause new connections, fail over PostgreSQL, then resume. Patroni integrates with PgBouncer for automated failover reconfiguration."
         ]
       }
     ]
   },
   "concepts": [
-    "PostgreSQL Internals: core idea"
+    "MVCC: row versioning via xmin/xmax; non-blocking reads; dead tuples require VACUUM",
+    "VACUUM: reclaims dead tuple space; prevents transaction ID wraparound at 4 billion transactions",
+    "WAL: sequential write-ahead log; enables crash recovery, streaming replication, and logical replication",
+    "B-tree index: default; equality, range, ORDER BY; multi-column with leading column rule",
+    "GIN index: inverted index for full-text search, JSONB containment, array membership",
+    "EXPLAIN ANALYZE: actual execution plan with real row counts and I/O statistics",
+    "PgBouncer: connection pooler; transaction mode enables thousands of connections to small backend pool",
+    "Streaming replication: WAL-based async (or sync) replication to standby servers",
+    "Logical replication: row-level, table-selective replication; enables CDC and cross-version upgrades",
+    "Patroni: etcd/Consul-based HA; automatic failover; prevents split-brain",
+    "Declarative partitioning: PARTITION BY RANGE/LIST/HASH; enables partition pruning and instant drop",
+    "work_mem: per-sort/hash-operation memory; set locally for analytical queries, not globally"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Run EXPLAIN (ANALYZE, BUFFERS) on every slow query; look for estimated vs. actual row count discrepancies",
+    "Use PgBouncer in transaction mode for all production deployments with >50 application instances",
+    "Monitor n_dead_tup and last_autovacuum in pg_stat_user_tables; tune autovacuum for high-write tables",
+    "Use partial indexes for queries on subsets of rows (status='pending'), covering indexes for index-only scans",
+    "Enable logical replication (wal_level=logical) and use Debezium for CDC to avoid application-layer change capture",
+    "Partition large tables by time range; drop old partitions with DETACH+DROP instead of DELETE",
+    "Set shared_buffers=25% RAM, effective_cache_size=75% RAM, random_page_cost=1.5 for SSD storage"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Not running VACUUM or ANALYZE after bulk loads—stale statistics cause poor query plans",
+    "Using VACUUM FULL in production without a maintenance window—it holds an exclusive table lock",
+    "Unbounded replication slots—a stalled subscriber allows WAL to accumulate and fill disk",
+    "Missing PgBouncer—direct application connections consume 5MB per backend at scale",
+    "Using JSONB as a schema-free dumping ground instead of proper relational design for structured data",
+    "Ordering multi-column index columns wrong (high-selectivity column must be first for leading-column benefit)",
+    "Raising work_mem globally for one analytical query—multiplies memory usage by all concurrent operations"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "High-Update Table VACUUM Tuning",
+      "description": "An order status update table receives 10,000 updates/second. With default autovacuum (scale_factor=0.2, cost_delay=20ms), autovacuum triggers only when 20% of the table is modified and runs slowly due to I/O throttling. The table grows to 10x bloat in days. Fix: ALTER TABLE orders SET (autovacuum_vacuum_scale_factor=0.01, autovacuum_vacuum_cost_delay=2, autovacuum_vacuum_cost_limit=400). This triggers vacuum much sooner and runs it faster. Table bloat stabilizes at 1.2x within hours."
+    },
+    {
+      "title": "Partitioned Event Log with Instant Data Retention",
+      "description": "An audit log table stores 500 million events/month. PARTITION BY RANGE (created_at) with monthly partitions: partition_2026_10, partition_2026_11, etc. Queries for the current month only scan the current partition (partition pruning). Keeping 90 days of data: ALTER TABLE audit_log DETACH PARTITION partition_2026_07, then DROP TABLE partition_2026_07—instant, holding no locks on the main table. The equivalent DELETE would take hours with massive VACUUM overhead afterward."
+    },
+    {
+      "title": "JSONB for Product Catalog",
+      "description": "An e-commerce catalog stores products from 1000 categories, each with different attributes (electronics: voltage, screen_size; clothing: material, care_instructions; food: allergens, nutrition). JSONB column metadata stores category-specific attributes. GIN index on metadata enables queries like SELECT * FROM products WHERE metadata @> '{\"screen_size\": \"15inch\"}'. Generated columns extract common fields (price, weight) into indexed numeric columns for range queries. This handles variable schemas without 1000 EAV rows per product."
+    }
+  ],
   "keyTakeaways": [
-    "PostgreSQL Internals belongs in the curriculum as living content"
+    "MVCC enables high-concurrency reads without blocking, at the cost of dead tuples requiring regular VACUUM",
+    "Index type selection matters: B-tree for most queries, GIN for full-text/JSONB, GiST for spatial, BRIN for large ordered tables",
+    "EXPLAIN (ANALYZE, BUFFERS) is the most important diagnostic tool—use it for every slow query",
+    "WAL enables both crash recovery and replication; synchronous commit trades throughput for durability",
+    "PgBouncer is non-optional at scale—direct connections at 500+ consume GB of memory in connection overhead",
+    "Partitioning transforms data retention from a painful batch DELETE into an instant DROP",
+    "PostgreSQL's extension ecosystem (PostGIS, pgvector, TimescaleDB) makes it viable beyond OLTP"
   ],
-  "whyItMatters": "Understanding PostgreSQL Internals improves design judgment for production systems.",
+  "whyItMatters": "PostgreSQL powers some of the world's most demanding production systems. Its correctness guarantees (ACID, SSI), operational maturity, and extension ecosystem make it the relational database of choice for new systems. Understanding its internals—MVCC, VACUUM, indexes, WAL, and replication—is essential for database design interviews, production incident response, and the schema design decisions that determine whether a system scales gracefully or requires painful migrations under load.",
   "reflectionQuestions": [
-    "When would you reach for PostgreSQL Internals in a real design?"
+    "Your PostgreSQL primary is experiencing high write latency that correlates with I/O spikes every 5 minutes. What is the likely cause and how do you investigate and fix it?",
+    "Design the index strategy for a multi-tenant SaaS order table with 1 billion rows. What indexes would you create for: orders by customer, orders by status, orders by date range, and full-text search on order notes?",
+    "A development team is seeing poor query performance on a table they just loaded with 100 million rows. The query plan shows a sequential scan despite an index existing on the WHERE clause column. What are the two most likely causes?",
+    "Explain how logical replication differs from streaming replication and when you would use each."
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "MVCC transaction ID limit: 4 billion (32-bit); freeze old xmin values before wraparound",
+    "PostgreSQL backend memory: ~5MB per connection; 200 connections = 1GB overhead before data",
+    "shared_buffers sweet spot: 25% of RAM for dedicated instances",
+    "WAL default segment size: 16MB; wal_keep_size controls how much WAL to retain for standbys",
+    "Checkpoint interval: checkpoint_timeout=5min default; checkpoint_completion_target=0.9 spreads I/O",
+    "B-tree index size: approximately 10-30% of table size for typical varchar/integer columns",
+    "Autovacuum default threshold: 50 rows + 20% of table; tune to 1% for high-update tables"
   ],
   "diagrams": [
     {
-      "id": "int-postgres-overview",
-      "title": "PostgreSQL Internals overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "int-postgres-mvcc",
+      "title": "PostgreSQL MVCC and WAL",
+      "mermaid": "flowchart TD\n  T1[Transaction 1: UPDATE row] --> WAL[WAL Buffer]\n  WAL -->|fsync| DISK[(WAL on Disk)]\n  T1 --> DT[Dead Tuple: xmax=T1]\n  T1 --> NT[New Tuple: xmin=T1]\n  VACUUM[VACUUM daemon] -->|mark reusable| DT\n  DISK -->|stream| REP[Streaming Replication]\n  REP --> SB[Standby: apply WAL]\n  DISK -->|logical decode| CDC[Debezium / Logical Replication]\n  CDC --> KAFKA[Kafka: CDC events]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain PostgreSQL Internals and the main trade-offs in 3 minutes."
+    "What is MVCC and how does it enable concurrent reads without blocking writes in PostgreSQL?",
+    "Explain the difference between a B-tree index and a GIN index. When would you use each?",
+    "A PostgreSQL table has 10x bloat—dead tuples occupy 10x the live data size. What caused this and how do you fix it without downtime?",
+    "Design the replication and HA architecture for a PostgreSQL deployment requiring zero data loss on failover and <30-second failover time.",
+    "What is a covering index and when does it help performance?"
   ],
   "exercises": [
-    "Design a small system that depends on PostgreSQL Internals; list 3 trade-offs."
+    "Given a 1-billion-row orders table with columns (order_id, customer_id, status, created_at, total, notes), design: a partitioning strategy for data retention, all necessary indexes for the top 5 most common query patterns, and a VACUUM strategy that keeps bloat under 1.3x.",
+    "Write a SQL query using window functions to find, for each customer, their most recent 3 orders and whether each order's total is above or below their average order value—without using subqueries or CTEs.",
+    "Debug this scenario: a production PostgreSQL query suddenly started running in 30 seconds instead of 50ms. Write the diagnostic steps, the EXPLAIN ANALYZE output you'd look for, and three possible root causes with their fixes."
   ],
-  "sources": [],
-  "relatedLessons": [
-    "int-cassandra",
-    "int-clickhouse",
-    "int-etcd"
-  ]
+  "sources": [
+    {"title": "PostgreSQL Documentation — official reference (postgresql.org/docs)"},
+    {"title": "The Internals of PostgreSQL — Hironobu Suzuki (interdb.jp/pg)"},
+    {"title": "2ndQuadrant Blog — VACUUM, bloat, and autovacuum tuning guides"},
+    {"title": "Citus Data Blog — Scaling PostgreSQL to billions of rows"},
+    {"title": "Brendan Gregg — USE Method for PostgreSQL performance analysis"}
+  ],
+  "relatedLessons": ["db-transactions", "db-indexes-replication", "db-replication-sharding", "int-redis", "int-kafka"]
 }

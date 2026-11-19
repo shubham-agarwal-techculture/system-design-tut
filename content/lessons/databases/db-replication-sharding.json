@@ -3,15 +3,15 @@
   "title": "Replication & Sharding",
   "moduleId": "databases",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "Replication & Sharding — draft awaiting generation and review.",
+  "durationMinutes": 50,
+  "summary": "Replication copies data for durability and read scale; sharding splits data for write/storage scale. Together they define how databases grow — and how consistency and operational complexity grow with them.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "db-modeling"
+    "db-query-optimizer"
   ],
   "tags": [
     "databases",
@@ -20,82 +20,147 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Replication topologies",
       "paragraphs": [
-        "This draft covers Replication & Sharding. Run content:generate to expand it with a model provider, or edit manually."
+        "Primary-replica async replication is common: fast writes, possible loss on failover. Semi-sync and quorum replication reduce loss windows. Multi-primary increases conflict complexity."
+      ]
+    },
+    {
+      "title": "Sharding strategies",
+      "paragraphs": [
+        "Hash, range, and directory-based sharding. Resharding is the expensive part — plan early. Cross-shard transactions should be rare."
+      ]
+    },
+    {
+      "title": "Read your writes",
+      "paragraphs": [
+        "Async replicas cause stale reads. Session stickiness, primary reads for critical paths, or causal tokens mitigate."
+      ]
+    },
+    {
+      "title": "Ops realities",
+      "paragraphs": [
+        "Failover automation, replica lag alerts, backup per shard, and schema change coordination dominate real-world success."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Replication topologies",
         "paragraphs": [
-          "This draft covers Replication & Sharding. Run content:generate to expand it with a model provider, or edit manually."
+          "Primary-replica async replication is common: fast writes, possible loss on failover. Semi-sync and quorum replication reduce loss windows. Multi-primary increases conflict complexity."
+        ]
+      },
+      {
+        "title": "Sharding strategies",
+        "paragraphs": [
+          "Hash, range, and directory-based sharding. Resharding is the expensive part — plan early. Cross-shard transactions should be rare."
+        ]
+      },
+      {
+        "title": "Read your writes",
+        "paragraphs": [
+          "Async replicas cause stale reads. Session stickiness, primary reads for critical paths, or causal tokens mitigate."
+        ]
+      },
+      {
+        "title": "Ops realities",
+        "paragraphs": [
+          "Failover automation, replica lag alerts, backup per shard, and schema change coordination dominate real-world success."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Replication & Sharding — Deep Dive",
+        "title": "Replication & Sharding — Operations",
         "paragraphs": [
-          "Extended treatment of Replication & Sharding: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating Replication & Sharding in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Replication & Sharding — Failure modes",
+        "paragraphs": [
+          "Common failures around Replication & Sharding include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Replication & Sharding — Expert Notes",
+        "title": "Replication & Sharding — Expert notes",
         "paragraphs": [
-          "Expert considerations for Replication & Sharding: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, Replication & Sharding intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "Replication & Sharding: core idea"
+    "Async vs sync replication",
+    "Failover",
+    "Hash/range sharding",
+    "Resharding",
+    "Replica lag"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Alert on lag",
+    "Avoid cross-shard transactions",
+    "Automate failover carefully"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Sharding before needed",
+    "Ignoring reshard cost",
+    "Reading replicas for strong consistency paths"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Postgres primary + replicas",
+      "description": "Read scale with lag awareness."
+    },
+    {
+      "title": "Vitess/Cockroach",
+      "description": "Sharded or distributed SQL approaches."
+    }
+  ],
   "keyTakeaways": [
-    "Replication & Sharding belongs in the curriculum as evergreen content"
+    "Replication ≠ free consistency",
+    "Sharding keys are destiny",
+    "Resharding must be planned"
   ],
-  "whyItMatters": "Understanding Replication & Sharding improves design judgment for production systems.",
+  "whyItMatters": "Database scale-out is where many systems hit a wall; these are the levers.",
   "reflectionQuestions": [
-    "When would you reach for Replication & Sharding in a real design?"
+    "What is your shard key — and what query cannot use it?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "db-replication-sharding-overview",
       "title": "Replication & Sharding overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Replication & Sharding and the main trade-offs in 3 minutes."
+    "Explain Replication & Sharding and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on Replication & Sharding; list 3 trade-offs."
+    "Sketch a design that depends on Replication & Sharding; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
+    "db-backup-pit",
     "db-cdc",
-    "db-indexes-replication",
-    "db-modeling"
+    "db-connection-pooling"
   ]
 }

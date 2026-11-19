@@ -3,12 +3,12 @@
   "title": "Load Balancing & Reverse Proxies",
   "moduleId": "networking",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "Load Balancing & Reverse Proxies — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "Load balancers distribute traffic across backends; reverse proxies terminate client connections and apply routing, TLS, and policy. L4 vs L7 choice, health checks, and algorithm selection define availability and latency.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "net-kernel"
@@ -20,82 +20,151 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "L4 vs L7",
       "paragraphs": [
-        "This draft covers Load Balancing & Reverse Proxies. Run content:generate to expand it with a model provider, or edit manually."
+        "L4 balances connections/packets by IP/port — cheap and protocol-agnostic. L7 understands HTTP: path routing, header-based canaries, authn hooks, and compression. L7 costs more CPU per request.",
+        "Many architectures stack both: L4 at the edge VIP, L7 at the application gateway."
+      ]
+    },
+    {
+      "title": "Algorithms and health",
+      "paragraphs": [
+        "Round-robin, least-conn, Maglev/consistent hashing for cache friendliness and connection stickiness. Passive checks must match real readiness — accepting connections ≠ able to serve.",
+        "Slow-start and connection draining prevent thundering herds during deploys."
+      ]
+    },
+    {
+      "title": "Failure domains",
+      "paragraphs": [
+        "Misconfigured health checks flap backends. Retry storms from proxies amplify outages — budget retries. Timeouts must be tighter than upstream client timeouts."
+      ]
+    },
+    {
+      "title": "Proxy as policy point",
+      "paragraphs": [
+        "Modern proxies (Envoy, Nginx, HAProxy) implement mTLS, WAF rules, rate limits, and observability. Keep business logic out of the proxy when possible."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "L4 vs L7",
         "paragraphs": [
-          "This draft covers Load Balancing & Reverse Proxies. Run content:generate to expand it with a model provider, or edit manually."
+          "L4 balances connections/packets by IP/port — cheap and protocol-agnostic. L7 understands HTTP: path routing, header-based canaries, authn hooks, and compression. L7 costs more CPU per request.",
+          "Many architectures stack both: L4 at the edge VIP, L7 at the application gateway."
+        ]
+      },
+      {
+        "title": "Algorithms and health",
+        "paragraphs": [
+          "Round-robin, least-conn, Maglev/consistent hashing for cache friendliness and connection stickiness. Passive checks must match real readiness — accepting connections ≠ able to serve.",
+          "Slow-start and connection draining prevent thundering herds during deploys."
+        ]
+      },
+      {
+        "title": "Failure domains",
+        "paragraphs": [
+          "Misconfigured health checks flap backends. Retry storms from proxies amplify outages — budget retries. Timeouts must be tighter than upstream client timeouts."
+        ]
+      },
+      {
+        "title": "Proxy as policy point",
+        "paragraphs": [
+          "Modern proxies (Envoy, Nginx, HAProxy) implement mTLS, WAF rules, rate limits, and observability. Keep business logic out of the proxy when possible."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Load Balancing & Reverse Proxies — Deep Dive",
+        "title": "Load Balancing & Reverse Proxies — Operations",
         "paragraphs": [
-          "Extended treatment of Load Balancing & Reverse Proxies: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating Load Balancing & Reverse Proxies in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Load Balancing & Reverse Proxies — Failure modes",
+        "paragraphs": [
+          "Common failures around Load Balancing & Reverse Proxies include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Load Balancing & Reverse Proxies — Expert Notes",
+        "title": "Load Balancing & Reverse Proxies — Expert notes",
         "paragraphs": [
-          "Expert considerations for Load Balancing & Reverse Proxies: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, Load Balancing & Reverse Proxies intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "Load Balancing & Reverse Proxies: core idea"
+    "L4/L7",
+    "Consistent hashing",
+    "Active health checks",
+    "Connection draining",
+    "Retry budget"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Align timeout budgets end-to-end",
+    "Drain before shutdown",
+    "Health-check the real dependency path"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Retries without budgets",
+    "Shallow health checks",
+    "Sticky sessions as a crutch for bad state design"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "AWS ALB/NLB",
+      "description": "Managed L7/L4 balancers."
+    },
+    {
+      "title": "Envoy gateway",
+      "description": "L7 policy and observability."
+    }
+  ],
   "keyTakeaways": [
-    "Load Balancing & Reverse Proxies belongs in the curriculum as evergreen content"
+    "Pick L4 vs L7 deliberately",
+    "Health + retries define outage shape",
+    "Proxies are policy, not business logic"
   ],
-  "whyItMatters": "Understanding Load Balancing & Reverse Proxies improves design judgment for production systems.",
+  "whyItMatters": "Every multi-instance service needs balancing; poor LB design causes cascading failures.",
   "reflectionQuestions": [
-    "When would you reach for Load Balancing & Reverse Proxies in a real design?"
+    "Where do retries live in your stack — and are they budgeted?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "net-lb-proxy-overview",
       "title": "Load Balancing & Reverse Proxies overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Load Balancing & Reverse Proxies and the main trade-offs in 3 minutes."
+    "Explain Load Balancing & Reverse Proxies and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on Load Balancing & Reverse Proxies; list 3 trade-offs."
+    "Sketch a design that depends on Load Balancing & Reverse Proxies; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
     "net-bgp-anycast",
-    "net-http",
-    "net-kernel"
+    "net-congestion",
+    "net-http"
   ]
 }

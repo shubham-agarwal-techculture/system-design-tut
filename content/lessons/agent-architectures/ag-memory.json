@@ -1,0 +1,168 @@
+{
+  "id": "ag-memory",
+  "title": "Agent Memory Architectures",
+  "moduleId": "agent-architectures",
+  "phaseId": "agentic-systems",
+  "durationMinutes": 40,
+  "summary": "Agents need short-term working memory (context window) and long-term memory (stores retrieved across sessions). Designing memory poorly causes loops, leaks of private data, and unbounded cost.",
+  "kind": "living",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "ag-durable"
+  ],
+  "tags": [
+    "agent-architectures",
+    "living",
+    "agentic-systems"
+  ],
+  "sections": [
+    {
+      "title": "Layers of memory",
+      "paragraphs": [
+        "Working memory: the prompt/context. Summary memory: compressed history. Episodic stores: past tasks. Semantic stores: facts via RAG. Procedural: tools and skills.",
+        "Each layer has different consistency, privacy, and TTL requirements. Do not dump everything into the prompt."
+      ]
+    },
+    {
+      "title": "Write paths and trust",
+      "paragraphs": [
+        "Decide what the agent may write to long-term memory. User-private vs tenant-shared vs global. Poisoned memory is a real attack (indirect prompt injection via stored text).",
+        "Prefer structured memories with provenance and expiry over free-form append-only blobs."
+      ]
+    },
+    {
+      "title": "Retrieval and compaction",
+      "paragraphs": [
+        "Retrieve top-k memories with hybrid search; compact old threads with summaries that preserve decisions and open questions.",
+        "Track tokens spent on memory vs new reasoning — memory can starve the model of room to think."
+      ]
+    },
+    {
+      "title": "Durability for long jobs",
+      "paragraphs": [
+        "Long-running agents should checkpoint state in a workflow store (step, tool results, approvals) separate from LLM chat logs."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Layers of memory",
+        "paragraphs": [
+          "Working memory: the prompt/context. Summary memory: compressed history. Episodic stores: past tasks. Semantic stores: facts via RAG. Procedural: tools and skills.",
+          "Each layer has different consistency, privacy, and TTL requirements. Do not dump everything into the prompt."
+        ]
+      },
+      {
+        "title": "Write paths and trust",
+        "paragraphs": [
+          "Decide what the agent may write to long-term memory. User-private vs tenant-shared vs global. Poisoned memory is a real attack (indirect prompt injection via stored text).",
+          "Prefer structured memories with provenance and expiry over free-form append-only blobs."
+        ]
+      },
+      {
+        "title": "Retrieval and compaction",
+        "paragraphs": [
+          "Retrieve top-k memories with hybrid search; compact old threads with summaries that preserve decisions and open questions.",
+          "Track tokens spent on memory vs new reasoning — memory can starve the model of room to think."
+        ]
+      },
+      {
+        "title": "Durability for long jobs",
+        "paragraphs": [
+          "Long-running agents should checkpoint state in a workflow store (step, tool results, approvals) separate from LLM chat logs."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Agent Memory Architectures — Operations",
+        "paragraphs": [
+          "Operating Agent Memory Architectures in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+        ],
+        "bullets": [
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Agent Memory Architectures — Failure modes",
+        "paragraphs": [
+          "Common failures around Agent Memory Architectures include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Agent Memory Architectures — Expert notes",
+        "paragraphs": [
+          "At the expert level, Agent Memory Architectures intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Working vs long-term memory",
+    "Memory poisoning",
+    "Compaction/summarization",
+    "Provenance and TTL",
+    "Workflow checkpointing"
+  ],
+  "practices": [
+    "ACL every memory write/read",
+    "Separate workflow state from chat transcripts",
+    "Budget tokens for retrieved memory"
+  ],
+  "pitfalls": [
+    "Infinite transcript growth in the prompt",
+    "Unscoped shared memories across tenants",
+    "Trusting retrieved text as instructions"
+  ],
+  "examples": [
+    {
+      "title": "Coding agents",
+      "description": "Repo indexes + conversation summaries + durable task state."
+    }
+  ],
+  "keyTakeaways": [
+    "Memory is a multi-store design problem",
+    "Privacy and poisoning dominate risk",
+    "Checkpoint durable work outside the context window"
+  ],
+  "whyItMatters": "Agent products live or die on memory quality. Context windows alone do not replace a designed memory architecture.",
+  "reflectionQuestions": [
+    "What may your agent write to long-term memory without human approval?"
+  ],
+  "numbersToKnow": [
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
+  ],
+  "diagrams": [
+    {
+      "id": "ag-memory-overview",
+      "title": "Agent Memory Architectures overview",
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Agent Memory Architectures and the main trade-offs in three minutes."
+  ],
+  "exercises": [
+    "Sketch a design that depends on Agent Memory Architectures; list three trade-offs and one failure mode."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "ag-durable",
+    "ag-multiagent",
+    "ag-planning"
+  ]
+}

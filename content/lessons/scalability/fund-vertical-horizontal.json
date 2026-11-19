@@ -3,15 +3,15 @@
   "title": "Vertical vs Horizontal Scaling",
   "moduleId": "scalability",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "Vertical vs Horizontal Scaling — draft awaiting generation and review.",
+  "durationMinutes": 40,
+  "summary": "Every system eventually hits capacity limits. Understanding when to scale up (bigger machines) versus scale out (more machines) is one of the most consequential architectural decisions you will make. The two strategies have radically different cost curves, failure modes, operational complexity, and ceiling heights.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "fund-stateless"
+    "fund-estimation"
   ],
   "tags": [
     "scalability",
@@ -20,82 +20,256 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Vertical Scaling: Bigger Machines",
       "paragraphs": [
-        "This draft covers Vertical vs Horizontal Scaling. Run content:generate to expand it with a model provider, or edit manually."
+        "Vertical scaling (scale up) means adding more CPU, RAM, faster disks, or higher-bandwidth NICs to a single machine. When your database starts straining under query load, you move from a 4-core/16GB instance to a 32-core/256GB one. The appeal is simplicity: no code changes, no distributed coordination, no data partitioning. The same application binary runs on the larger machine and immediately benefits from all those extra resources.",
+        "Modern cloud providers let you vertically scale in minutes, making it an attractive first response to capacity pressure. AWS RDS, Azure SQL, and Google Cloud SQL all support live resizing with brief maintenance windows. Vertical scaling works exceptionally well for stateful systems like relational databases where distributing state is complex and expensive—a PostgreSQL instance on a 96-core machine with 384GB of RAM handles enormous workloads while remaining a single manageable system.",
+        "The ceiling, however, is real. Even the largest EC2 instance (u-24tb1.metal at 448 vCPUs, 24TB RAM) has limits, and cost grows super-linearly past a certain point. Commodity hardware scales linearly in price; high-end machines charge a premium for each increment. Beyond hardware limits, vertical scaling creates a single point of failure—when that one big machine goes down, everything stops. High availability requires redundancy, which means you need at least two machines anyway."
+      ],
+      "bullets": [
+        "Zero code change: application runs on larger hardware with no modification",
+        "Operational simplicity: one machine to monitor, patch, and backup",
+        "Hard ceiling: no machine is infinitely large; costs grow super-linearly",
+        "SPOF: a single large machine is both the asset and the risk"
+      ]
+    },
+    {
+      "title": "Horizontal Scaling: More Machines",
+      "paragraphs": [
+        "Horizontal scaling (scale out) distributes load across a fleet of commodity machines. Instead of one 32-core database, you run eight 4-core nodes sharing the work. This model's ceiling is effectively unlimited—you can add nodes as traffic grows—and it naturally provides redundancy. When one node fails, the other seven continue serving traffic. This is why large-scale systems like Cassandra, Kafka, Elasticsearch, and stateless API services are all designed from the ground up for horizontal scaling.",
+        "The fundamental challenge is coordination. With one machine, you have a single address space, shared memory, and ACID transactions for free. With ten machines, you must decide how to partition data, how to route requests to the right partition, how to handle failures during distributed writes, and how to keep replicas consistent. These problems are non-trivial—the entire field of distributed systems research exists to address them. Technologies like consistent hashing, Raft consensus, two-phase commit, and eventual consistency are all responses to horizontal scaling's coordination challenges.",
+        "Stateless services scale horizontally most elegantly. If your API server holds no session state—all state lives in databases or caches—then any request can go to any server. Adding more API servers behind a load balancer is purely additive and risk-free. This is why the industry has converged on stateless application tiers: horizontal scaling of stateless components is cheap and reliable, while the complex state management is delegated to specialized storage systems designed to handle it."
+      ],
+      "bullets": [
+        "Linear cost scaling: add commodity machines as needed",
+        "Natural fault tolerance: N-1 nodes handle one node failure",
+        "Requires load balancing, service discovery, and distributed coordination",
+        "Stateless services scale horizontally with near-zero overhead"
+      ]
+    },
+    {
+      "title": "The Decision Framework: When to Choose Each",
+      "paragraphs": [
+        "Start with vertical scaling for new systems. It's faster to implement, cheaper initially, and avoids premature complexity. A well-tuned single PostgreSQL instance handles millions of requests per day. Measure first—most systems never hit the limits of a vertical architecture within their operating lifetime, and over-engineering for horizontal scale adds years to your delivery timeline. The 'scale to millions of users' problem is a good problem to have; most products never get there.",
+        "Switch to horizontal scaling when you hit specific triggers: when the largest available instance of your database tier still can't keep up with read load (consider read replicas—a form of horizontal read scaling), when your application tier's CPU or memory requires more than the largest VM available, when you need zero-downtime deployments (rolling deploys across multiple instances), or when you need geographic distribution (data must live in multiple regions). These are concrete, measurable triggers, not speculative future needs.",
+        "Many production systems use a hybrid approach: vertically scale stateful components (databases, caches) up to a comfortable size, then add horizontal read replicas to distribute read load. For the stateless application tier, horizontal scaling is the default from day one because it's cheap and enables zero-downtime deployments. This combination gives you operational simplicity for the hard parts (stateful storage) and unlimited scale for the easy parts (stateless compute)."
+      ],
+      "bullets": [
+        "New systems: start vertical, avoid premature distributed system complexity",
+        "Read-heavy: add read replicas before rearchitecting to sharding",
+        "Stateless tiers: always horizontal (simple, cheap, zero-downtime deploys)",
+        "Trigger to shard: when primary write throughput exceeds largest available instance"
+      ]
+    },
+    {
+      "title": "Practical Patterns: Auto-Scaling and Elasticity",
+      "paragraphs": [
+        "Cloud-native systems combine both strategies through auto-scaling groups. Horizontal scaling handles the base load with a minimum fleet size, while auto-scaling policies add or remove instances in response to CPU, memory, or request-rate metrics. This elasticity means you provision for average load, not peak load, dramatically reducing costs for workloads with diurnal patterns (e.g., a consumer app seeing 10x traffic at 8pm versus 3am). AWS Auto Scaling, Kubernetes HPA, and GCP Managed Instance Groups all implement this pattern.",
+        "Scaling down is as important as scaling up. Systems that scale up for a traffic spike but never scale back down waste money and can mask performance regressions hidden by over-provisioning. Configure scale-in policies with appropriate cooldown periods to prevent thrashing (rapid scale-up/scale-down cycles that happen faster than your system stabilizes). Set minimum instance counts to handle cold-start latency—you don't want zero instances when the first request arrives after a quiet period.",
+        "Database scaling requires different mechanics. For writes, you eventually must shard—partition data across multiple primary nodes by key range or hash. For reads, add replicas and implement read-after-write consistency in your application (route reads that immediately follow writes to the primary, or use replication lag monitoring). Consider NewSQL databases like CockroachDB or Spanner that handle horizontal scaling transparently; they trade some performance for the operational simplicity of appearing as a single relational database."
+      ],
+      "bullets": [
+        "Scale-out: add instances in response to load; scale-in: remove them to save cost",
+        "Cooldown periods prevent auto-scaling thrash on noisy metrics",
+        "Database sharding is the last resort; exhaust vertical and read-replica options first",
+        "NewSQL (CockroachDB, Spanner) offers horizontal scale with SQL semantics"
+      ]
+    },
+    {
+      "title": "Cost Curves and Trade-offs",
+      "paragraphs": [
+        "Vertical scaling costs are predictable but non-linear at the high end. Cloud providers typically charge 2–4x more per vCPU/GB for their largest instance families compared to mid-tier instances. A 96-core instance rarely provides 96x the performance of a 1-core instance due to contention, coordination overhead, and memory bus saturation. Beyond a certain size, you get diminishing returns per dollar, making horizontal scaling more cost-effective.",
+        "Horizontal scaling has fixed overhead costs that amortize across many instances: load balancers, service discovery infrastructure, monitoring per-node, and the engineering time to build and maintain a distributed system. For small-scale systems, these overhead costs make horizontal scaling more expensive than vertical. The crossover point depends on your engineering team size, operational maturity, and traffic patterns—but it generally occurs somewhere between 10,000 and 1,000,000 requests per day for typical web services.",
+        "Spot and preemptible instances are only viable in horizontal, stateless architectures. AWS Spot Instances provide up to 90% cost savings but can be reclaimed with two minutes notice. Stateless application tiers tolerate this because losing one node is handled gracefully by the load balancer. Stateful workloads on spot instances require careful checkpointing and restart logic. The combination of horizontal scaling and spot instances is one of the most powerful cost levers available to engineering teams running at scale."
+      ],
+      "bullets": [
+        "Largest instances charge premium per vCPU; horizontal often cheaper above ~32 cores",
+        "Horizontal overhead (LB, service discovery) amortizes at ~10K+ RPS",
+        "Spot/preemptible instances: up to 90% savings, only safe for stateless or checkpointed workloads",
+        "Measure: profile before scaling; often the bottleneck is a slow query, not raw compute"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Vertical Scaling: Bigger Machines",
         "paragraphs": [
-          "This draft covers Vertical vs Horizontal Scaling. Run content:generate to expand it with a model provider, or edit manually."
+          "Vertical scaling means adding more CPU, RAM, faster disks, or higher-bandwidth NICs to a single machine. The appeal is simplicity: no code changes, no distributed coordination, no data partitioning. Applications run on larger hardware and immediately benefit.",
+          "Modern cloud providers support live vertical resizing with brief maintenance windows. Vertical scaling works exceptionally well for stateful systems like relational databases where distributing state is complex and expensive.",
+          "The ceiling is real. Even the largest available cloud instance has limits, cost grows super-linearly at the high end, and a single large machine remains a single point of failure."
+        ],
+        "bullets": [
+          "Zero code change: application runs on larger hardware with no modification",
+          "Operational simplicity: one machine to monitor, patch, and backup",
+          "Hard ceiling: costs grow super-linearly; largest instances are expensive",
+          "SPOF: a single large machine is both the asset and the risk"
+        ]
+      },
+      {
+        "title": "Horizontal Scaling: More Machines",
+        "paragraphs": [
+          "Horizontal scaling distributes load across a fleet of commodity machines. This model's ceiling is effectively unlimited and naturally provides redundancy. Stateless services scale horizontally most elegantly.",
+          "The fundamental challenge is coordination. With multiple machines you must decide how to partition data, route requests, handle failures during distributed writes, and keep replicas consistent.",
+          "Technologies like consistent hashing, Raft consensus, two-phase commit, and eventual consistency are all responses to horizontal scaling's coordination challenges."
+        ],
+        "bullets": [
+          "Linear cost scaling: add commodity machines as needed",
+          "Natural fault tolerance: N-1 nodes handle one node failure",
+          "Requires load balancing, service discovery, and distributed coordination"
+        ]
+      },
+      {
+        "title": "The Decision Framework",
+        "paragraphs": [
+          "Start with vertical scaling for new systems—faster to implement, cheaper initially, avoids premature complexity. Measure first; most systems never hit limits of a vertical architecture within their operating lifetime.",
+          "Switch to horizontal when you hit specific triggers: read replicas needed, application tier exceeds largest VM, zero-downtime deployments required, or geographic distribution needed.",
+          "Many production systems use a hybrid: vertically scale stateful components, horizontally scale stateless tiers."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Vertical vs Horizontal Scaling — Deep Dive",
+        "title": "Database Scaling Mechanics",
         "paragraphs": [
-          "Extended treatment of Vertical vs Horizontal Scaling: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Database scaling follows a well-worn progression: start with a single primary (vertical), add read replicas to offload read load, introduce connection pooling (PgBouncer, ProxySQL) to reduce connection overhead, then shard when write throughput exceeds what a single primary can handle. Each step is disruptive; plan transitions carefully.",
+          "Sharding strategies matter enormously. Range-based sharding (user_id 0–999999 on shard A, 1000000–1999999 on shard B) enables range queries but creates hotspots when IDs are sequential. Hash-based sharding distributes load evenly but makes range queries require scatter-gather across all shards. Consistent hashing with virtual nodes (Cassandra, Redis Cluster) minimizes data movement during rebalancing when shards are added or removed.",
+          "Cross-shard queries and transactions are the main pain points of sharding. A query joining users and orders becomes a multi-shard scatter-gather operation with significantly higher latency. Cross-shard transactions require two-phase commit or saga patterns—both complex and slow. The best mitigation is careful data modeling: colocate entities that are frequently joined (e.g., keep all data for a given tenant on the same shard in a multi-tenant system)."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Scaling progression: single primary → read replicas → connection pooling → sharding",
+          "Range sharding: good for range queries, prone to hotspots",
+          "Hash sharding: even distribution, range queries require scatter-gather",
+          "Colocation: keep frequently-joined data on the same shard"
+        ]
+      },
+      {
+        "title": "Auto-Scaling Design Patterns",
+        "paragraphs": [
+          "Effective auto-scaling requires choosing the right signal. CPU utilization is the most common metric but often lags the actual problem—a request queue depth or response latency metric responds faster to load spikes. For web services, target tracking on request-per-second-per-instance gives more stable scaling behavior than reactive CPU thresholds.",
+          "Predictive scaling uses historical patterns to provision capacity ahead of expected load. If your traffic reliably doubles at 9am Monday, pre-scale five minutes before to avoid the lag between load increase, metric breach, instance launch, and warmup. AWS Predictive Scaling and KEDA (Kubernetes Event-Driven Autoscaling) both support time-series based proactive scaling.",
+          "Scale-to-zero architectures (AWS Lambda, Cloud Run, Knative) take horizontal scaling to its logical extreme: instances drop to zero when idle and spin up on demand. Cold-start latency (100ms–2s depending on runtime) is the main trade-off. Mitigate with minimum instance counts for latency-sensitive paths and use scale-to-zero only for infrequently-invoked functions."
+        ],
+        "bullets": [
+          "Use request-queue depth or latency as scaling signal, not just CPU",
+          "Predictive scaling: pre-scale before expected load spikes using historical patterns",
+          "Scale-to-zero viable for infrequent, latency-tolerant workloads"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Vertical vs Horizontal Scaling — Expert Notes",
+        "title": "Expert: NUMA, Affinity, and Kernel-Level Vertical Scaling",
         "paragraphs": [
-          "Expert considerations for Vertical vs Horizontal Scaling: multi-region behavior, cost envelopes, and edge cases under overload."
+          "On very large vertical machines (>8 sockets), Non-Uniform Memory Access (NUMA) topology means that memory latency varies by which socket owns the target memory bank. A thread on socket 0 accessing memory owned by socket 3 may pay 2–3x the latency of local access. High-performance databases like Oracle and SAP HANA expose NUMA binding; general-purpose workloads benefit from numactl binding and OS-level NUMA balancing. Ignoring NUMA on 100-core machines leaves significant performance on the table.",
+          "Kernel scheduling decisions—process affinity, cgroup CPU quotas, interrupt affinity—significantly affect throughput on large multi-core machines. Network interrupt processing (IRQ affinity) can be pinned to specific cores to avoid cross-NUMA traffic. CPU affinity masks for latency-sensitive threads prevent OS migration across NUMA nodes. These optimizations matter at the high-frequency trading and low-latency database tier level where microseconds count."
         ]
       }
     ]
   },
   "concepts": [
-    "Vertical vs Horizontal Scaling: core idea"
+    "Vertical scaling (scale up): adding CPU/RAM/storage to a single machine",
+    "Horizontal scaling (scale out): distributing load across multiple commodity machines",
+    "Single point of failure (SPOF): risk inherent in any single-node architecture",
+    "Stateless services: application instances with no local state; can be freely replicated",
+    "Sharding: partitioning data across multiple database nodes by key range or hash",
+    "Read replicas: copies of a primary database that handle read-only queries",
+    "Auto-scaling: dynamically adding/removing instances based on load metrics",
+    "Consistent hashing: distributes keys across nodes; minimizes remapping when nodes change",
+    "Spot/preemptible instances: deeply discounted compute that can be reclaimed on short notice",
+    "NUMA: non-uniform memory access topology on multi-socket servers"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Profile before scaling: find the actual bottleneck (slow query, memory leak, I/O) before buying more hardware",
+    "Start vertical for stateful systems; add read replicas before attempting sharding",
+    "Make application tiers stateless from day one to enable free horizontal scaling",
+    "Set both scale-out and scale-in policies with appropriate cooldown periods to prevent thrashing",
+    "Use connection pooling (PgBouncer, HikariCP) to reduce per-connection overhead at scale",
+    "Pre-warm instances before expected load spikes; don't rely on reactive scaling for predictable peaks",
+    "Measure cost per request at each scaling tier to find the economic crossover point"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Premature sharding: adds enormous complexity before exhausting vertical and read-replica options",
+    "Assuming more cores means proportionally more throughput—NUMA, coordination, and lock contention cap gains",
+    "Forgetting cold-start latency when scaling from zero—first request to a cold instance is slow",
+    "Using CPU as the sole auto-scaling metric—it lags behind user-visible latency",
+    "Stateful application tiers: session affinity requirements make horizontal scaling painful",
+    "Ignoring database connection limits when scaling application tier horizontally (N servers × M connections = overload)"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Instagram's Scaling Journey",
+      "description": "Instagram launched on a single EC2 machine. As traffic grew, they vertically scaled the database, then added read replicas, then moved to Django's stateless app tier running on hundreds of instances behind a load balancer. Only after reaching hundreds of millions of users did they introduce database sharding—and even then, they used PostgreSQL-based sharding rather than exotic distributed databases, keeping operational complexity manageable."
+    },
+    {
+      "title": "Stack Overflow's Vertical Scaling",
+      "description": "Stack Overflow famously serves millions of requests per day from a small number of very large SQL Server instances. Their architecture is a deliberate counter-example to the 'everything must be distributed' orthodoxy. By using large vertical machines, aggressive caching, and read replicas, they maintain a tiny ops team while serving enormous traffic. The lesson: horizontal scaling is not always necessary or even optimal."
+    },
+    {
+      "title": "AWS Aurora Auto Scaling",
+      "description": "An e-commerce platform uses Aurora with auto-scaling read replicas. The primary handles writes (vertically scaled to db.r6g.16xlarge for peak write throughput). Aurora automatically adds read replicas when average CPU on existing replicas exceeds 70%, and removes them when load drops below 30%. Combined with application-tier ECS auto-scaling, the system handles 100x holiday traffic without pre-provisioning."
+    }
+  ],
   "keyTakeaways": [
-    "Vertical vs Horizontal Scaling belongs in the curriculum as evergreen content"
+    "Vertical scaling is simpler and often the right first step—don't distribute prematurely",
+    "Horizontal scaling is necessary for stateless tiers, geographic distribution, and beyond vertical limits",
+    "Stateless application tiers enable free horizontal scaling; push all state to dedicated storage systems",
+    "Database scaling progression: vertical → read replicas → connection pooling → sharding",
+    "Auto-scaling on latency/queue-depth signals is more responsive than CPU-only policies",
+    "Measure before scaling: the bottleneck is often a slow query or missing index, not raw compute",
+    "Spot instances + horizontal scaling = up to 90% compute cost reduction"
   ],
-  "whyItMatters": "Understanding Vertical vs Horizontal Scaling improves design judgment for production systems.",
+  "whyItMatters": "Vertical vs. horizontal scaling is one of the first questions every system design interview explores. Choosing wrong means either spending 10x on hardware or building distributed system complexity you don't need. The best engineers know when to scale up (stateful, early-stage, operationally simple) and when to scale out (stateless tiers, geographic distribution, beyond vertical limits), and they can defend the trade-offs clearly.",
   "reflectionQuestions": [
-    "When would you reach for Vertical vs Horizontal Scaling in a real design?"
+    "Your PostgreSQL primary is at 80% CPU. Walk me through the sequence of interventions you'd try before resorting to sharding.",
+    "You're designing a session service for a social app expecting 1M users at launch. What scaling strategy do you choose and why?",
+    "Your auto-scaling group is thrashing—instances are added and removed every few minutes. What's wrong and how do you fix it?",
+    "At what point does horizontal scaling become more cost-effective than vertical, and how would you calculate that crossover?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Largest AWS instance: 448 vCPUs / 24TB RAM (u-24tb1.metal)—there is a vertical ceiling",
+    "Spot instance discount: up to 90% off on-demand price, 2-min reclaim notice",
+    "Read replica lag: typically 10–100ms on well-tuned RDS; can spike to seconds under heavy write load",
+    "Connection overhead: each PostgreSQL connection uses ~5–10MB RAM; PgBouncer reduces this to ~1KB per pool slot",
+    "Auto-scaling warm-up: EC2 instance launch typically takes 60–120s; ECS task warm-up 10–30s"
   ],
   "diagrams": [
     {
       "id": "fund-vertical-horizontal-overview",
-      "title": "Vertical vs Horizontal Scaling overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "title": "Scaling Strategies Overview",
+      "mermaid": "flowchart LR\n  subgraph Vertical\n    Small[4 vCPU 16GB] -->|upgrade| Large[32 vCPU 256GB]\n  end\n  subgraph Horizontal\n    LB[Load Balancer] --> S1[Server 1]\n    LB --> S2[Server 2]\n    LB --> S3[Server N]\n  end"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Vertical vs Horizontal Scaling and the main trade-offs in 3 minutes."
+    "What is the difference between vertical and horizontal scaling? When would you choose each?",
+    "How would you scale a PostgreSQL database that is running out of write capacity?",
+    "Design an auto-scaling strategy for a service that gets 10x traffic on weekday mornings.",
+    "What problems does stateless architecture solve from a scaling perspective?",
+    "Explain consistent hashing and why it matters for horizontal database scaling."
   ],
   "exercises": [
-    "Design a small system that depends on Vertical vs Horizontal Scaling; list 3 trade-offs."
+    "Sketch the scaling progression for a startup that grows from 100 to 10 million users: at each stage, what do you scale and how?",
+    "Calculate whether it is cheaper to run one db.r6g.16xlarge or four db.r6g.4xlarge instances for a read-heavy PostgreSQL workload.",
+    "Design an auto-scaling policy for a payment API that must stay under 200ms p99 latency at all times."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Martin Kleppmann, Chapter 6 (Partitioning)"
+    },
+    {
+      "title": "AWS Auto Scaling documentation — target tracking and predictive scaling"
+    },
+    {
+      "title": "Stack Overflow Architecture — nickcraver.com/blog/2016/02/17/stack-overflow-the-architecture-2016-edition"
+    },
+    {
+      "title": "Instagram Engineering Blog — Scaling to 100M Users"
+    }
+  ],
   "relatedLessons": [
     "fund-estimation",
-    "fund-stateless",
-    "scale-state-management"
+    "fund-load-shedding",
+    "fund-sharding-strategies"
   ]
 }

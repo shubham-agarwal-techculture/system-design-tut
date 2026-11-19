@@ -3,99 +3,253 @@
   "title": "SQL, NoSQL, Object & Time-Series Storage",
   "moduleId": "storage",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "SQL, NoSQL, Object & Time-Series Storage — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "No single storage technology is universally optimal. Relational databases, document stores, wide-column stores, graph databases, object storage, and time-series databases each excel at specific access patterns. Knowing which tool to reach for—and when to combine multiple—is a defining skill in system design.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "fund-search"
   ],
   "tags": [
     "storage",
+    "databases",
     "evergreen",
     "fundamentals"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Relational Databases: The Default Choice",
       "paragraphs": [
-        "This draft covers SQL, NoSQL, Object & Time-Series Storage. Run content:generate to expand it with a model provider, or edit manually."
+        "Relational databases (PostgreSQL, MySQL, SQL Server, Oracle) remain the default storage choice for most applications because they offer the strongest consistency guarantees (ACID transactions), powerful query expressiveness (SQL), mature tooling, and decades of operational knowledge. If your data has relationships, your queries need flexibility, and your operations require transactional integrity—reach for PostgreSQL. It handles millions of rows with appropriate indexing and can scale to billions of rows with read replicas and partitioning.",
+        "ACID properties—Atomicity, Consistency, Isolation, Durability—are the core value proposition. Atomicity means all-or-nothing: a bank transfer either deducts from one account and credits another, or neither happens. Consistency ensures referential integrity: a foreign key to a non-existent user is rejected. Isolation prevents concurrent transactions from stepping on each other (via MVCC in PostgreSQL). Durability guarantees committed data survives crashes (write-ahead log, fsync). These guarantees are expensive to implement but worth the cost when data correctness is critical.",
+        "The cases where relational databases struggle: (1) Write throughput beyond ~50K TPS on a single primary. (2) Schema flexibility—adding a column to a 1-billion-row table requires careful online DDL. (3) Hierarchical or graph-shaped data where JOINs across many tables get expensive. (4) Unstructured binary data (use object storage). (5) Horizontal write sharding—possible but requires application-level logic or middleware like Vitess. Know the limits before you hit them."
+      ],
+      "bullets": [
+        "ACID transactions: atomicity, consistency, isolation, durability",
+        "Best for: structured relational data, complex queries, transactional integrity",
+        "Scales to: billions of rows with partitioning; ~50K TPS on single primary write",
+        "Limitations: rigid schema, horizontal write scaling requires sharding middleware"
+      ]
+    },
+    {
+      "title": "NoSQL: Document, Key-Value, and Wide-Column",
+      "paragraphs": [
+        "NoSQL databases sacrifice some relational features (JOINs, complex transactions) in exchange for horizontal scalability, flexible schemas, and optimized access patterns. Document stores (MongoDB, Couchbase, Firestore) store data as JSON/BSON documents. Each document is self-contained—no JOINs needed if related data is embedded. This works beautifully for user profiles, product catalogs, and content management where the natural unit of data maps to a document. The flexibility is real: add fields without schema migrations.",
+        "Key-value stores (Redis, DynamoDB, Riak) are the simplest model: get, put, delete by primary key. No query language, no secondary indexes (in pure implementations). The payoff is extreme performance: Redis delivers sub-millisecond reads/writes for most operations. DynamoDB guarantees single-digit millisecond latency at any scale via automatic partitioning. These are ideal for session storage, rate limiting, feature flags, caching, and any pattern where you always access data by a known key.",
+        "Wide-column stores (Cassandra, HBase, Bigtable) organize data as a map of maps: rows identified by a row key, with columns organized into column families. They are optimized for high-write throughput and time-series-like patterns where you append data with a timestamp and query by row key with time range. Cassandra's distributed architecture with tunable consistency makes it popular for IoT sensor data, activity logs, and recommendation models. The critical design constraint: you must design your data model around your query patterns, not around the entity relationships."
+      ],
+      "bullets": [
+        "Document (MongoDB): flexible JSON schema, embedded documents, good for content/catalogs",
+        "Key-value (Redis, DynamoDB): sub-millisecond access by primary key, no joins",
+        "Wide-column (Cassandra): high write throughput, time-series patterns, design for queries",
+        "Common NoSQL trade-off: sacrifice JOIN flexibility for horizontal scale and schema flexibility"
+      ]
+    },
+    {
+      "title": "Object Storage: The Infinite Bucket",
+      "paragraphs": [
+        "Object storage (Amazon S3, Google Cloud Storage, Azure Blob Storage) stores unstructured binary data—images, videos, documents, backups, ML model weights, log archives—as immutable objects identified by a key within a bucket. The API is simple: PUT an object, GET it by key, DELETE it. There is no in-place update; you replace the entire object. This simplicity enables massive horizontal scalability: AWS S3 serves trillions of objects storing exabytes of data with 99.999999999% (11 nines) durability.",
+        "Object storage is optimized for throughput, not latency. A GET request for a 10KB object takes 10–50ms—orders of magnitude slower than Redis (0.1–1ms) or PostgreSQL (1–10ms for cached data). Use object storage for data that is written once and read many times (or infrequently), and pair it with a CDN for user-facing delivery. The cost model ($0.023/GB-month for S3 Standard) makes it the most economical option for large binary data.",
+        "Advanced object storage features: versioning (keep all historical versions of an object), lifecycle policies (automatically transition to cheaper tiers—S3-IA, Glacier—based on age), cross-region replication for disaster recovery, and event notifications (trigger Lambda on new object creation). Multi-part uploads handle large files efficiently; presigned URLs allow clients to upload directly to S3 without proxying through your application server, dramatically reducing bandwidth costs."
+      ],
+      "bullets": [
+        "S3 model: immutable objects, identified by bucket + key, accessed via HTTP",
+        "Durability: 99.999999999% (11 nines); designed for massive scale",
+        "Latency: 10–50ms per GET; pair with CDN for user-facing delivery",
+        "Lifecycle policies: auto-tier to cheaper storage classes as data ages"
+      ]
+    },
+    {
+      "title": "Time-Series Databases",
+      "paragraphs": [
+        "Time-series databases (InfluxDB, TimescaleDB, Prometheus, OpenTSDB) are optimized for data that is indexed by timestamp and queried over time ranges: metrics, sensor readings, financial ticks, IoT telemetry. The common access pattern—write a constant stream of timestamped measurements, query by metric name over a time range, aggregate with time-bucket functions—is handled poorly by general-purpose databases but extremely efficiently by time-series DBs.",
+        "Time-series databases achieve performance through specialized storage layouts. Data is sorted by time within each metric, enabling efficient range scans. Compression exploits temporal locality: values close in time are similar, so delta encoding and run-length encoding achieve 10–100x compression compared to raw floats. Automatic data retention policies (delete data older than 90 days) and downsampling (aggregate per-second data to per-minute, then per-hour) are first-class features that manage storage growth.",
+        "TimescaleDB (PostgreSQL extension) is a pragmatic choice: you get time-series optimizations (hypertables with automatic time-based partitioning, continuous aggregates) while retaining full SQL query capability, JOINs with relational tables, and PostgreSQL's mature ecosystem. Prometheus is purpose-built for metrics with a pull-based collection model and powerful PromQL query language, but stores data locally—unsuitable for long-term retention (use Thanos or Cortex for that). InfluxDB is designed for high-cardinality metrics and log-like data."
+      ],
+      "bullets": [
+        "Optimized for timestamp-indexed data: metrics, sensors, financial ticks",
+        "Compression: delta/run-length encoding; 10–100x vs raw storage",
+        "Retention + downsampling: auto-expire old data, aggregate historical data",
+        "TimescaleDB: PostgreSQL extension with time-series optimization and full SQL"
+      ]
+    },
+    {
+      "title": "Choosing the Right Storage: A Decision Framework",
+      "paragraphs": [
+        "The first question is access pattern: how will you read this data? If you need arbitrary queries with JOINs and aggregations, use a relational database. If you always access by a known key, use a key-value store. If you need full-text search, use Elasticsearch. If your data is structured around entities with varying attributes, use a document store. If you need time-range queries on time-ordered data, use a time-series database. Storage choice should follow access pattern, not intuition about what's 'modern' or 'scalable'.",
+        "The second question is consistency requirement. Financial transactions, inventory management, and anything requiring ACID semantics: relational database with synchronous replication. User preferences, session data, analytics events: eventual consistency is fine; use NoSQL. Configuration and feature flags: strong consistency required (use etcd or Consul). Understand what failure mode you're accepting when you choose eventual consistency—occasional stale reads, potential write conflicts that need resolution.",
+        "Many production systems use multiple storage types in concert (polyglot persistence). A typical e-commerce platform uses: PostgreSQL for orders, users, and inventory (transactional, relational); Redis for sessions and rate limiting (fast key-value); Elasticsearch for product search (full-text, faceted); S3 for product images and assets (object storage); Redshift for analytics (columnar OLAP). Each store is chosen for the specific access pattern it must serve. The complexity cost is real—more stores means more operational burden—but the alternative (using one database for everything) means compromising on performance for most use cases."
+      ],
+      "bullets": [
+        "Access pattern first: how you read data should determine what database you use",
+        "Consistency requirement: ACID needed? → relational; eventual OK? → NoSQL",
+        "Polyglot persistence: use multiple stores; each optimized for its access pattern",
+        "Operational cost: each additional store type adds monitoring, backup, expertise burden"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Relational Databases",
         "paragraphs": [
-          "This draft covers SQL, NoSQL, Object & Time-Series Storage. Run content:generate to expand it with a model provider, or edit manually."
+          "PostgreSQL/MySQL: ACID transactions, SQL, mature tooling. Best default for structured relational data needing transactional integrity.",
+          "ACID: Atomicity (all-or-nothing), Consistency (constraints enforced), Isolation (concurrent transactions don't interfere), Durability (committed data survives crashes).",
+          "Limits: horizontal write scaling requires sharding; schema migrations on large tables are painful; not suitable for unstructured binary data."
+        ]
+      },
+      {
+        "title": "NoSQL Stores",
+        "paragraphs": [
+          "Document (MongoDB): flexible JSON, embedded documents, no schema migrations; best for content, catalogs, user profiles.",
+          "Key-value (Redis, DynamoDB): sub-millisecond access by key; no JOINs; ideal for sessions, rate limits, caching.",
+          "Wide-column (Cassandra): high write throughput, design data model around queries, great for time-series-like append patterns."
+        ]
+      },
+      {
+        "title": "Choosing Storage",
+        "paragraphs": [
+          "Access pattern first: arbitrary queries → relational; key lookup → key-value; full-text → Elasticsearch; time-range → time-series.",
+          "Consistency requirement: ACID → relational; eventual OK → NoSQL.",
+          "Polyglot persistence: most large systems use 3–5 storage types; each optimized for its access pattern."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "SQL, NoSQL, Object & Time-Series Storage — Deep Dive",
+        "title": "Storage Engine Internals",
         "paragraphs": [
-          "Extended treatment of SQL, NoSQL, Object & Time-Series Storage: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "PostgreSQL uses a heap-based storage engine with MVCC (Multi-Version Concurrency Control). Each row version is stored with transaction IDs indicating which transactions can see it. Reads never block writes; each transaction sees a consistent snapshot. The cost: dead tuples accumulate and must be vacuumed periodically. VACUUM reclaims space; AUTOVACUUM runs in the background but can lag under heavy write load, causing table bloat.",
+          "LSM-trees (Log-Structured Merge-trees) are used by RocksDB, LevelDB, Cassandra, and HBase. Writes go to an in-memory buffer (memtable) and a WAL; they're fast because they're sequential. Reads may need to check multiple levels (sstables), so read amplification increases. Compaction merges sstables periodically. LSM-trees are optimized for write-heavy workloads; B-trees (used by PostgreSQL, MySQL InnoDB) are more balanced. This write vs. read optimization trade-off is fundamental to storage engine selection.",
+          "Column-oriented storage (Parquet, ORC, Redshift, BigQuery) stores each column contiguously on disk rather than storing rows together. This enables 10–100x compression for columns with repeated values and vectorized SIMD operations on column data. For analytical queries reading 5 out of 100 columns across 100 billion rows, column storage reads only the needed columns—a dramatic I/O reduction versus row-oriented storage that reads entire rows."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "MVCC: PostgreSQL snapshot isolation; reads never block writes; vacuum reclaims dead tuples",
+          "LSM-tree: fast sequential writes; read amplification; compaction overhead",
+          "B-tree: balanced read/write; PostgreSQL/MySQL default; good for OLTP",
+          "Columnar: 10–100x compression; vectorized reads; ideal for analytics"
+        ]
+      },
+      {
+        "title": "Replication and Consistency Patterns",
+        "paragraphs": [
+          "Single-leader replication (PostgreSQL streaming replication, MySQL binlog) has one primary accepting writes; replicas apply changes via replication log. Synchronous replication (wait for replica ACK before returning to client) gives strong consistency but increases write latency. Asynchronous replication (return immediately, replica catches up) minimizes latency but allows data loss on primary failure before replica catches up.",
+          "Multi-leader replication allows writes to multiple primaries, useful for multi-region active-active configurations. The challenge is conflict resolution: if two primaries accept conflicting writes to the same row, the application must have a strategy—last-write-wins, application-specific merge, or CRDTs. DynamoDB, Cassandra, and CouchDB all implement multi-leader with conflict resolution strategies.",
+          "Leaderless replication (Dynamo-style, used by Cassandra and Riak) allows any node to accept reads and writes. Quorum reads and writes (read from R nodes, write to W nodes where R + W > N) provide tunable consistency. With N=3, W=2, R=2 you get strong consistency; with W=1, R=1 you get maximum performance with weak consistency. This tunability is Cassandra's core design feature."
         ]
       }
     ],
     "expert": [
       {
-        "title": "SQL, NoSQL, Object & Time-Series Storage — Expert Notes",
+        "title": "Expert: Storage Hot-Spots and Partition Key Design",
         "paragraphs": [
-          "Expert considerations for SQL, NoSQL, Object & Time-Series Storage: multi-region behavior, cost envelopes, and edge cases under overload."
+          "In partitioned storage systems (DynamoDB, Cassandra, Redis Cluster), hot partitions kill performance. If all writes for a popular user go to the same partition, that partition becomes a bottleneck regardless of overall cluster capacity. The fix: add entropy to partition keys. Instead of partitioning by user_id, partition by user_id + random_suffix and scatter reads across partitions. For time-series data, prepend a random shard number to prevent all current-time writes landing on the same partition.",
+          "Write amplification is a critical consideration for SSD-heavy workloads. LSM-tree compaction rewrites data multiple times; a write amplification factor of 10–30x is common, meaning 1 GB of incoming data causes 10–30 GB of disk writes. For SSDs, this accelerates wear. RocksDB's tiered compaction strategies balance write amplification against space amplification and read amplification—tuning these parameters for your workload can double SSD lifetime."
         ]
       }
     ]
   },
   "concepts": [
-    "SQL, NoSQL, Object & Time-Series Storage: core idea"
+    "ACID: Atomicity, Consistency, Isolation, Durability—guarantees of relational databases",
+    "MVCC: Multi-Version Concurrency Control; snapshot isolation without read-write locking",
+    "LSM-tree: Log-Structured Merge-tree; optimized for sequential writes; used in Cassandra, RocksDB",
+    "B-tree: balanced tree index; standard for OLTP databases; balanced read/write performance",
+    "Columnar storage: stores each column contiguously; enables high compression and fast analytics",
+    "Polyglot persistence: using multiple storage types, each optimized for its access pattern",
+    "Leaderless replication: any node accepts reads/writes; quorum-based consistency tuning",
+    "Hot partition: a single partition receiving disproportionate traffic; pattern to avoid",
+    "Object storage: immutable binary objects in bucket/key namespace; 11-nines durability",
+    "Time-series database: timestamp-indexed storage with compression and retention policies"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Choose storage based on access pattern and consistency requirement, not fashion",
+    "Use PostgreSQL as the default; migrate to specialized stores only when you have a measured need",
+    "Design partition keys to distribute load evenly; add entropy to avoid hot partitions",
+    "Use object storage for binary data (images, videos, ML models); never store blobs in PostgreSQL",
+    "Implement tiered storage lifecycle policies from day one to control cost growth",
+    "Monitor replication lag; alert on lag exceeding your RPO (Recovery Point Objective)",
+    "Use connection pooling (PgBouncer) to prevent connection exhaustion on relational databases"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Using NoSQL because it's 'more scalable' without measuring that relational is the actual bottleneck",
+    "Storing large binary blobs (images, PDFs) in PostgreSQL—it bloats tables, hurts cache efficiency",
+    "Ignoring replication lag—asyncronous replicas can be seconds behind under heavy write load",
+    "Designing Cassandra data models around entity relationships instead of query patterns",
+    "Forgetting that DynamoDB strongly recommends single-table design for access pattern efficiency",
+    "Using S3 as a database—it has no indexing beyond the key; pair with a metadata database for search"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Uber's Storage Architecture",
+      "description": "Uber uses PostgreSQL for financial transactions (trips, payments) where ACID is non-negotiable. Schemaless (a MySQL-based document store) for flexible entity data. Cassandra for location data, driver pings, and dispatch state—high write throughput at global scale. Redis for real-time session state and leaderboard features. This polyglot approach lets each data type be managed by the most appropriate store."
+    },
+    {
+      "title": "Netflix's S3-Centric Architecture",
+      "description": "Netflix stores all video content and backups in S3, using it as the system of record for media. Metadata about each title (descriptions, images, cast) lives in Cassandra. Personalization data lives in a custom distributed cache. By decoupling object storage for binary data from metadata storage for structured data, Netflix achieves massive scale while keeping query costs manageable."
+    }
+  ],
   "keyTakeaways": [
-    "SQL, NoSQL, Object & Time-Series Storage belongs in the curriculum as evergreen content"
+    "Match storage to access pattern: relational for complex queries, key-value for key lookups, object for binary data",
+    "ACID transactions are expensive but essential for financial and inventory data",
+    "NoSQL stores trade JOIN flexibility for horizontal scale and schema flexibility",
+    "Object storage (S3) is the most economical and durable option for binary data at any scale",
+    "Time-series databases achieve 10–100x compression through temporal locality exploitation",
+    "Polyglot persistence is the norm at scale; each store handles what it does best"
   ],
-  "whyItMatters": "Understanding SQL, NoSQL, Object & Time-Series Storage improves design judgment for production systems.",
+  "whyItMatters": "Storage selection is one of the most consequential and irreversible decisions in system design. Migrating a production database is expensive and risky; getting it right initially saves months of future pain. Every system design interview includes at least one storage decision, and candidates who can enumerate the trade-offs—access pattern, consistency, scale, cost—and defend their choice with specific numbers signal mature engineering judgment.",
   "reflectionQuestions": [
-    "When would you reach for SQL, NoSQL, Object & Time-Series Storage in a real design?"
+    "An e-commerce platform needs to store product catalogs (10M products with varying attributes), user orders, and product reviews with full-text search. What storage types do you use and why?",
+    "Your PostgreSQL database is at 100% CPU. Before migrating to NoSQL, what optimizations do you try?",
+    "Design the storage architecture for a system that ingests 1 million IoT sensor readings per second and must answer 'what was the average temperature in region X over the last 7 days?'",
+    "Why would you choose TimescaleDB over InfluxDB, and in what scenario would you choose the reverse?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "PostgreSQL: ~10K–50K TPS single primary; billions of rows with partitioning",
+    "Redis: 100K–1M ops/sec; in-memory; sub-millisecond latency",
+    "Cassandra: 1M+ writes/sec across a cluster; tunable consistency",
+    "S3: $0.023/GB-month (Standard); 11 nines (99.999999999%) durability; 10–50ms GET latency",
+    "LSM write amplification: 10–30x typical; B-tree write amplification: 2–5x"
   ],
   "diagrams": [
     {
-      "id": "fund-storage-types-overview",
-      "title": "SQL, NoSQL, Object & Time-Series Storage overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-storage-types-decision",
+      "title": "Storage Type Selection Framework",
+      "mermaid": "flowchart TD\n  Q1{Binary/unstructured data?} -->|Yes| S3[Object Storage S3]\n  Q1 -->|No| Q2{Timestamp-indexed metrics?}\n  Q2 -->|Yes| TSDB[Time-Series DB]\n  Q2 -->|No| Q3{Always access by key?}\n  Q3 -->|Yes| KV[Key-Value Redis/DynamoDB]\n  Q3 -->|No| Q4{Full-text search needed?}\n  Q4 -->|Yes| ES[Elasticsearch]\n  Q4 -->|No| Q5{ACID + complex queries?}\n  Q5 -->|Yes| PG[PostgreSQL]\n  Q5 -->|No| Mongo[Document Store MongoDB]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain SQL, NoSQL, Object & Time-Series Storage and the main trade-offs in 3 minutes."
+    "What are the trade-offs between SQL and NoSQL databases?",
+    "When would you use a document database instead of a relational database?",
+    "How does object storage differ from a file system, and when do you use each?",
+    "Design the storage layer for a social media platform with posts, comments, media, and analytics.",
+    "What is MVCC and why does PostgreSQL use it?"
   ],
   "exercises": [
-    "Design a small system that depends on SQL, NoSQL, Object & Time-Series Storage; list 3 trade-offs."
+    "Design the full storage architecture for a ride-sharing app: list every type of data, the storage system you'd use for each, and justify your choices.",
+    "Evaluate: 'We should use MongoDB instead of PostgreSQL because it's more scalable.' Under what conditions is this true? When is it false?",
+    "Design a data retention strategy for a logging system that ingests 1 TB/day, with requirements to query last 7 days instantly and last 2 years at acceptable latency."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "Designing Data-Intensive Applications — Martin Kleppmann, Chapters 2–3"
+    },
+    {
+      "title": "PostgreSQL documentation — MVCC and storage engine internals"
+    },
+    {
+      "title": "Cassandra: The Definitive Guide — Jeff Carpenter & Eben Hewitt"
+    },
+    {
+      "title": "AWS S3 documentation — storage classes and lifecycle policies"
+    }
+  ],
   "relatedLessons": [
+    "fund-blob-storage",
     "fund-olap",
-    "fund-search",
-    "fund-vector-db"
+    "fund-search"
   ]
 }

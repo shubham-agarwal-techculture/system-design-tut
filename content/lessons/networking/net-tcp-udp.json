@@ -3,99 +3,302 @@
   "title": "TCP, UDP & the Transport Layer",
   "moduleId": "networking",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "TCP, UDP & the Transport Layer — draft awaiting generation and review.",
+  "durationMinutes": 40,
+  "summary": "The transport layer decides whether reliability or speed governs how bytes move between two endpoints. TCP's connection-oriented model with sequencing, acknowledgements, and congestion control makes it the backbone of most application protocols, while UDP's connectionless simplicity powers real-time media, DNS, and next-generation protocols like QUIC. Knowing when each is appropriate—and what guarantees each actually provides—is non-negotiable for distributed systems design.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "net-tcp-ip"
   ],
   "tags": [
     "networking",
-    "evergreen",
+    "tcp",
+    "udp",
+    "transport-layer",
     "foundations"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "TCP Connection Lifecycle",
       "paragraphs": [
-        "This draft covers TCP, UDP & the Transport Layer. Run content:generate to expand it with a model provider, or edit manually."
+        "TCP is a stateful protocol: before any application data flows, both endpoints must negotiate parameters through the three-way handshake (SYN, SYN-ACK, ACK). This handshake establishes initial sequence numbers and the receive window size on each side—both critical to reliability and flow control. The cost is exactly one round-trip time (RTT) of setup latency before the first byte of payload reaches the application. For services making many short-lived connections, this overhead compounds quickly.",
+        "Connection teardown is equally deliberate. The four-way FIN sequence (FIN, ACK, FIN, ACK) allows both sides to drain in-flight data before closing. After the active closer sends its final ACK it enters TIME_WAIT for 2×MSL (Maximum Segment Lifetime, typically 60 seconds on Linux). During TIME_WAIT, the kernel holds the 4-tuple so stray late-arriving packets from the old connection cannot corrupt a new one reusing the same port. High-throughput services spawning thousands of short-lived connections per second can exhaust the ephemeral port range because TIME_WAIT sockets count against it.",
+        "TCP connection state lives in the kernel as a Transmission Control Block (TCB). Each TCB tracks sequence numbers, window sizes, timers, and the socket's current state machine position (LISTEN, SYN_SENT, ESTABLISHED, etc.). This per-connection state is why TCP servers can saturate memory before saturating CPU—a c5.xlarge handling 1 million concurrent connections holds roughly 300–500 MB of kernel TCB data alone.",
+        "Half-open connections are a classic attack vector. A SYN flood exploits the fact that the server allocates state at SYN receipt before the handshake completes. SYN cookies solve this by encoding connection parameters in the ISN (Initial Sequence Number) rather than allocating a TCB, so the server verifies the cookie when the ACK arrives and only then allocates state."
+      ],
+      "bullets": [
+        "3-way handshake costs 1 RTT; TLS 1.3 adds 0–1 RTTs on top",
+        "TIME_WAIT default: 60 s; tune with net.ipv4.tcp_tw_reuse for client-side sockets",
+        "Ephemeral port range: check /proc/sys/net/ipv4/ip_local_port_range (default ~28000 ports)"
+      ]
+    },
+    {
+      "title": "Flow Control and Congestion Control",
+      "paragraphs": [
+        "Flow control prevents a fast sender from overwhelming a slow receiver. Each side advertises a receive window (rwnd) in every ACK—the number of bytes it can buffer. The sender must not have more unacknowledged data in flight than rwnd. When a receiver's buffer fills (e.g., slow application consuming data), it shrinks the window toward zero; the sender stalls and polls with zero-window probes until the receiver opens the window again. This is distinct from congestion—the receiver is simply slow.",
+        "Congestion control addresses the shared network, not the receiver. TCP infers congestion from packet loss and round-trip time changes. Slow start begins with a small congestion window (cwnd) and doubles it each RTT until a threshold (ssthresh) or loss event. On loss, classic Cubic TCP halves cwnd and enters cubic growth. BBR (Bottleneck Bandwidth and Round-trip time, deployed in Linux 4.9+) takes a model-based approach, estimating bottleneck bandwidth and minimum RTT rather than reacting to loss—it maintains higher throughput on paths with shallow buffers and handles high-bandwidth-delay-product links better than Cubic.",
+        "The effective send rate is bounded by min(cwnd, rwnd) / RTT. On a 100 Mbps link with 100 ms RTT, to fully utilize the link you need a window of 100 Mbps × 0.1 s = 10 Mbit = 1.25 MB. With a default 64 KB socket buffer, you'd achieve only ~5 Mbps. Increasing net.core.rmem_max and net.core.wmem_max (Linux) is mandatory for high-bandwidth long-latency paths—cross-region replication, intercontinental CDN origin pulls, etc.",
+        "Bufferbloat occurs when intermediate routers have oversized buffers. Loss-based congestion control fills these buffers before detecting congestion, adding hundreds of milliseconds of queuing delay. Active Queue Management (AQM) algorithms—CoDel, FQ-CoDel, PIE—drop or ECN-mark packets before buffers fill, keeping latency low. Cloud load balancers increasingly implement ECN to signal congestion without dropping packets."
+      ],
+      "bullets": [
+        "BBR v2 adds loss tolerance; default on Google's CDN and YouTube streaming paths",
+        "ECN (Explicit Congestion Notification): router signals congestion via IP header bits, no drop needed",
+        "CUBIC ssthresh = 0.7 × cwnd on loss; BBR does not reduce on isolated loss events"
+      ]
+    },
+    {
+      "title": "UDP: When Simplicity is a Feature",
+      "paragraphs": [
+        "UDP adds almost nothing to IP: source port, destination port, length, and checksum. No connection state, no sequencing, no retransmission, no congestion control. Each datagram is independently routed and may be reordered, duplicated, or dropped without notification. The kernel's UDP socket API is a thin wrapper—sendto() emits a datagram and returns immediately; recvfrom() delivers whatever arrives in arrival order.",
+        "The absence of congestion control is UDP's most dangerous property in public networks. An application that floods UDP datagrams without self-pacing can saturate links and starve other flows. This is why IETF best-practices (RFC 8085) require UDP applications to implement congestion response. Well-behaved protocols like QUIC and WebRTC implement their own congestion control on top of UDP—they want UDP's flexibility, not an exemption from network citizenship.",
+        "UDP's statelessness suits several important workloads. DNS lookups are single request/response pairs that fit in a single datagram (<512 bytes in original DNS, up to 4096 with EDNS0). NTP synchronization sends short timestamped packets where retransmission would be counterproductive—a delayed packet is worse than a lost one. SNMP, syslog, and many telemetry protocols use UDP because occasional loss is acceptable and connection setup overhead is not. Gaming state updates (player position, game state) use UDP because stale data retransmitted 500ms late is useless; the game engine interpolates over gaps.",
+        "Multicast and broadcast are UDP-only features. A single UDP datagram can reach all subscribers on a multicast group without the sender enumerating each receiver—critical for financial market data feeds where a single exchange publishes price updates to thousands of participants simultaneously. TCP's unicast model would require the sender to maintain N connections for N subscribers."
+      ],
+      "bullets": [
+        "UDP header is 8 bytes; TCP header is 20–60 bytes",
+        "Max UDP payload to avoid IP fragmentation: 1472 bytes on Ethernet (1500 MTU − 20 IP − 8 UDP)",
+        "DTLS: TLS for UDP datagrams; used by WebRTC for encrypted media"
+      ]
+    },
+    {
+      "title": "Socket Mechanics: Ports, Buffers, and Multiplexing",
+      "paragraphs": [
+        "A TCP or UDP socket is identified by a 5-tuple: protocol, source IP, source port, destination IP, destination port. For TCP, only one socket can own each unique 5-tuple; for UDP, multiple sockets can receive from the same port if SO_REUSEPORT is set (kernel distributes datagrams to one socket in the group—useful for multi-core UDP servers like DNS resolvers). Well-known ports (0–1023) require root or CAP_NET_BIND_SERVICE on Linux. Ports 1024–49151 are registered by IANA convention. Ports 49152–65535 are ephemeral.",
+        "Each socket has send and receive buffers in kernel space. For TCP, the receive buffer size is the advertised window; filling it stalls the sender. For UDP, the receive buffer is a ring; overflow silently drops packets—no error is returned to the sender. /proc/net/udp shows rx_queue depth; monitoring this reveals whether your UDP consumer is fast enough. Increasing SO_RCVBUF helps but does not fix a slow consumer—it only buys time.",
+        "Scatter-gather I/O (sendmsg/recvmsg with struct iovec) lets you send/receive non-contiguous buffers without copying them into a single flat buffer first. sendmmsg/recvmmsg batch multiple datagrams in a single syscall, cutting per-packet syscall overhead by 60–80% on high-packet-rate UDP workloads like DNS servers handling millions of queries per second.",
+        "Port sharing with SO_REUSEPORT in Linux 3.9+ creates per-CPU socket groups. The kernel hashes the 4-tuple to pick a socket, achieving CPU-local processing and eliminating lock contention on accept queues. NGINX and modern DNS servers use this to scale UDP and TCP accepting linearly with CPU count."
+      ],
+      "bullets": [
+        "net.core.somaxconn: maximum listen backlog; default 4096 on modern kernels",
+        "net.ipv4.tcp_rmem / tcp_wmem: auto-tuned buffers up to max; check with ss -m",
+        "SO_REUSEPORT eliminates accept() lock contention on multi-core servers"
+      ]
+    },
+    {
+      "title": "Practical Transport-Layer Decisions",
+      "paragraphs": [
+        "Protocol choice should follow from workload semantics, not habit. Use TCP for: any request where every byte must arrive in order (HTTP, database queries, file transfers, RPCs). Use UDP for: DNS, NTP, media streaming where loss is tolerable, sensor telemetry, gaming state, multicast distribution, and any protocol that implements its own reliability (QUIC, WebRTC). The heuristic is: if you need to know whether the message arrived and what order bytes came in, TCP; if you need to minimize latency and can handle or ignore loss, UDP.",
+        "Head-of-line blocking is the central argument for UDP-based protocols in modern web stacks. HTTP/2 multiplexes many streams over one TCP connection, but a single lost packet stalls all streams until TCP retransmits and reorders—the kernel cannot deliver out-of-order bytes to the application. QUIC carries independent streams over UDP; a lost packet stalls only the stream that owns it, not all streams. For page loads with many parallel resources, this difference is measurable at tail latencies (p99+).",
+        "Firewalls and NAT complicate UDP. Many enterprise firewalls block non-DNS/non-NTP UDP by default or silently drop UDP after idle timeouts shorter than TCP keepalive periods. This forces protocols like QUIC to fall back to TCP in hostile networks. Applications needing UDP through NAT must either use STUN/TURN for hole punching or accept that some paths will be TCP-only."
+      ],
+      "bullets": [
+        "SCTP: stream-control transport with multi-homing and ordered delivery per stream; rare in internet but used in telecom signaling",
+        "DCCP: datagram congestion control protocol; standardized but essentially unused in production",
+        "BBR default on Linux 5.9+ for QUIC; configure sysctl net.ipv4.tcp_congestion_control=bbr"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "TCP Connection Lifecycle",
         "paragraphs": [
-          "This draft covers TCP, UDP & the Transport Layer. Run content:generate to expand it with a model provider, or edit manually."
+          "TCP is a stateful protocol: before any application data flows, both endpoints must negotiate parameters through the three-way handshake (SYN, SYN-ACK, ACK). This handshake establishes initial sequence numbers and the receive window size on each side—both critical to reliability and flow control. The cost is exactly one round-trip time (RTT) of setup latency before the first byte of payload reaches the application.",
+          "Connection teardown is equally deliberate. The four-way FIN sequence allows both sides to drain in-flight data. After the active closer sends its final ACK it enters TIME_WAIT for 2×MSL. High-throughput services can exhaust the ephemeral port range because TIME_WAIT sockets count against it.",
+          "Half-open connections are a classic attack vector. A SYN flood exploits the fact that the server allocates state at SYN receipt. SYN cookies solve this by encoding connection parameters in the ISN rather than allocating a TCB, so the server verifies the cookie when the ACK arrives."
+        ],
+        "bullets": [
+          "3-way handshake costs 1 RTT; TLS 1.3 adds 0–1 RTTs on top",
+          "TIME_WAIT default: 60 s; tune with net.ipv4.tcp_tw_reuse for client-side sockets",
+          "Ephemeral port range: check /proc/sys/net/ipv4/ip_local_port_range"
+        ]
+      },
+      {
+        "title": "Flow Control and Congestion Control",
+        "paragraphs": [
+          "Flow control prevents a fast sender from overwhelming a slow receiver via receive window (rwnd) advertisements. Congestion control governs the shared network via cwnd. Slow start, Cubic, and BBR are the dominant algorithms.",
+          "BBR estimates bottleneck bandwidth and minimum RTT rather than reacting to loss. It maintains higher throughput on paths with shallow buffers and handles high-bandwidth-delay-product links better than Cubic.",
+          "The effective send rate is bounded by min(cwnd, rwnd) / RTT. Increasing socket buffer sizes is mandatory for high-bandwidth long-latency paths."
+        ],
+        "bullets": [
+          "BBR v2 adds loss tolerance; default on Google CDN paths",
+          "ECN: router signals congestion via IP header bits, no drop needed",
+          "CUBIC ssthresh = 0.7 × cwnd on loss"
+        ]
+      },
+      {
+        "title": "UDP: When Simplicity is a Feature",
+        "paragraphs": [
+          "UDP adds almost nothing to IP: ports, length, checksum. No connection state, no sequencing, no retransmission. Each datagram is independently routed and may be reordered, duplicated, or dropped silently.",
+          "UDP's absence of congestion control is dangerous in public networks. IETF RFC 8085 requires UDP applications to implement congestion response. QUIC and WebRTC implement their own congestion control on top of UDP.",
+          "UDP suits DNS, NTP, gaming state, telemetry, and multicast. Multicast and broadcast are UDP-only features, critical for financial market data feeds."
+        ],
+        "bullets": [
+          "UDP header is 8 bytes; TCP header is 20–60 bytes",
+          "Max UDP payload to avoid fragmentation: 1472 bytes on Ethernet",
+          "DTLS: TLS for UDP datagrams"
+        ]
+      },
+      {
+        "title": "Socket Mechanics",
+        "paragraphs": [
+          "A TCP or UDP socket is identified by a 5-tuple. SO_REUSEPORT lets multiple sockets share a port for multi-core scaling. Each socket has kernel-space send and receive buffers; UDP overflow silently drops packets.",
+          "sendmmsg/recvmmsg batch multiple datagrams in a single syscall, cutting per-packet overhead 60–80% on high-packet-rate workloads.",
+          "SO_REUSEPORT in Linux 3.9+ creates per-CPU socket groups, achieving CPU-local processing and eliminating lock contention on accept queues."
+        ],
+        "bullets": [
+          "net.core.somaxconn: maximum listen backlog",
+          "SO_REUSEPORT eliminates accept() lock contention",
+          "Monitor /proc/net/udp rx_queue depth to detect slow UDP consumers"
+        ]
+      },
+      {
+        "title": "Practical Transport-Layer Decisions",
+        "paragraphs": [
+          "Protocol choice should follow workload semantics. Use TCP for ordered, reliable delivery; UDP for latency-sensitive or loss-tolerant workloads. Head-of-line blocking is the key argument for UDP-based protocols in modern web stacks.",
+          "HTTP/2 multiplexes streams over TCP but a single lost packet stalls all streams. QUIC carries independent streams over UDP; a lost packet stalls only its stream.",
+          "Firewalls and NAT complicate UDP in enterprise environments, often forcing QUIC fallback to TCP."
+        ],
+        "bullets": [
+          "SCTP: multi-homing and ordered delivery per stream; used in telecom signaling",
+          "BBR default on Linux 5.9+ for QUIC",
+          "STUN/TURN needed for UDP hole punching through NAT"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "TCP, UDP & the Transport Layer — Deep Dive",
+        "title": "TCP State Machine and Buffer Tuning in Production",
         "paragraphs": [
-          "Extended treatment of TCP, UDP & the Transport Layer: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "The Linux TCP stack is auto-tuning by default: socket buffers grow from tcp_rmem[0] (minimum) to tcp_rmem[2] (maximum) based on demand. The bottleneck for cross-region replication is almost always the buffer ceiling. On a 10 Gbps link with 100 ms RTT, the bandwidth-delay product is 125 MB—set tcp_rmem[2] and tcp_wmem[2] to at least 256 MB per socket to fully utilize the link. Test with iperf3 -Z (zero-copy) to validate.",
+          "TCP_FASTOPEN (TFO) allows data to be sent on the SYN, eliminating the first RTT for idempotent requests. Supported in Linux 3.7+, iOS 9+, and all major CDNs. The server cookie mechanism prevents replay attacks. TFO is most impactful for DNS-over-TCP, HTTP/1.1 on mobile, and any protocol with many short connections to fixed endpoints.",
+          "SO_LINGER with linger time 0 issues RST instead of FIN on close, immediately freeing the kernel port without TIME_WAIT. Useful for servers that must recycle ports rapidly (load-testing tools, short-lived proxy connections). The tradeoff: the remote end gets an error rather than a clean close, so only use it when the remote does not care about clean shutdown (e.g., HTTP/1.0 responses after the response is fully sent)."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "iperf3 -R (reverse mode) measures download capacity; always test both directions",
+          "ss -t state established '( dport = :5432 )': inspect active Postgres connections",
+          "TCP_NOTSENT_LOWAT: limits kernel send buffer for streaming applications, reducing memory and improving latency"
+        ]
+      },
+      {
+        "title": "UDP Reliability Patterns and Loss Handling",
+        "paragraphs": [
+          "Applications that need partial reliability over UDP typically implement selective acknowledgement at the application layer. The pattern: sender assigns monotonically increasing sequence numbers to datagrams; receiver sends NACKs for gaps; sender retransmits only missing datagrams. This is more efficient than TCP retransmission for media streams where you only need recent frames. SRT (Secure Reliable Transport) used by video broadcasters implements this model with FEC (Forward Error Correction).",
+          "FEC trades bandwidth for loss recovery without retransmission. Reed-Solomon codes allow recovery of k-of-n lost packets with n-k redundancy datagrams. A common profile: send 10 data datagrams + 2 parity datagrams per group; recover any 2 losses without retransmission. FEC is ideal when RTT is high (satellite links, intercontinental paths) where retransmission latency exceeds playback buffer size.",
+          "Jitter buffers compensate for arrival-time variance inherent in UDP paths. A 50ms jitter buffer holds up to 50ms of received audio/video, then plays out smoothly regardless of network jitter. The tradeoff is latency. Adaptive jitter buffers (as in WebRTC) measure arrival variance continuously and shrink or grow the buffer to minimize latency while preventing underruns—the algorithm is essentially a Kalman filter on packet inter-arrival times."
+        ],
+        "bullets": [
+          "SRT (Secure Reliable Transport): open protocol for video over UDP with selective retransmit",
+          "RTP/RTCP: standardized UDP framing for media; RTCP carries sender/receiver statistics",
+          "QUIC loss detection: uses separate packet number space from stream offset; faster than TCP SACK"
         ]
       }
     ],
     "expert": [
       {
-        "title": "TCP, UDP & the Transport Layer — Expert Notes",
+        "title": "Transport Optimization at Hyperscale and Multi-Region",
         "paragraphs": [
-          "Expert considerations for TCP, UDP & the Transport Layer: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At hyperscale (Google, Meta, Cloudflare), the TCP stack itself is a bottleneck. DPDK (Data Plane Development Kit) and XDP (eXpress Data Path) bypass the kernel TCP stack entirely, processing packets in user space or in eBPF programs at the NIC driver layer. This reduces per-packet latency from ~1–2 μs (kernel) to ~100–200 ns (DPDK) and enables line-rate packet processing on commodity hardware. The tradeoff is engineering complexity: you must reimplement the entire TCP state machine in user space.",
+          "Multi-region TCP tuning requires matching congestion algorithm to path characteristics. BBR outperforms Cubic on paths with shallow buffers (metro DCs connected by dark fiber). On satellite paths or highly lossy wireless, BBR's assumption that loss indicates bandwidth probing fails—it overshoots and causes real congestion. Linux 5.14+ BBRv2 adds loss-aware pacing to handle these cases. For control plane traffic (config replication, Raft consensus), use CUBIC or RENO with aggressive keepalive to detect splits quickly.",
+          "Port exhaustion in NAT environments is an underappreciated cost. Each TCP connection through a NAT device consumes a 5-tuple entry in the NAT table. Cloud NAT gateways (AWS NAT Gateway, GCP Cloud NAT) advertise per-endpoint connection limits (e.g., AWS NAT Gateway: 55,000 simultaneous connections per destination IP:port pair). Services that fan out to a small set of destinations through NAT—e.g., many containers calling the same SaaS API—can hit per-destination limits while remaining well below total port limits. Spread load across multiple NAT IPs or use direct connect to avoid NAT for high-fan-out workloads."
         ]
       }
     ]
   },
   "concepts": [
-    "TCP, UDP & the Transport Layer: core idea"
+    "TCP three-way handshake: SYN → SYN-ACK → ACK establishes sequence numbers and window sizes at cost of 1 RTT",
+    "TCP flow control: receive window (rwnd) prevents sender from overwhelming receiver buffers",
+    "TCP congestion control: cwnd governed by slow start, Cubic, or BBR to protect the shared network",
+    "BBR congestion control: model-based, estimates bottleneck bandwidth and min RTT rather than reacting to loss",
+    "UDP: connectionless, no reliability, no ordering, no congestion control; 8-byte header",
+    "TIME_WAIT: 2×MSL (60s) timer after TCP close prevents stale packet contamination of new connections",
+    "5-tuple: (protocol, src IP, src port, dst IP, dst port) uniquely identifies a TCP connection",
+    "Head-of-line blocking: single packet loss stalls all multiplexed streams in TCP/HTTP2; solved by QUIC over UDP",
+    "SYN cookies: serverless SYN-ACK that encodes state in ISN to defend against SYN flood without memory allocation",
+    "Bandwidth-delay product: bytes in flight = bandwidth × RTT; must fit within socket buffers to saturate the link"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Enable TCP_NODELAY on latency-sensitive connections to disable Nagle batching (databases, RPCs, gaming)",
+    "Use connection pooling for all TCP-based protocols to amortize handshake and slow-start costs",
+    "Tune net.ipv4.tcp_rmem and tcp_wmem for cross-region links; default 4 MB max is insufficient for 10+ Gbps × 50 ms RTT",
+    "Monitor retransmission rate (ss --statistics, /proc/net/snmp Tcp:RetransSegs) as a proxy for path quality",
+    "Use SO_REUSEPORT on multi-threaded UDP servers to eliminate accept-queue contention across CPUs",
+    "Implement application-level heartbeats on long-lived TCP connections; don't rely solely on TCP keepalive"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Assuming TCP guarantees fast delivery—congestion control can reduce throughput to near zero on lossy paths",
+    "Ignoring TIME_WAIT accumulation; short-lived connection churn at thousands/second can exhaust all 28k ephemeral ports",
+    "Using UDP without implementing congestion response in a shared network; this violates IETF RFC 8085 and causes collateral damage",
+    "Setting SO_RCVBUF on UDP without fixing a slow consumer; larger buffers only delay the drop, they don't prevent it",
+    "Forgetting that HTTP/2 head-of-line blocking exists at the TCP layer even though HTTP/2 is 'multiplexed'",
+    "Not accounting for NAT per-destination connection limits when scaling container-to-SaaS traffic through cloud NAT"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Nginx Proxy + SO_REUSEPORT",
+      "description": "Nginx 1.9.1+ enables SO_REUSEPORT by default for TCP listeners. With 32 worker processes on a 32-core machine, each worker gets its own kernel accept queue, eliminating a global mutex that bottlenecked accept() at ~200k connections/s. After enabling SO_REUSEPORT, Nginx benchmarks consistently showed 2–3× higher connection rate and reduced p99 accept latency."
+    },
+    {
+      "title": "BBR at Google",
+      "description": "Google deployed BBR on its WAN in 2016. For YouTube streaming, BBR increased throughput by 4× and reduced bufferbloat-induced latency by 10×. On paths where Cubic oscillated between congestion collapse and slow-start (mobile networks, intercontinental links), BBR maintained stable bandwidth near the bottleneck capacity with significantly smaller queues."
+    },
+    {
+      "title": "Cloudflare UDP DDoS Amplification Defense",
+      "description": "UDP's stateless nature enables amplification attacks: an attacker spoofs the source IP of a DNS or NTP request so the server sends a large response to the victim. Cloudflare mitigates this with XDP-based filtering at the NIC driver layer, dropping spoofed packets before they enter the kernel. At 1–2 Tbps DDoS rates, XDP processing costs ~100 ns/packet vs ~1500 ns in kernel netfilter, keeping production traffic unaffected."
+    }
+  ],
   "keyTakeaways": [
-    "TCP, UDP & the Transport Layer belongs in the curriculum as evergreen content"
+    "TCP's three-way handshake adds 1 RTT of latency; connection pooling and TFO eliminate this overhead in hot paths",
+    "BBR congestion control outperforms Cubic on high-bandwidth-delay-product and lossy paths by modeling bandwidth rather than reacting to loss",
+    "UDP's power is simplicity and extensibility; responsible UDP applications implement their own congestion control (QUIC, WebRTC, SRT)",
+    "Head-of-line blocking at the TCP layer is a fundamental limitation of HTTP/2; QUIC over UDP eliminates it at the transport level",
+    "Socket buffer sizing is the most common reason cross-region replication or bulk transfer achieves far below link capacity",
+    "TIME_WAIT and ephemeral port exhaustion are production failure modes for high-churn connection workloads"
   ],
-  "whyItMatters": "Understanding TCP, UDP & the Transport Layer improves design judgment for production systems.",
+  "whyItMatters": "Every database connection, API call, file transfer, and media stream travels over either TCP or UDP. The choice determines latency characteristics, failure modes, and scalability ceiling. TCP's congestion control protects the network but can cause unexpected throughput collapse; UDP's freedom comes with engineering responsibility. Senior engineers know not just which to pick, but how to tune kernel parameters, monitor transport-layer health, and explain why head-of-line blocking matters when designing streaming APIs.",
   "reflectionQuestions": [
-    "When would you reach for TCP, UDP & the Transport Layer in a real design?"
+    "Your microservice makes 50,000 short-lived database connections per second. What transport-layer symptoms would you see, and what are three specific remediations?",
+    "Design the transport layer for a live video streaming platform that must work reliably over satellite links (200ms RTT, 2% packet loss). What protocol stack and loss-recovery strategy would you use?",
+    "An HTTP/2 API shows good p50 latency but terrible p99. After ruling out application logic, what TCP-level mechanisms would you investigate?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "1 RTT: cost of TCP handshake before first byte of application data",
+    "60 seconds: default TIME_WAIT duration (2×MSL) on Linux; limits connection teardown rate",
+    "~28k: default ephemeral port range on Linux (32768–60999); exhaustible at high connection churn",
+    "1472 bytes: maximum UDP payload on Ethernet (1500 MTU) without IP fragmentation",
+    "BBR throughput improvement over Cubic: 4× on YouTube WAN paths in Google's 2016 deployment"
   ],
   "diagrams": [
     {
-      "id": "net-tcp-udp-overview",
-      "title": "TCP, UDP & the Transport Layer overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "net-tcp-udp-lifecycle",
+      "title": "TCP Connection Lifecycle vs UDP Datagram",
+      "mermaid": "flowchart TD\n  subgraph TCP\n    C1[Client] -->|SYN| S1[Server]\n    S1 -->|SYN-ACK| C1\n    C1 -->|ACK| S1\n    C1 -->|Data| S1\n    S1 -->|ACK| C1\n    C1 -->|FIN| S1\n    S1 -->|FIN-ACK| C1\n    C1 -->|ACK / TIME_WAIT 60s| S1\n  end\n  subgraph UDP\n    C2[Client] -->|Datagram - no handshake| S2[Server]\n    S2 -->|Response - may be lost| C2\n  end"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain TCP, UDP & the Transport Layer and the main trade-offs in 3 minutes."
+    "Explain TCP flow control vs congestion control. What happens when rwnd is zero? What happens when a loss is detected by the sender?",
+    "Why does HTTP/2 multiplexing not eliminate head-of-line blocking, and how does QUIC solve this?",
+    "You need to transfer 1 TB of data between two data centers 80 ms RTT apart over a 10 Gbps link. What is the theoretical throughput if socket buffers are at their default 4 MB? How would you fix it?"
   ],
   "exercises": [
-    "Design a small system that depends on TCP, UDP & the Transport Layer; list 3 trade-offs."
+    "Use iperf3 to measure TCP throughput between two hosts at 100 ms RTT. Measure with default buffer sizes, then with -w 16m. Calculate the expected bandwidth-delay product and verify your measurement approaches it.",
+    "Write a UDP echo server and client that implement simple sequence numbering. Add artificial 5% packet loss at the server. Implement NACK-based retransmission in the client and measure how close you get to ordered, reliable delivery."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "RFC 793 — Transmission Control Protocol",
+      "url": "https://datatracker.ietf.org/doc/html/rfc793"
+    },
+    {
+      "title": "BBR: Congestion-Based Congestion Control (Neal Cardwell et al., ACM Queue 2016)",
+      "url": "https://queue.acm.org/detail.cfm?id=3022184"
+    },
+    {
+      "title": "RFC 8085 — UDP Usage Guidelines",
+      "url": "https://datatracker.ietf.org/doc/html/rfc8085"
+    },
+    {
+      "title": "Linux TCP Tuning Guide — Cloudflare Blog",
+      "url": "https://blog.cloudflare.com/optimizing-tcp-for-high-throughput-and-low-latency/"
+    }
+  ],
   "relatedLessons": [
     "net-bgp-anycast",
-    "net-http",
-    "net-kernel"
+    "net-congestion",
+    "net-http"
   ]
 }

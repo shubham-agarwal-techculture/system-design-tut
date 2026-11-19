@@ -1,0 +1,171 @@
+{
+  "id": "fund-exactly-once",
+  "title": "Delivery Semantics & Exactly-Once",
+  "moduleId": "messaging",
+  "phaseId": "fundamentals",
+  "durationMinutes": 40,
+  "summary": "Networks retry. Exactly-once end-to-end is usually an illusion built from at-least-once delivery plus idempotent processing and transactional boundaries. Design for duplicates explicitly.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [],
+  "tags": [
+    "messaging",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "At-most-once, at-least-once, effectively once",
+      "paragraphs": [
+        "At-most-once drops messages on failure. At-least-once retries until ack — duplicates happen. Exactly-once claims require a precise scope: once within a pipeline stage, once into a sink with idempotent keys, etc.",
+        "Kafka transactions, Flink checkpoints, and inbox/outbox patterns create effective once processing relative to a defined side-effect boundary — not magic across the whole enterprise."
+      ]
+    },
+    {
+      "title": "Idempotency as the real tool",
+      "paragraphs": [
+        "Give producers idempotency keys. Make consumers store processed keys or use natural unique constraints. Upserts beat blind inserts.",
+        "Side effects (email, charges) need dedup stores with TTLs aligned to retry windows. Document the window."
+      ]
+    },
+    {
+      "title": "Transactional messaging patterns",
+      "paragraphs": [
+        "Transactional outbox: write business row + outbox row atomically; publisher drains outbox. Inbox: consumer records message id before side effects.",
+        "Dual writes to DB and queue without a transaction are a classic source of lost or double events."
+      ]
+    },
+    {
+      "title": "What to tell product stakeholders",
+      "paragraphs": [
+        "Say 'at-least-once with idempotent handlers' instead of 'exactly once' unless you can name the boundary and the failure proof."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "At-most-once, at-least-once, effectively once",
+        "paragraphs": [
+          "At-most-once drops messages on failure. At-least-once retries until ack — duplicates happen. Exactly-once claims require a precise scope: once within a pipeline stage, once into a sink with idempotent keys, etc.",
+          "Kafka transactions, Flink checkpoints, and inbox/outbox patterns create effective once processing relative to a defined side-effect boundary — not magic across the whole enterprise."
+        ]
+      },
+      {
+        "title": "Idempotency as the real tool",
+        "paragraphs": [
+          "Give producers idempotency keys. Make consumers store processed keys or use natural unique constraints. Upserts beat blind inserts.",
+          "Side effects (email, charges) need dedup stores with TTLs aligned to retry windows. Document the window."
+        ]
+      },
+      {
+        "title": "Transactional messaging patterns",
+        "paragraphs": [
+          "Transactional outbox: write business row + outbox row atomically; publisher drains outbox. Inbox: consumer records message id before side effects.",
+          "Dual writes to DB and queue without a transaction are a classic source of lost or double events."
+        ]
+      },
+      {
+        "title": "What to tell product stakeholders",
+        "paragraphs": [
+          "Say 'at-least-once with idempotent handlers' instead of 'exactly once' unless you can name the boundary and the failure proof."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Delivery Semantics & Exactly-Once — Operations",
+        "paragraphs": [
+          "Operating Delivery Semantics & Exactly-Once in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+        ],
+        "bullets": [
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Delivery Semantics & Exactly-Once — Failure modes",
+        "paragraphs": [
+          "Common failures around Delivery Semantics & Exactly-Once include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Delivery Semantics & Exactly-Once — Expert notes",
+        "paragraphs": [
+          "At the expert level, Delivery Semantics & Exactly-Once intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "At-least-once delivery",
+    "Idempotency key",
+    "Outbox / inbox",
+    "Kafka EOS / transactions scope",
+    "Dedup window"
+  ],
+  "practices": [
+    "Design consumers to be idempotent first",
+    "Use outbox for DB+event atomicity",
+    "Define and monitor duplicate rates"
+  ],
+  "pitfalls": [
+    "Believing the broker alone provides exactly-once side effects",
+    "Dedup TTLs shorter than max retry duration",
+    "Non-idempotent payment captures on retry"
+  ],
+  "examples": [
+    {
+      "title": "Stripe idempotency keys",
+      "description": "Safe retries for payment APIs."
+    },
+    {
+      "title": "Kafka transactions",
+      "description": "Atomic produce across partitions within a scope."
+    }
+  ],
+  "keyTakeaways": [
+    "Duplicates are normal under retries",
+    "Idempotency + transactional boundaries create effective once",
+    "Name the exactly-once scope explicitly"
+  ],
+  "whyItMatters": "Most 'random' production bugs in event-driven systems are duplicate or lost side effects from unclear delivery semantics.",
+  "reflectionQuestions": [
+    "What side effects in your system are not idempotent?",
+    "Where do you dual-write today without an outbox?"
+  ],
+  "numbersToKnow": [
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-exactly-once-overview",
+      "title": "Delivery Semantics & Exactly-Once overview",
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Delivery Semantics & Exactly-Once and the main trade-offs in three minutes."
+  ],
+  "exercises": [
+    "Sketch a design that depends on Delivery Semantics & Exactly-Once; list three trade-offs and one failure mode."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-messaging",
+    "fund-schema-evolution",
+    "fund-stream-processing"
+  ]
+}

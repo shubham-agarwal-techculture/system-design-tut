@@ -1,101 +1,297 @@
 {
   "id": "arch-serverless",
-  "title": "Serverless Patterns",
+  "title": "Serverless Architecture",
   "moduleId": "architecture-patterns",
   "phaseId": "architecture",
-  "durationMinutes": 30,
-  "summary": "Serverless Patterns — draft awaiting generation and review.",
-  "kind": "living",
+  "durationMinutes": 45,
+  "summary": "Serverless architecture abstracts away server management, letting developers deploy functions or containers that scale automatically from zero. AWS Lambda, Google Cloud Run, and Azure Functions provide compute-on-demand billed per invocation. The model excels for event-driven workloads, APIs with spiky traffic, and data processing pipelines—but cold starts, vendor lock-in, observability challenges, and statelessness constraints require careful architectural design.",
+  "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "arch-monolith-micro"
+    "arch-monolith-micro",
+    "fund-caching"
   ],
   "tags": [
     "architecture-patterns",
-    "living",
+    "serverless",
+    "faas",
+    "cloud",
     "architecture"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "What Serverless Actually Means",
       "paragraphs": [
-        "This draft covers Serverless Patterns. Run content:generate to expand it with a model provider, or edit manually."
+        "Serverless is a misleading name—there are always servers, but you don't see them. The defining characteristic is that the cloud provider manages the execution environment, scaling, and availability. You deploy code (a function) or a container image; the platform handles provisioning instances, routing requests, scaling from zero to thousands of concurrent instances in seconds, and tearing down idle capacity. You pay for actual compute consumed (function invocation time, GB-seconds), not idle reserved capacity.",
+        "The serverless spectrum ranges from Functions-as-a-Service (FaaS—AWS Lambda, Google Cloud Functions, Azure Functions) where individual functions are the unit of deployment, to container-based serverless (AWS Fargate, Google Cloud Run, Azure Container Instances) where containers run on-demand without managing clusters, to fully managed backends (Firebase, Supabase, AWS Amplify) where even databases and authentication are abstracted. The architectural implications differ: FaaS emphasizes stateless, short-lived functions; container serverless allows longer-running, stateful workloads.",
+        "The economic model fundamentally changes infrastructure thinking. Traditional reserved instances cost money whether idle or busy. Serverless costs scale with traffic—excellent for sporadic workloads, potentially expensive for sustained high traffic. A Lambda function handling 10 million requests/day at 200ms average duration costs approximately $16/month in compute (at $0.0000166667 per GB-second with 128MB). The same workload on a reserved EC2 t3.medium costs $30/month but runs regardless of traffic. The break-even analysis matters—serverless is not always cheaper.",
+        "Event-driven integration is the natural architectural pairing for serverless. Functions are triggered by events: HTTP requests (API Gateway), file uploads (S3), database changes (DynamoDB Streams), queue messages (SQS), schedule (EventBridge Scheduler), or custom events. This event-driven model means functions compose naturally into pipelines: S3 upload → Lambda image resize → S3 output → Lambda thumbnail generation → DynamoDB metadata update. Each step is independently scalable and independently deployable."
+      ],
+      "bullets": [
+        "FaaS: stateless functions, milliseconds to seconds execution, per-invocation billing",
+        "Container serverless: longer-running containers, more state flexibility, still no cluster management",
+        "Trigger types: HTTP, queue messages, database events, file events, schedules, streams",
+        "Cold start: a new function instance must initialize before handling a request—adds 100ms–10s latency"
+      ]
+    },
+    {
+      "title": "Cold Starts: Causes, Measurement, and Mitigation",
+      "paragraphs": [
+        "A cold start occurs when Lambda (or equivalent) must initialize a new execution environment for an invocation because no warm instance is available. The initialization sequence: download the function package or container image, start the runtime (Node.js, Python, JVM, .NET), execute the initialization code (global scope, constructor logic, SDK client initialization), and then handle the actual request. The total latency ranges from under 100ms (Node.js with minimal dependencies) to 3–10 seconds (JVM with Spring Framework) to 30+ seconds for large container images.",
+        "Cold start probability depends on traffic patterns. At constant high traffic, most invocations hit warm instances and cold starts affect <1% of requests. At sporadic traffic (overnight batch, weekend spikes after a Monday morning idle), cold start probability approaches 100% for the first request after the idle period. Concurrency bursts also trigger cold starts: if traffic suddenly jumps from 10 to 1000 concurrent requests, 990 new instances must be initialized simultaneously.",
+        "Mitigation strategies: Provisioned Concurrency (AWS Lambda) keeps a configurable number of instances warm, eliminating cold starts at a fixed hourly cost. Scheduled warming pings (invoke the function on a 5-minute schedule with a no-op payload) keep one instance warm for free but only help for single-instance cold starts, not concurrency bursts. Language/runtime choice is the highest-leverage optimization: Node.js and Python cold starts are 100–300ms; JVM is 2–5s. SnapStart (AWS Lambda for Java) pre-initializes the JVM and takes a snapshot, reducing Java cold starts to under 1 second. Minimize initialization code: lazy-load SDK clients, use lighter dependency injection, avoid heavyweight frameworks in function packages.",
+        "Measuring cold starts requires distinguishing init duration from function duration in CloudWatch logs. A cold start log entry shows an INIT_DURATION field. p99 latency that includes cold starts can be 10–50x higher than warm p50—critical to instrument both metrics separately. Set CloudWatch alarms on cold start rate and cold start duration to detect when provisioned concurrency needs adjustment."
+      ],
+      "bullets": [
+        "Init duration = download + runtime start + init code; Billed duration = init + handler execution",
+        "Provisioned Concurrency: pay fixed hourly rate to keep N instances always warm",
+        "SnapStart: pre-snapshot JVM after initialization; CRaC-based, reduces Java cold starts to <1s",
+        "Minimize package size: smaller zip = faster download = shorter cold start"
+      ]
+    },
+    {
+      "title": "Statelessness and State Management Patterns",
+      "paragraphs": [
+        "FaaS functions are fundamentally stateless: each invocation may land on a different instance, and instances can be recycled at any time. This means you cannot store state in function-level variables and expect it to persist across invocations. All durable state must live in external stores: DynamoDB, Redis, S3, RDS, or similar. This constraint is not a limitation—it's what enables the automatic scaling that makes serverless powerful. If functions were stateful, scaling would require session affinity, complicating the platform's load balancing.",
+        "Execution context reuse is a nuance: AWS Lambda reuses execution environments when possible (a warm invocation). Static variables and SDK clients initialized in global scope persist between invocations in the same execution environment. This is an optimization opportunity (initialize heavy SDK clients once in global scope, not per-invocation) and a potential source of bugs (mutable global state can leak between invocations if not carefully managed). Database connection pooling is especially tricky—use connection proxies like RDS Proxy that maintain a pool externally, since Lambda functions can open thousands of parallel DB connections during a traffic spike, overwhelming databases designed for a fixed number of connections.",
+        "Long-running workflows require external state coordination. AWS Step Functions provides a fully managed state machine service that orchestrates Lambda functions with explicit state transitions, retries, error handling, and human approval steps. A multi-step checkout process (validate cart → reserve inventory → charge payment → send confirmation) is better modeled as a Step Functions state machine than as a single giant Lambda function or a chain of synchronous Lambda-to-Lambda calls. The state machine state is durable, survives function failures, and can wait for asynchronous responses (callbacks, task tokens) for days.",
+        "Idempotency is non-negotiable in serverless architectures. Lambda guarantees at-least-once delivery for event-driven invocations (SQS, Kinesis, DynamoDB Streams). Duplicate events are normal. Every handler that modifies state must be idempotent: processing the same event twice should produce the same result as processing it once. Use idempotency keys (the event's deduplication ID) with a DynamoDB or Redis set to track processed event IDs. The Lambda Powertools library provides an idempotency decorator that handles this transparently."
+      ],
+      "bullets": [
+        "No local state between invocations—all durable state in external stores",
+        "Reuse execution context for SDK client initialization, not for mutable per-request state",
+        "RDS Proxy: manages connection pooling between Lambda and RDS/Aurora, preventing connection exhaustion",
+        "Step Functions: orchestrate multi-step workflows with durable state, retries, and timeouts"
+      ]
+    },
+    {
+      "title": "Observability in Serverless Systems",
+      "paragraphs": [
+        "Observability in serverless is harder than in traditional systems. Functions are ephemeral—you can't SSH into them. Each invocation is independent, making distributed tracing across a chain of function calls essential to understand end-to-end latency. Traditional metrics (CPU, memory, thread count) are less relevant; function-level metrics (invocations, errors, duration, throttles, concurrent executions) and business metrics (orders processed, images converted, emails sent) become the primary operational signals.",
+        "Distributed tracing with AWS X-Ray (or OpenTelemetry + Jaeger/Tempo) instruments each Lambda invocation to capture spans, trace propagation, and downstream service calls. Without tracing, debugging a 500ms p99 spike in a chain of five Lambda functions is nearly impossible—you can't tell whether the latency is in function 1, 2, or 5, or in the DynamoDB or RDS call in function 3. Instrument all external calls (database, HTTP, messaging) to get complete trace visibility.",
+        "Structured logging with correlation IDs (request ID, trace ID, user ID) is essential for debugging. Use Lambda Powertools Logger to automatically inject Lambda context into every log line. Log at a consistent structure (JSON) so logs can be queried in CloudWatch Logs Insights or ingested into a log aggregation system. Set appropriate log levels—DEBUG logs on every request generate enormous volumes and costs in production; use sampling or log level environment variables to control verbosity.",
+        "Alerting strategy for serverless: alarm on error rate (>1% of invocations), throttles (Lambda concurrency limit hit), duration p99 (approaching function timeout), dead-letter queue depth (failed events accumulating), and concurrent executions approaching account limit. Set account-level concurrency reservations to prevent one noisy function from starving others in the same account. Use Lambda Destinations for async invocations—on success/failure routes to SQS or EventBridge for processing outcomes without polling."
+      ],
+      "bullets": [
+        "Cold start rate and duration: separate metrics from warm execution latency",
+        "X-Ray / OpenTelemetry: mandatory for multi-function trace correlation",
+        "Dead-letter queue: captures failed async invocations for reprocessing",
+        "Lambda Powertools: structured logging, tracing, idempotency, and event validation for Lambda"
+      ]
+    },
+    {
+      "title": "Design Patterns for Serverless Architectures",
+      "paragraphs": [
+        "Fan-out / fan-in is a fundamental serverless pattern: one event triggers parallel processing by multiple functions (fan-out), and results are aggregated (fan-in). Example: a document upload triggers parallel Lambda functions for virus scanning, format conversion, text extraction, and thumbnail generation. Each runs independently and writes results to DynamoDB. A completion checker function (triggered by DynamoDB Streams) aggregates results and marks the document as fully processed. Step Functions provides a built-in Parallel state for structured fan-out/fan-in.",
+        "Strangler Fig + serverless: migrate a monolith incrementally by routing new features to Lambda functions behind API Gateway while keeping existing functionality on the monolith. API Gateway routing rules direct traffic based on path, header, or query parameters. Functions can call the monolith for data they don't yet own, gradually shifting ownership. This pattern reduces the risk of big-bang rewrites and allows serverless adoption without halting feature delivery.",
+        "Event-driven data pipelines are a serverless sweet spot: S3 uploads trigger processing functions, which write to SQS or Kinesis for downstream consumers, which transform and load to data warehouses. DynamoDB Streams trigger Lambda functions that maintain secondary indexes or replicate to other stores. This pattern scales to millions of events without manual capacity planning, with per-event costs that make large-scale data processing economically efficient.",
+        "Cost optimization patterns: use ARM64 (Graviton2) Lambda to reduce compute cost by ~20% with the same code. Set function memory based on measurement, not assumption—Lambda Powertools suggests optimal memory using Power Tuning (a Step Functions workflow that tests multiple memory sizes). Cache expensive computations in Lambda's /tmp storage (512MB, persists within execution environment). For synchronous workloads with stable traffic, evaluate whether the savings of serverless justify the complexity vs. a Fargate service or EC2 Auto Scaling group."
+      ],
+      "bullets": [
+        "Fan-out: one event triggers N parallel functions; fan-in: aggregate results with Step Functions Parallel state",
+        "Lambda Power Tuning: finds optimal memory/cost ratio via automated benchmarking",
+        "Graviton2 (arm64): ~20% cheaper and often faster than x86 for most Lambda workloads",
+        "Event bridge pipes: serverless event routing with filtering, enrichment, and target fan-out"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "What Serverless Actually Means",
         "paragraphs": [
-          "This draft covers Serverless Patterns. Run content:generate to expand it with a model provider, or edit manually."
+          "Serverless abstracts server management—the platform handles scaling, provisioning, and availability. You pay per invocation, not per idle instance.",
+          "FaaS (Lambda, Cloud Functions) for short-lived stateless functions; container serverless (Cloud Run, Fargate) for longer-running workloads. Both eliminate cluster management.",
+          "Event-driven triggers are the natural fit: HTTP, queues, database change streams, schedules, file uploads."
+        ],
+        "bullets": [
+          "Pay-per-use: billed per GB-second of execution, not per reserved capacity",
+          "Scale-to-zero: no traffic = no cost (except provisioned concurrency)",
+          "Cold start: initialization latency on first invocation of a new instance"
+        ]
+      },
+      {
+        "title": "Cold Starts: Causes and Mitigations",
+        "paragraphs": [
+          "Cold start = download package + start runtime + run init code. Ranges from 100ms (Node.js) to 10s (JVM with Spring).",
+          "Provisioned Concurrency keeps instances warm at fixed cost. SnapStart reduces JVM cold starts via pre-snapshot.",
+          "Minimize init code, use lighter runtimes, reduce package size to reduce cold start latency."
+        ],
+        "bullets": [
+          "Provisioned Concurrency: guaranteed warm instances at hourly cost",
+          "SnapStart: pre-snapshot JVM after init; <1s Java cold starts",
+          "Scheduled warming: invoke on a timer to keep one warm instance for low-traffic scenarios"
+        ]
+      },
+      {
+        "title": "Statelessness and State Management",
+        "paragraphs": [
+          "Functions are stateless—no cross-invocation state. All durable state lives in external stores (DynamoDB, Redis, S3).",
+          "RDS Proxy handles connection pooling between Lambda and relational databases, preventing connection exhaustion during traffic spikes.",
+          "Step Functions orchestrates multi-step workflows with durable state, retries, and timeouts."
+        ],
+        "bullets": [
+          "Reuse execution context for SDK clients in global scope (not per-request mutable state)",
+          "At-least-once delivery: make all event handlers idempotent",
+          "Lambda Powertools: idempotency decorator handles duplicate event detection automatically"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Serverless Patterns — Deep Dive",
+        "title": "Lambda Execution Model Internals",
         "paragraphs": [
-          "Extended treatment of Serverless Patterns: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "AWS Lambda runs functions inside MicroVMs (Firecracker), each isolated per execution environment. A warm execution environment is reused for subsequent invocations when available. The reuse window is non-deterministic—Lambda may keep environments warm for minutes to hours based on traffic patterns. SnapStart (Java) takes a CRaC snapshot after initialization and restores it on demand, dramatically reducing cold start time by skipping JVM boot and application initialization on every cold start.",
+          "Lambda's concurrency model: at any given moment, concurrent executions = (average requests per second) × (average execution duration in seconds). A function handling 1000 req/s at 100ms average uses 100 concurrent executions. The default account concurrency limit is 1000; reserved concurrency per function caps and guarantees that function's concurrency. Burst limits (3000 initial, then 500/minute increase in most regions) govern how fast Lambda scales up to handle sudden traffic spikes.",
+          "Lambda's /tmp storage (512MB to 10GB) persists within an execution environment across warm invocations. Use it to cache large assets (ML model weights, reference data, pre-compiled artifacts) that would otherwise be downloaded on every cold start. /tmp is local to the instance and not shared across concurrent invocations—it's an instance-local cache, not a shared cache."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Firecracker MicroVM: lightweight KVM-based virtualization; starts in <125ms; strong isolation",
+          "Reserved concurrency: cap and guarantee; use to prevent noisy neighbor functions from starving others",
+          "Account-level concurrency limit: 1000 (default, increaseable); single function can consume entire limit without reservation",
+          "/tmp: 512MB–10GB ephemeral storage; persists within execution environment for warm invocations"
+        ]
+      },
+      {
+        "title": "Serverless vs. Containers: Decision Framework",
+        "paragraphs": [
+          "Serverless (FaaS) wins for: event-driven workloads with variable/unpredictable traffic, tasks that run for under 15 minutes, simple glue code and data transformation pipelines, and cost-sensitive workloads with low average utilization. Containers (ECS/EKS Fargate, Cloud Run) win for: long-running services, workloads requiring persistent TCP connections (WebSockets, gRPC streaming), applications with complex runtime requirements (custom kernel modules, specific OS dependencies), and predictable high-throughput workloads where reserved compute is cheaper than per-invocation pricing.",
+          "The 'serverless tax' at scale: a service processing 100 million requests/day at 200ms average on Lambda (256MB) costs approximately $1,100/month. The same workload on two c6g.xlarge EC2 instances (high availability) costs approximately $240/month. At 10 million requests/day, Lambda is competitive or cheaper. At 100 million+, traditional compute becomes more economical. The crossover point depends on average execution duration, memory requirement, and traffic variance.",
+          "Hybrid architectures are common: serverless for the event-driven edge (file processing, notification dispatch, scheduled jobs) and containers for the latency-sensitive core APIs. This captures serverless benefits where it excels while avoiding cold start latency and per-invocation cost on the hot path. Use serverless for the long tail of functionality (infrequent but numerous), containers for the high-frequency critical path."
+        ],
+        "bullets": [
+          "Serverless break-even: typically <10M req/day for simple functions; recalculate for your profile",
+          "15-minute max execution (Lambda): use Fargate/ECS for longer workloads",
+          "WebSockets/gRPC streaming: not supported natively by Lambda; use API Gateway WebSocket API or switch to containers",
+          "Cold start penalty: unacceptable for <10ms p99 SLA targets; use Provisioned Concurrency or containers"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Serverless Patterns — Expert Notes",
+        "title": "Multi-Region Serverless and Disaster Recovery",
         "paragraphs": [
-          "Expert considerations for Serverless Patterns: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Multi-region serverless introduces consistency challenges. Lambda function state (all external) must replicate across regions: DynamoDB Global Tables for sub-second replication, S3 Cross-Region Replication for object storage, Aurora Global Database for relational workloads. API Gateway regional endpoints with Route 53 health checks enable active-active routing with automatic failover. The challenge is the data layer, not the compute—Lambda deploys identically to multiple regions trivially; ensuring consistent read-after-write semantics across regions is the hard part.",
+          "Chaos engineering for serverless: inject faults by throttling Lambda functions (reduce reserved concurrency to 0 temporarily), simulating DLQ depth increases, introducing artificial latency in downstream dependencies via Lambda environment variables, and testing region failover by blocking DNS resolution. AWS Fault Injection Service (FIS) provides managed experiments. Serverless systems often have more failure modes than traditional services because they have more components (function + API GW + SQS + DLQ + Step Functions + DynamoDB)—each integration point is a failure surface.",
+          "Cost anomaly detection is critical in pay-per-use models. A bug that causes infinite retries can generate millions of Lambda invocations in minutes, costing thousands of dollars before anyone notices. Set AWS Budget Alerts for Lambda costs, use AWS Cost Anomaly Detection with serverless-specific monitors, and configure per-function reserved concurrency as a cost ceiling. Implement circuit breakers in function code that stop processing when downstream errors exceed a threshold, preventing retry storms from amplifying costs."
         ]
       }
     ]
   },
   "concepts": [
-    "Serverless Patterns: core idea"
+    "FaaS (Functions-as-a-Service): deploy individual functions; platform manages scaling and execution environment",
+    "Cold start: latency for a new function instance to initialize before handling its first request",
+    "Provisioned Concurrency: pre-warmed instances that eliminate cold start at a fixed cost",
+    "Execution environment reuse: AWS Lambda reuses instances for subsequent invocations (warm invocations)",
+    "Stateless execution: no durable state in function memory; all state in external stores",
+    "At-least-once delivery: event-driven Lambda triggers may deliver duplicates; handlers must be idempotent",
+    "Step Functions: serverless state machine for orchestrating multi-step workflows with durable state",
+    "RDS Proxy: connection pooler between Lambda and RDS/Aurora; prevents DB connection exhaustion",
+    "Concurrency: simultaneous invocations; default limit 1000 per account; reserved concurrency per function",
+    "Dead-letter queue: captures events that failed processing after retries for investigation and replay",
+    "Lambda Powertools: observability, idempotency, structured logging, and validation utilities for Lambda",
+    "Firecracker MicroVM: AWS's lightweight virtualization technology powering Lambda and Fargate isolation"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Initialize SDK clients in global scope for reuse across warm invocations, not inside the handler function",
+    "Make all event-driven handlers idempotent—use Lambda Powertools idempotency or a custom deduplication table",
+    "Set reserved concurrency on critical functions to guarantee capacity; set maximum concurrency on non-critical functions to control costs",
+    "Always configure a DLQ or failure destination for async event-driven functions",
+    "Use structured JSON logging with correlation IDs (request ID, trace ID) for effective log querying",
+    "Instrument all Lambda functions with X-Ray or OpenTelemetry; trace all downstream calls",
+    "Run Lambda Power Tuning to find the optimal memory setting for each function—default 128MB is often suboptimal"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Storing mutable state in Lambda global scope and expecting it to persist reliably across invocations",
+    "Opening a new database connection per Lambda invocation at scale—use RDS Proxy or connection pooling",
+    "Not configuring DLQs for async invocations—failed events are silently dropped by default",
+    "Using synchronous Lambda-to-Lambda calls for multi-step workflows—use Step Functions instead",
+    "Ignoring cold start latency for user-facing APIs with strict p99 SLAs",
+    "No reserved concurrency—a traffic spike in one function can throttle other functions in the same account",
+    "Tight coupling to AWS-specific APIs in function handlers—makes testing harder and switching impossible"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Image Processing Pipeline",
+      "description": "A media platform uses S3 event notifications to trigger a Lambda function when users upload images. The function fans out: one Lambda generates thumbnails at three resolutions, another runs NSFW classification, a third extracts EXIF metadata. Results are written to DynamoDB. A Step Functions workflow coordinates the fan-out and fan-in, waiting for all three to complete before updating the image status to 'processed'. The pipeline handles 50,000 uploads/day at zero base cost and scales to 10x during product launches without configuration."
+    },
+    {
+      "title": "API Backend with Variable Traffic",
+      "description": "A startup's API uses Lambda + API Gateway for all backend routes. At 2 AM, there are zero active users and zero Lambda costs. During a ProductHunt launch, traffic spikes 50x within minutes; Lambda scales automatically to handle the burst. Provisioned Concurrency of 10 instances keeps p99 under 150ms for the most latency-sensitive authentication endpoint. RDS Proxy prevents the MySQL database from being overwhelmed by Lambda's ability to open thousands of parallel connections during the spike."
+    },
+    {
+      "title": "Scheduled Data Aggregation",
+      "description": "A SaaS company runs nightly Lambda functions triggered by EventBridge Scheduler to aggregate daily metrics per customer, generate invoice line items, and sync data to a data warehouse. These batch jobs run for 5–10 minutes per customer, parallelized via SQS with one Lambda invocation per message. The nightly job processes 10,000 customers in under 15 minutes using 1,000 concurrent Lambda instances. The same job on a traditional server would require a dedicated EC2 instance running 24/7 at 10x the cost."
+    }
+  ],
   "keyTakeaways": [
-    "Serverless Patterns belongs in the curriculum as living content"
+    "Serverless eliminates server management and scales automatically from zero—ideal for variable and event-driven workloads",
+    "Cold starts are the primary latency risk; mitigate with Provisioned Concurrency, SnapStart, or lighter runtimes",
+    "All state must be external—Lambda functions are ephemeral; design for statelessness from the start",
+    "At-least-once delivery means every handler must be idempotent—duplicates will occur",
+    "Observability requires distributed tracing, structured logging, and function-level metrics—SSH is not an option",
+    "Serverless is cost-effective at low-to-medium scale; at high sustained throughput, compare against reserved compute",
+    "Step Functions + Lambda is the right pattern for multi-step workflows; avoid synchronous chaining of Lambda functions"
   ],
-  "whyItMatters": "Understanding Serverless Patterns improves design judgment for production systems.",
+  "whyItMatters": "Serverless is the default compute choice for many new cloud-native applications. Its economic model (pay-per-use), operational simplicity (no cluster management), and native integration with cloud events make it compelling for a wide range of use cases. System designers must understand not just the happy path but the failure modes—cold starts, connection exhaustion, duplicate events, and cost anomalies—to build reliable serverless systems.",
   "reflectionQuestions": [
-    "When would you reach for Serverless Patterns in a real design?"
+    "You're designing a webhook processing system that must handle 10 req/s normally but 1,000 req/s during partner integrations. How would you architect this with serverless, addressing cold starts and idempotency?",
+    "A Lambda function that processes SQS messages is experiencing repeated failures that are causing the DLQ to fill up. Walk through your debugging approach and what failure modes you'd investigate.",
+    "Compare the cost and architecture of a Lambda-based image processing pipeline vs. a Kubernetes-based one for 1 million, 10 million, and 100 million images per day.",
+    "When would you choose Step Functions over direct Lambda-to-Lambda invocations for a multi-step order processing workflow?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Lambda max execution time: 15 minutes; use Fargate/ECS for longer workloads",
+    "Lambda cold start latency: Node.js/Python ~100–300ms; JVM ~2–5s; SnapStart Java <1s",
+    "Provisioned Concurrency cost: $0.015 per GB-hour (always-on allocation) vs $0.0000166667 per GB-second (invocation)",
+    "Default account concurrency limit: 1,000 (soft limit, increaseable via support ticket)",
+    "RDS Proxy overhead: ~1–2ms additional latency; supports up to 10x more connections than direct RDS connection limit",
+    "Lambda memory range: 128MB to 10,240MB; CPU scales proportionally with memory",
+    "SQS visibility timeout: set to 6× Lambda function timeout to prevent message redelivery during processing"
   ],
   "diagrams": [
     {
-      "id": "arch-serverless-overview",
-      "title": "Serverless Patterns overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "arch-serverless-event-pipeline",
+      "title": "Serverless Event-Driven Pipeline",
+      "mermaid": "flowchart LR\n  U[User Upload] -->|PUT| S3[(S3 Bucket)]\n  S3 -->|S3 Event| SFN[Step Functions]\n  SFN -->|Parallel| L1[Lambda: Thumbnail]\n  SFN -->|Parallel| L2[Lambda: NSFW Classifier]\n  SFN -->|Parallel| L3[Lambda: Metadata Extractor]\n  L1 --> DDB[(DynamoDB)]\n  L2 --> DDB\n  L3 --> DDB\n  SFN -->|on success| SNS[SNS: User Notification]\n  SFN -->|on failure| DLQ[DLQ]\n  API[API Gateway] -->|GET /images| L4[Lambda: Image Query]\n  L4 --> DDB"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Serverless Patterns and the main trade-offs in 3 minutes."
+    "What is a cold start in AWS Lambda and how would you mitigate it for a user-facing API endpoint with a p99 SLA of 200ms?",
+    "Design a serverless image processing pipeline for a photo-sharing app that handles 1 million uploads per day. Address scalability, error handling, and cost.",
+    "Why can't you use in-memory session state in Lambda functions? What alternatives would you use for a session management system?",
+    "Compare Lambda, ECS Fargate, and EC2 for a service processing 50 million requests/day at 100ms average. Which would you choose and why?",
+    "What is the outbox pattern and how would you implement it in a serverless architecture to ensure exactly-once event publication?"
   ],
   "exercises": [
-    "Design a small system that depends on Serverless Patterns; list 3 trade-offs."
+    "Design a serverless order notification system: a customer places an order, the system must send a confirmation email, an SMS, and a push notification. Address: trigger mechanism, fan-out pattern, idempotency, dead-letter handling, and observability.",
+    "Given a Lambda function that processes 10,000 SQS messages/hour and calls an RDS PostgreSQL database for each message, calculate the optimal Lambda memory setting, reserved concurrency, and RDS Proxy configuration to handle a 10x traffic spike without DB connection exhaustion.",
+    "Identify three features of a monolithic web application that would benefit from extraction to Lambda functions, and three features that should stay in the monolith. Justify each decision based on traffic patterns, latency requirements, and operational complexity."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "AWS Lambda Developer Guide (docs.aws.amazon.com/lambda)"
+    },
+    {
+      "title": "Jeremy Daly — Serverless Architecture Patterns (serverlessland.com)"
+    },
+    {
+      "title": "Yan Cui — Production-Ready Serverless (Manning/online course)"
+    },
+    {
+      "title": "AWS Lambda Power Tuning — open source Step Functions workflow for memory optimization"
+    },
+    {
+      "title": "Firecracker: Lightweight Virtualization for Serverless Applications — NSDI 2020 paper"
+    }
+  ],
   "relatedLessons": [
+    "arch-bff",
     "arch-clean-ddd",
-    "arch-event-cqrs",
-    "arch-hexagonal-ddd"
+    "arch-event-cqrs"
   ]
 }

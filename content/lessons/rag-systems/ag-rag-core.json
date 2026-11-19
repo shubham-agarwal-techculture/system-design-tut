@@ -10,13 +10,10 @@
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "ag-graphrag"
-  ],
+  "prerequisites": [],
   "tags": [
     "rag-systems",
-    "living",
-    "agentic-systems"
+    "living"
   ],
   "sections": [
     {
@@ -96,8 +93,5 @@
   "interviewQuestions": [],
   "exercises": [],
   "sources": [],
-  "relatedLessons": [
-    "ag-graphrag",
-    "ag-vector-internals"
-  ]
+  "relatedLessons": []
 }

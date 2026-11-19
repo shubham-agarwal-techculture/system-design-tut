@@ -10,13 +10,10 @@
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "ll-market-data"
-  ],
+  "prerequisites": [],
   "tags": [
     "trading-core",
-    "evergreen",
-    "low-latency"
+    "evergreen"
   ],
   "sections": [
     {
@@ -95,9 +92,5 @@
   "interviewQuestions": [],
   "exercises": [],
   "sources": [],
-  "relatedLessons": [
-    "ll-kernel-bypass",
-    "ll-market-data",
-    "ll-order-book"
-  ]
+  "relatedLessons": []
 }

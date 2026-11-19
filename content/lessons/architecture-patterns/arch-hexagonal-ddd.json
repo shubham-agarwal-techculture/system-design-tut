@@ -1,101 +1,321 @@
 {
   "id": "arch-hexagonal-ddd",
-  "title": "Hexagonal, Clean Architecture & DDD",
+  "title": "Hexagonal Architecture & Domain-Driven Design",
   "moduleId": "architecture-patterns",
   "phaseId": "architecture",
-  "durationMinutes": 30,
-  "summary": "Hexagonal, Clean Architecture & DDD — draft awaiting generation and review.",
+  "durationMinutes": 50,
+  "summary": "Hexagonal Architecture (Ports and Adapters) isolates business logic from infrastructure concerns through explicit boundaries. Domain-Driven Design provides the vocabulary and modeling tools—bounded contexts, aggregates, value objects, and ubiquitous language—to build software that accurately reflects complex business domains. Together they produce codebases that are testable, evolvable, and aligned with business reality.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "arch-event-cqrs"
+    "arch-clean-ddd"
   ],
   "tags": [
     "architecture-patterns",
-    "evergreen",
+    "ddd",
+    "hexagonal",
+    "ports-adapters",
     "architecture"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Hexagonal Architecture: Ports and Adapters",
       "paragraphs": [
-        "This draft covers Hexagonal, Clean Architecture & DDD. Run content:generate to expand it with a model provider, or edit manually."
+        "Hexagonal Architecture, coined by Alistair Cockburn in 2005, structures an application around a core domain that is completely ignorant of its surroundings. The core—containing business logic and domain model—communicates with the outside world only through ports: interfaces defined by the domain. Adapters implement those interfaces, translating between the domain's language and external technologies (HTTP, databases, message queues, file systems). The 'hexagon' shape is symbolic; the key insight is symmetric treatment of all external actors—a database adapter and an HTTP adapter are equally external.",
+        "Ports come in two directions. Driving ports (primary/inbound) are interfaces through which external actors drive the application—the application's API as far as the outside world is concerned. A REST adapter, a CLI adapter, and a Kafka consumer adapter all call driving ports. Driven ports (secondary/outbound) are interfaces the application uses to reach external systems—a repository interface, a notification service interface, an event publisher interface. The domain defines these interfaces; infrastructure implements them. This inversion of control is the dependency inversion principle applied architecturally.",
+        "The concrete benefit is testability. The domain core can be tested without any infrastructure: in-memory implementations of repositories, mock event publishers, and fake clocks replace real adapters. A fast unit test suite covering the full domain logic runs in milliseconds. Integration tests swap in real adapters to verify the adapters work correctly with real infrastructure. This separation collapses the feedback loop dramatically compared to architectures where business logic is entangled with SQL queries and HTTP calls.",
+        "Common implementation pitfalls undermine the architecture. Leaking domain model into adapters (returning JPA entities from repository ports) couples the domain to persistence technology. Anemic domain models—where domain objects are just DTOs and all logic lives in services—forfeit the testability benefit. Infrastructure dependencies in the domain package (importing Spring annotations, Hibernate annotations) couple the core to frameworks it shouldn't know about. The discipline of hexagonal architecture requires consistent enforcement of the dependency rule: domain depends on nothing external."
+      ],
+      "bullets": [
+        "Application core: entities, value objects, domain services, use cases—zero infrastructure imports",
+        "Driving adapters: REST controllers, CLI, message consumers—translate external inputs to domain calls",
+        "Driven adapters: JPA repositories, Redis clients, email senders—implement domain-defined interfaces",
+        "The dependency rule: outer layers depend on inner; inner layers define interfaces the outer layers implement"
+      ]
+    },
+    {
+      "title": "Domain-Driven Design: Modeling the Business",
+      "paragraphs": [
+        "Domain-Driven Design (DDD) is a software development approach that centers domain complexity as the primary challenge and positions the domain model as the most important artifact. Eric Evans codified DDD in his 2003 Blue Book with a set of patterns for expressing complex business domains in code. DDD is not primarily about technical patterns—it's about collaboration between domain experts and developers to build a shared mental model expressed in code.",
+        "Ubiquitous language is the foundational practice: a shared vocabulary used consistently by developers, domain experts, product managers, and the code itself. The same words should appear in requirements, design discussions, variable names, class names, and database tables. When code names diverge from business names, the translation overhead causes bugs and miscommunication. Building ubiquitous language requires sustained collaboration—event storming workshops, regular domain expert interviews, and constant vigilance against technical terminology contaminating the domain model.",
+        "The strategic patterns—bounded contexts and context maps—address the reality that large domains cannot have a single consistent model. A product may mean different things to inventory (SKU, quantity, location), pricing (price tiers, discounts), and marketing (descriptions, images). Each context has its own model of Product that is correct within its boundaries. Context maps make explicit how bounded contexts integrate: shared kernel (shared model maintained by both teams), customer/supplier (downstream depends on upstream's model), anti-corruption layer (downstream translates upstream model to its own), or published language (upstream publishes a stable schema for all consumers).",
+        "Tactical DDD patterns—entities, value objects, aggregates, domain services, domain events, repositories, factories—provide the building blocks for the domain model. Entities have identity and lifecycle ('Customer' persists over time). Value objects are immutable descriptors with no identity ('Money', 'Address'). Aggregates group entities and value objects into consistency boundaries, enforcing invariants. The aggregate root is the only entry point—external code cannot directly manipulate internal entities, ensuring business rules are always enforced."
+      ],
+      "bullets": [
+        "Bounded context: the boundary within which a model is consistent and terms have single meaning",
+        "Aggregate: a cluster of objects treated as a unit for data changes; root enforces all invariants",
+        "Value object: immutable, defined by attributes not identity; freely interchangeable (Money(10, USD) == Money(10, USD))",
+        "Repository: a collection-oriented interface for retrieving aggregates; hides persistence technology"
+      ]
+    },
+    {
+      "title": "Aggregates: Designing Consistency Boundaries",
+      "paragraphs": [
+        "Aggregates are the most consequential and most frequently misapplied tactical DDD pattern. An aggregate is a cluster of domain objects—entities and value objects—that must be changed together to maintain consistency. The aggregate root enforces all invariants: business rules that must hold after any state change. The rule is simple but profound: within a transaction, only one aggregate root should be modified. Cross-aggregate changes require eventual consistency via domain events.",
+        "Aggregate size is a critical design decision. Large aggregates (Order with all line items, shipping address, payment details, customer reference) are easy to model but create contention: any concurrent modification locks the entire aggregate. Small aggregates minimize contention and distribute load better, but push coordination to the application layer or domain events. The heuristic: start small. If two objects must be consistent within a single transaction, they belong in the same aggregate. If eventual consistency is acceptable, separate them.",
+        "Aggregate invariants deserve explicit representation. Rather than scattered null checks and conditional logic in service classes, invariants should be enforced by the aggregate root through private setters, factory methods, and domain methods. Example: Order.addLineItem() checks that the order is in DRAFT status, that the product exists and is available, and that the total doesn't exceed the customer's credit limit—all in one domain method that throws a domain exception on violation. This is the essence of a rich domain model.",
+        "References between aggregates should use identity, not direct object references. If OrderItem references Product, store the productId (a value object), not the Product entity. This enforces the aggregate boundary at the code level and makes it clear that loading a product requires a separate repository call. It also enables independent lifecycle management: products can be archived without cascading effects into every order that referenced them."
+      ],
+      "bullets": [
+        "Only one aggregate per transaction—cross-aggregate coordination via eventual consistency",
+        "Aggregate boundaries emerge from business invariants, not data relationships",
+        "Reference aggregates by identity only—no direct object references across boundaries",
+        "Lock contention increases with aggregate size—prefer small aggregates with eventual consistency"
+      ]
+    },
+    {
+      "title": "Bounded Contexts and Context Maps in Practice",
+      "paragraphs": [
+        "Bounded contexts are the most strategic and least understood DDD concept. In practice, they define team and service ownership boundaries. Each bounded context is owned by one team, has its own domain model, ubiquitous language, and data store. This mapping—one team, one bounded context, one service or small group of services—is the organizational pattern behind successful microservices architecture. Conway's Law in reverse: design your context boundaries to match the team structure you want.",
+        "Context maps describe integration patterns between bounded contexts. The anticorruption layer (ACL) is the most important for maintaining model integrity: it translates the upstream context's model into the downstream context's own terms. When integrating with a legacy system or a third-party API, the ACL prevents the foreign model from leaking into your domain. The ACL might map between an external 'Account' (with 40 fields, most irrelevant) and your domain's 'Customer' (with 5 fields you actually need).",
+        "Shared kernel is the riskiest integration pattern—both contexts share a subset of the domain model maintained jointly. It's tempting (reduces duplication) but creates coupling: changes to the shared kernel require coordination between teams. Use it only for genuinely stable, shared concepts (like a common identity model across a platform) with explicit governance. In practice, most integration should use published language (stable schemas with explicit versioning) or customer/supplier (the upstream publishes what downstream needs, with explicit feedback loops).",
+        "Event Storming is the most effective technique for discovering bounded contexts. In a workshop with domain experts and developers, model the business process by placing domain events on a timeline, then clustering related events, commands, and policies. Natural seams emerge where events cross from one business capability to another—these seams suggest bounded context boundaries. The resulting context map is the foundation for service decomposition."
+      ],
+      "bullets": [
+        "One team owns one bounded context—cross-context dependencies should be explicit and minimal",
+        "Anticorruption layer: translate between contexts, preventing foreign models from polluting yours",
+        "Published language: a stable, versioned integration schema used by multiple consuming contexts",
+        "Event Storming: collaborative domain discovery that reveals bounded context seams"
+      ]
+    },
+    {
+      "title": "Combining Hexagonal Architecture with DDD",
+      "paragraphs": [
+        "Hexagonal architecture and DDD complement each other naturally. DDD provides the content of the application core: aggregates, value objects, domain services, and domain events. Hexagonal architecture provides the structure that protects the core from infrastructure. Together they produce a layered structure: Domain layer (aggregates, value objects, domain events, repository interfaces), Application layer (use cases/application services that orchestrate domain objects), Infrastructure layer (adapter implementations: JPA repositories, REST controllers, Kafka producers).",
+        "The application service is the entry point to the use case. It loads aggregates via repository ports, invokes domain methods, persists changes via repository ports, and publishes domain events via event publisher ports. The application service is thin—it orchestrates, doesn't contain business logic. Business rules live in the domain. This separation means the application service can be tested with mock ports, and the domain can be tested without any infrastructure at all.",
+        "Modular monolith is an underappreciated architectural style that uses these patterns without the operational complexity of microservices. Bounded contexts become modules with strict visibility rules (each module's domain is package-private; only application services and ports are public). The modules communicate via well-defined application service calls or domain events, maintaining the same loose coupling as microservices but with in-process performance and deployment simplicity. Many teams successfully operate at scale on modular monoliths before the organizational or performance pressures that justify microservices extraction arise."
+      ],
+      "bullets": [
+        "Domain layer: aggregates, value objects, domain events, repository/service interfaces only",
+        "Application layer: use cases, application services, orchestration—thin, no business logic",
+        "Infrastructure layer: adapter implementations—the only layer with framework/library imports",
+        "Modular monolith: DDD + hexagonal architecture without microservices operational complexity"
+      ]
+    },
+    {
+      "title": "When DDD and Hexagonal Architecture Pay Off",
+      "paragraphs": [
+        "DDD and hexagonal architecture have a real cost: more files, more abstraction, more indirection, and a steeper learning curve than a simple CRUD application. This investment pays off in domains with complex business rules that change frequently, with multiple delivery channels (REST API, CLI, message consumers) that share the same business logic, with large teams where clear boundaries prevent stepping on each other, and in contexts where long-term maintainability trumps initial delivery speed.",
+        "They're poor fits for simple CRUD applications, throwaway prototypes, data pipelines with no business logic, or small teams with shallow domain complexity. Applying full DDD to a blog or a simple inventory tracker is overengineering that creates complexity without benefit. The key diagnostic: if the domain has fewer than five meaningful business rules, if data mostly flows through without transformation, or if the team is fewer than four engineers, start simpler and introduce patterns as genuine complexity demands them.",
+        "Evolutionary design is the pragmatic path: start with a layered architecture, extract value objects when you notice primitive obsession, introduce aggregates when invariant violations become a source of bugs, draw explicit bounded context boundaries when teams begin to step on each other, and add anticorruption layers when integrating with legacy systems. DDD is a destination you approach incrementally, not a foundation you build completely before writing any features."
+      ],
+      "bullets": [
+        "DDD pays off: complex rules that change, multiple delivery channels, large teams, long maintenance horizon",
+        "Skip DDD for: simple CRUD, prototypes, pipelines, small teams with shallow domain",
+        "Start simple: introduce DDD patterns incrementally as genuine complexity demands them",
+        "Architecture Fitness Functions: automated tests that enforce architectural boundaries (e.g., no infrastructure imports in domain package)"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Hexagonal Architecture: Ports and Adapters",
         "paragraphs": [
-          "This draft covers Hexagonal, Clean Architecture & DDD. Run content:generate to expand it with a model provider, or edit manually."
+          "Hexagonal architecture structures an application around a domain core isolated from infrastructure via ports (interfaces) and adapters (implementations). Driving adapters call domain code through driving ports; driven adapters implement driven ports the domain calls.",
+          "The dependency rule is absolute: domain depends on nothing external. Framework annotations, database imports, and HTTP libraries never appear in the domain package.",
+          "The payoff is testability: in-memory adapters replace real infrastructure in unit tests, enabling a fast feedback loop over the full domain logic."
+        ],
+        "bullets": [
+          "Ports: interfaces defined by the domain; adapters implement them",
+          "Driving ports: application's API (inbound); Driven ports: application's dependencies (outbound)",
+          "Dependency inversion: domain defines interfaces; infrastructure depends on domain, not vice versa"
+        ]
+      },
+      {
+        "title": "Domain-Driven Design: Strategic and Tactical Patterns",
+        "paragraphs": [
+          "Strategic DDD: bounded contexts define consistent model boundaries; context maps describe integration patterns between them. Each bounded context owns its model and language.",
+          "Tactical DDD: entities (identity + lifecycle), value objects (immutable descriptors), aggregates (consistency boundary), repositories (collection interface), domain services (stateless domain logic), domain events (facts broadcast to other contexts).",
+          "Ubiquitous language bridges code and business: the same terms in requirements, conversations, variable names, and table names eliminate translation overhead and reduce bugs."
+        ],
+        "bullets": [
+          "Bounded context = team boundary + model boundary + deployment boundary",
+          "Aggregate enforces invariants; only root is accessible from outside",
+          "Value objects: immutable, equality by value, no identity"
+        ]
+      },
+      {
+        "title": "Aggregates: Designing Consistency Boundaries",
+        "paragraphs": [
+          "Aggregates group entities into consistency units. Only one aggregate is modified per transaction; cross-aggregate coordination uses domain events and eventual consistency.",
+          "Aggregate size matters: large aggregates reduce contention at the cost of concurrency. Start small; expand only when the invariant requires it.",
+          "Reference aggregates by identity only—no object references across boundaries. This enforces the boundary at the code level."
+        ],
+        "bullets": [
+          "One transaction = one aggregate root mutation",
+          "Reference across aggregates by ID, not object reference",
+          "Rich domain model: logic inside aggregates, not in service classes"
+        ]
+      },
+      {
+        "title": "Combining Hexagonal Architecture with DDD",
+        "paragraphs": [
+          "Domain layer contains aggregates, value objects, domain events, and interface definitions. Application layer contains thin use cases that orchestrate domain objects. Infrastructure layer contains adapter implementations with framework imports.",
+          "Modular monolith: apply hexagonal + DDD within a single deployable, with strict module visibility—same loose coupling as microservices without operational overhead.",
+          "Application services are thin: load aggregate, invoke domain method, persist, publish events. Business logic belongs in the domain, not the service."
+        ],
+        "bullets": [
+          "Three layers: Domain, Application, Infrastructure",
+          "Application service = orchestration only; domain = business rules",
+          "Modular monolith as a valid long-term architecture, not just a stepping stone"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Hexagonal, Clean Architecture & DDD — Deep Dive",
+        "title": "Event Storming and Bounded Context Discovery",
         "paragraphs": [
-          "Extended treatment of Hexagonal, Clean Architecture & DDD: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Event Storming (Alberto Brandolini) is a lightweight workshop technique for rapid domain modeling. In Big Picture Event Storming, all stakeholders gather, and everyone writes domain events on orange sticky notes placed on a timeline. No structure is imposed initially—the goal is to surface all significant business events chaotically, then organize. After an hour of divergent thinking, patterns emerge: clusters of events that belong together, hotspots of confusion or disagreement, and 'pivotal events' that mark transitions between business capabilities.",
+          "Bounded context seams appear naturally at pivotal events: 'OrderPlaced' might be the hand-off between the Shopping bounded context and the Fulfillment bounded context. Each context has different actors, commands, policies, and terminology. The seams suggest team and service boundaries. Following Big Picture, Process-Level Event Storming zooms in on a specific bounded context, adding commands (blue), actors (yellow), policies (lilac), read models (green), and external systems to fully specify a business process.",
+          "Design-Level Event Storming maps the process model to aggregate design: group commands, events, and policies around aggregates; identify the aggregate roots; name the domain events. The output is a detailed spec that maps directly to code: aggregate classes, command methods, event types, and saga/process manager structures. Teams that practice Event Storming consistently report fewer requirement gaps and significantly faster alignment between business and engineering."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Orange: domain events; Blue: commands; Yellow: actors; Lilac: policies; Green: read models",
+          "Hotspot: a point of confusion or disagreement—prioritize for domain expert clarification",
+          "Pivotal event: marks a business transition; often a bounded context boundary",
+          "Event Storming output maps directly to aggregate, command, and event code structures"
+        ]
+      },
+      {
+        "title": "Anti-Corruption Layer Implementation Patterns",
+        "paragraphs": [
+          "The Anti-Corruption Layer (ACL) is the defensive shield that prevents an upstream context's model from infecting your domain. At its simplest, an ACL is a translation service: it accepts external representations (a third-party API response, a legacy database schema, an upstream context's integration event) and maps them to your domain's vocabulary. The ACL is part of the infrastructure layer—your domain defines what it needs through driven port interfaces; the ACL implements those interfaces and handles the translation.",
+          "Practical ACL patterns: Facade wraps a complex external API with a simplified interface aligned with your domain; Translator maps between external and internal models; Gateway handles authentication, retry, and error normalization before the domain ever sees external data. For high-change external integrations, an ACL with a schema version map (a lookup table of external model versions to internal translations) handles upstream schema evolution without domain model changes.",
+          "The cost of not having an ACL is subtle and cumulative. Each external type that leaks into the domain (a Stripe Charge object used as a domain Payment, a Salesforce Account used as a domain Customer) adds a dependency that makes the domain harder to test, harder to understand, and harder to change. When Stripe changes their API or Salesforce changes their data model, you're forced to change your domain model—a violation of the principle that domain logic should change only when business rules change, not when vendors change their APIs."
+        ],
+        "bullets": [
+          "ACL is in the infrastructure layer—implements domain-defined driven ports",
+          "Facade, Translator, Gateway: common ACL structural patterns",
+          "Without ACL: vendor model leaks into domain, creating tight external coupling",
+          "ACL is especially critical when integrating legacy systems or third-party APIs"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Hexagonal, Clean Architecture & DDD — Expert Notes",
+        "title": "DDD in Microservices: Team Topologies and Context Mapping at Scale",
         "paragraphs": [
-          "Expert considerations for Hexagonal, Clean Architecture & DDD: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At scale, DDD bounded contexts and Team Topologies (Skelton & Pais) converge. Stream-aligned teams own end-to-end bounded contexts, including their own data stores and deployment pipelines. Platform teams provide enabling capabilities (observability, CI/CD, shared infrastructure) that stream-aligned teams consume through self-service interfaces—these platform interfaces are themselves bounded contexts with published languages. Enabling teams provide temporary expertise transfer; complicated-subsystem teams own contexts with unusual technical depth (ML models, real-time trading engines).",
+          "Context Map governance at scale requires explicit contracts between contexts. This means: schema registries for event-based integration, API versioning policies for HTTP-based integration, formal consumer-driven contract tests (Pact) to prevent breaking changes, and regular context mapping reviews as business domains evolve. The most common failure mode in large organizations is context boundary drift: teams add fields to shared schemas, teams develop direct database dependencies to other teams' stores, and the clean bounded context boundaries erode until the system is effectively a distributed monolith.",
+          "Strategic refactoring of legacy bounded contexts requires the Strangler Fig pattern: build new bounded contexts alongside the legacy, incrementally route traffic from legacy to new, and retire legacy pieces one by one. This requires a facade or proxy layer (the strangler fig's vine) that intercepts calls and routes based on the migration state. The bounded context map guides which legacy capabilities to strangle first (highest business value, highest coupling cost) and what integration patterns to use during the transition."
         ]
       }
     ]
   },
   "concepts": [
-    "Hexagonal, Clean Architecture & DDD: core idea"
+    "Hexagonal architecture: domain core + ports (interfaces) + adapters (infrastructure implementations)",
+    "Driving port: interface through which external actors call the domain (inbound API)",
+    "Driven port: interface the domain calls for external services (repository, notification, event publisher)",
+    "Bounded context: a business domain boundary within which a model is consistent and terms have single meaning",
+    "Ubiquitous language: shared vocabulary used identically in conversation, requirements, and code",
+    "Aggregate: consistency boundary; root enforces invariants; one aggregate per transaction",
+    "Value object: immutable, equality by attributes, no identity, freely replaceable",
+    "Entity: has identity, persists over lifecycle, can change state while maintaining identity",
+    "Domain event: an immutable fact emitted by an aggregate that other contexts can react to",
+    "Anti-corruption layer: a translation layer that prevents external models from polluting the domain",
+    "Context map: explicit description of integration patterns between bounded contexts",
+    "Event Storming: collaborative workshop technique for domain discovery and bounded context identification"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Enforce the dependency rule with architecture tests (ArchUnit, Dependency Cruiser) in CI",
+    "Name domain classes using ubiquitous language—if business calls it 'claim', don't name it 'transaction'",
+    "Make aggregates small by default; only expand when a business invariant demands co-location",
+    "Use value objects aggressively to eliminate primitive obsession (Money, EmailAddress, OrderId)",
+    "Create in-memory adapter implementations for all driven ports; use them as the default in unit tests",
+    "Conduct Event Storming workshops before designing new bounded contexts, not after",
+    "Document your context map explicitly—which contexts integrate how—and review it quarterly"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Anemic domain model: putting all logic in services and treating domain objects as data bags defeats the purpose",
+    "Leaking infrastructure types into the domain (JPA annotations, Hibernate entities as domain objects)",
+    "God aggregates that model an entire entity relationship diagram as one aggregate, creating contention",
+    "Sharing a database between bounded contexts, coupling them despite separate domain models",
+    "Applying tactical DDD patterns without strategic patterns—aggregates without bounded contexts create a local-optima trap",
+    "Using 'microservices' as synonymous with 'bounded contexts'—service granularity and context boundaries are different concerns",
+    "Skipping the ubiquitous language discipline: code that uses different names from the business erodes model accuracy over time"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "E-commerce Platform Bounded Context Map",
+      "description": "An e-commerce platform has distinct bounded contexts: Catalog (products, categories, search), Ordering (cart, order placement, order lifecycle), Fulfillment (warehouse, picking, shipping), Payments (payment processing, refunds), and Customer (account, preferences, address book). Each context owns its model of 'Product' and 'Customer'—the Fulfillment context needs SKU, weight, and location; the Catalog context needs description, images, and attributes. An anticorruption layer translates between contexts at integration points. Teams are aligned to contexts, enabling independent deployment."
+    },
+    {
+      "title": "Insurance Claims Processing System",
+      "description": "An insurance domain uses full hexagonal architecture + DDD. The Claims bounded context has a Claim aggregate enforcing complex rules: a claim cannot be approved if the policy is lapsed, the claim amount cannot exceed policy coverage, and re-submissions require a 30-day waiting period. These invariants live in the aggregate, enforced by domain methods. The application core has zero framework imports—it's pure Java. REST adapters, event adapters, and JPA adapters are infrastructure. The result: 95% of business logic is covered by unit tests that run in 200ms."
+    },
+    {
+      "title": "Modular Monolith at Shopify-Scale",
+      "description": "Shopify built their core platform as a modular Rails monolith with ~20 bounded contexts (Orders, Billing, Merchants, Products, Shipping) each with strict visibility rules enforced by Ruby's module system. This architecture supported >$5B GMV per day before they began extracting microservices for specific scaling bottlenecks. The modular monolith provided team independence, strong domain model coherence, and deployment simplicity. DDD + hexagonal architecture doesn't require microservices—it enables them when they're genuinely needed."
+    }
+  ],
   "keyTakeaways": [
-    "Hexagonal, Clean Architecture & DDD belongs in the curriculum as evergreen content"
+    "Hexagonal architecture's core value is testability: the domain can be fully tested without any infrastructure",
+    "DDD's core value is alignment: code that uses business language and enforces business rules explicitly",
+    "Aggregates are consistency boundaries, not data models—design them around invariants, not relationships",
+    "Bounded contexts should match team boundaries—Conway's Law is a tool, not just an observation",
+    "The anti-corruption layer is essential when integrating with external or legacy systems to preserve model integrity",
+    "Modular monolith using these patterns can scale further than many teams expect before requiring microservices",
+    "Event Storming is the most effective technique for discovering bounded context boundaries collaboratively"
   ],
-  "whyItMatters": "Understanding Hexagonal, Clean Architecture & DDD improves design judgment for production systems.",
+  "whyItMatters": "Hexagonal architecture and DDD are the foundations of maintainable software at scale. Without them, complex business logic leaks into infrastructure layers, test coverage is impossible without spinning up databases, and teams step on each other because there are no clear ownership boundaries. With them, you can build systems where business rules are explicit and testable, where teams deploy independently, and where the code is comprehensible to both engineers and domain experts—a rare and valuable property in production systems.",
   "reflectionQuestions": [
-    "When would you reach for Hexagonal, Clean Architecture & DDD in a real design?"
+    "You're designing a new insurance claims system. Walk through how you'd use Event Storming to discover bounded contexts, then how you'd design the Claims aggregate with its key invariants.",
+    "Your team notices that the Order domain object is imported by 12 different services, each adding their own fields. How do you apply DDD to fix this model soup?",
+    "A teammate argues that hexagonal architecture is overengineering for a 5-person startup. Under what conditions would you agree, and when would you push back?",
+    "How does the anti-corruption layer pattern help when migrating from a legacy monolith that has a different data model and language than your new microservice?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Aggregate transaction scope: 1 aggregate per transaction is the strict rule; >1 aggregates = eventual consistency required",
+    "Modular monolith sweet spot: 5-50 engineers, 1-20 bounded contexts before microservices extraction pressure",
+    "Event Storming workshop: 4-8 hours for a Big Picture session covering a core business domain",
+    "Architecture test execution: ArchUnit rules run in <1 second in CI, enforcing boundary rules on every commit",
+    "Unit test speed target: domain unit tests should run in <500ms for the entire domain suite (no infrastructure)",
+    "Bounded context team size: 5-12 engineers per context (two-pizza team rule applies)"
   ],
   "diagrams": [
     {
-      "id": "arch-hexagonal-ddd-overview",
-      "title": "Hexagonal, Clean Architecture & DDD overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "arch-hexagonal-ddd-structure",
+      "title": "Hexagonal Architecture Layers with DDD",
+      "mermaid": "flowchart TD\n  subgraph Infrastructure\n    RA[REST Adapter]\n    KA[Kafka Consumer Adapter]\n    JPA[JPA Repository Adapter]\n    Email[Email Adapter]\n  end\n  subgraph Application\n    AS[Application Service / Use Case]\n  end\n  subgraph Domain\n    AGG[Aggregate Root]\n    VO[Value Objects]\n    DE[Domain Events]\n    RP[Repository Port interface]\n    EP[Event Publisher Port interface]\n  end\n  RA -->|calls driving port| AS\n  KA -->|calls driving port| AS\n  AS --> AGG\n  AGG --> VO\n  AGG -->|emits| DE\n  AS -->|via driven port| RP\n  AS -->|via driven port| EP\n  JPA -.->|implements| RP\n  Email -.->|implements| EP"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Hexagonal, Clean Architecture & DDD and the main trade-offs in 3 minutes."
+    "What is the difference between hexagonal architecture and layered (N-tier) architecture? What problem does hexagonal solve that layered doesn't?",
+    "Explain the difference between an entity and a value object in DDD. Give two examples of each in a retail domain.",
+    "You're designing an aggregate for an e-commerce Order. What invariants would the Order aggregate enforce? What would you keep outside the aggregate?",
+    "What is a bounded context, and how does it relate to microservices? Can bounded contexts exist within a monolith?",
+    "Describe the anti-corruption layer pattern and give an example of when you'd use it in a system design."
   ],
   "exercises": [
-    "Design a small system that depends on Hexagonal, Clean Architecture & DDD; list 3 trade-offs."
+    "Design the bounded contexts for a ride-hailing application (Uber-like). Draw a context map showing 5 bounded contexts, their integration patterns (ACL, published language, shared kernel), and the team that owns each.",
+    "Take a simple Order class with a 'status' string field and a 'updateStatus()' method that sets it directly. Refactor it into a proper DDD aggregate: add invariants, replace the method with domain methods (approve(), cancel(), ship()), define the state transitions, and emit domain events.",
+    "Implement a hexagonal architecture for a 'transfer funds between accounts' use case: define the driving port (TransferFundsUseCase interface), driven ports (AccountRepository, TransactionPublisher), domain logic (Account aggregate), and sketch two adapter implementations (REST controller and in-memory test adapter)."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "Eric Evans — Domain-Driven Design (Addison-Wesley, 2003) — the Blue Book"
+    },
+    {
+      "title": "Alistair Cockburn — Hexagonal Architecture (alistair.cockburn.us, 2005)"
+    },
+    {
+      "title": "Vaughn Vernon — Implementing Domain-Driven Design (Addison-Wesley, 2013)"
+    },
+    {
+      "title": "Alberto Brandolini — Event Storming (eventstorming.com)"
+    },
+    {
+      "title": "Sam Newman — Building Microservices, 2nd ed. — bounded contexts and decomposition"
+    }
+  ],
   "relatedLessons": [
+    "arch-bff",
     "arch-clean-ddd",
-    "arch-event-cqrs",
-    "arch-monolith-micro"
+    "arch-event-cqrs"
   ]
 }

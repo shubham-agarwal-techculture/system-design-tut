@@ -1,0 +1,162 @@
+{
+  "id": "fund-load-shedding",
+  "title": "Load Shedding & Overload Control",
+  "moduleId": "scalability",
+  "phaseId": "fundamentals",
+  "durationMinutes": 40,
+  "summary": "When load exceeds capacity, systems must shed work intentionally — or they shed it randomly via timeouts and cascading failure. Good overload control protects latency for admitted traffic.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-estimation"
+  ],
+  "tags": [
+    "scalability",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Failure mode of uncontrolled overload",
+      "paragraphs": [
+        "Queues grow, latency explodes, retries amplify load, thread pools saturate, and the service spends CPU on work that will be cancelled. Success rate collapses."
+      ]
+    },
+    {
+      "title": "Shedding strategies",
+      "paragraphs": [
+        "Admit based on queue time, concurrency, or token buckets. Prefer shedding new low-priority work. Return explicit 503 with Retry-After.",
+        "Codel/adaptive LIFO approaches protect latency better than unbounded FIFO under overload."
+      ]
+    },
+    {
+      "title": "Client cooperation",
+      "paragraphs": [
+        "Clients must backoff. Without coordinated retry budgets, shedding just moves the thundering herd."
+      ]
+    },
+    {
+      "title": "Place in the stack",
+      "paragraphs": [
+        "Shed at edges and at each dependency boundary. Bulkheads prevent one capability from consuming all workers."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Failure mode of uncontrolled overload",
+        "paragraphs": [
+          "Queues grow, latency explodes, retries amplify load, thread pools saturate, and the service spends CPU on work that will be cancelled. Success rate collapses."
+        ]
+      },
+      {
+        "title": "Shedding strategies",
+        "paragraphs": [
+          "Admit based on queue time, concurrency, or token buckets. Prefer shedding new low-priority work. Return explicit 503 with Retry-After.",
+          "Codel/adaptive LIFO approaches protect latency better than unbounded FIFO under overload."
+        ]
+      },
+      {
+        "title": "Client cooperation",
+        "paragraphs": [
+          "Clients must backoff. Without coordinated retry budgets, shedding just moves the thundering herd."
+        ]
+      },
+      {
+        "title": "Place in the stack",
+        "paragraphs": [
+          "Shed at edges and at each dependency boundary. Bulkheads prevent one capability from consuming all workers."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Load Shedding & Overload Control — Operations",
+        "paragraphs": [
+          "Operating Load Shedding & Overload Control in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+        ],
+        "bullets": [
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Load Shedding & Overload Control — Failure modes",
+        "paragraphs": [
+          "Common failures around Load Shedding & Overload Control include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Load Shedding & Overload Control — Expert notes",
+        "paragraphs": [
+          "At the expert level, Load Shedding & Overload Control intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Overload",
+    "Admission control",
+    "Retry amplification",
+    "Critical vs shedable work"
+  ],
+  "practices": [
+    "Shed early with clear errors",
+    "Protect high-priority traffic",
+    "Cap retries across the fleet"
+  ],
+  "pitfalls": [
+    "Unbounded queues",
+    "Retry storms",
+    "Only scaling out without shedding"
+  ],
+  "examples": [
+    {
+      "title": "API gateways",
+      "description": "Concurrency limits and 503 budgets."
+    }
+  ],
+  "keyTakeaways": [
+    "Intentional shedding beats collapse",
+    "Retries must be budgeted"
+  ],
+  "whyItMatters": "Most cascading outages are overload without admission control.",
+  "reflectionQuestions": [
+    "What work can you drop first under overload?"
+  ],
+  "numbersToKnow": [
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-load-shedding-overview",
+      "title": "Load Shedding & Overload Control overview",
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Load Shedding & Overload Control and the main trade-offs in three minutes."
+  ],
+  "exercises": [
+    "Sketch a design that depends on Load Shedding & Overload Control; list three trade-offs and one failure mode."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "fund-estimation",
+    "fund-sharding-strategies",
+    "fund-stateless"
+  ]
+}

@@ -3,99 +3,252 @@
   "title": "Apache Kafka Internals",
   "moduleId": "system-internals",
   "phaseId": "internal-designs",
-  "durationMinutes": 30,
-  "summary": "Apache Kafka Internals — draft awaiting generation and review.",
+  "durationMinutes": 55,
+  "summary": "Apache Kafka is a distributed event streaming platform built around an append-only, partitioned commit log. Its design—sequential disk writes, zero-copy network transfer, consumer-pull model, and consumer group offsets—enables millions of events per second with durable, replayable delivery. Understanding Kafka's log structure, partition mechanics, replication protocol, and consumer group model is essential for designing reliable event-driven systems.",
   "kind": "living",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "int-etcd"
-  ],
-  "tags": [
-    "system-internals",
-    "living",
-    "internal-designs"
-  ],
+  "prerequisites": ["fund-messaging", "fund-stream-processing"],
+  "tags": ["system-internals", "kafka", "streaming", "messaging", "event-driven"],
   "sections": [
     {
-      "title": "Overview",
+      "title": "The Log: Kafka's Core Data Structure",
       "paragraphs": [
-        "This draft covers Apache Kafka Internals. Run content:generate to expand it with a model provider, or edit manually."
+        "Kafka's fundamental abstraction is the commit log: an ordered, immutable sequence of records where new records are appended to the end. Each record has an offset—a monotonically increasing integer identifying its position in the log. Unlike traditional message queues (which delete messages after consumption), Kafka retains all records for a configurable retention period (time-based: 7 days default, or size-based: 100GB default). Consumers track their own position (offset) in the log—Kafka doesn't track what each consumer has read. This independence enables multiple independent consumers to read the same data, historical replay, and consumer group restarts from any offset.",
+        "Topics are divided into partitions: each partition is an independent ordered log on a specific broker. Partitions are the unit of parallelism: a topic with 12 partitions can be consumed in parallel by up to 12 consumers. Partitions are also the unit of ordering guarantee: Kafka guarantees ordering within a partition, not across partitions. If you need messages about the same entity (order, user, session) to be processed in order, they must go to the same partition—achieved via partition key: messages with the same key hash to the same partition (consistent hashing).",
+        "Physical storage: a partition is stored as a series of segment files. Each segment is a pair of files: a data file (.log) containing message bytes, and an index file (.index) containing an index of offset-to-byte-position mappings for fast lookup. Segments roll over when they reach a configurable size (1GB default) or age. The index enables O(log n) lookup of a specific offset without scanning the entire segment. Segments are immutable once closed, enabling zero-copy sending (sendfile syscall): data moves from disk to network without copying through user space.",
+        "Log compaction is an alternative to time/size-based retention for use cases where the latest value per key matters rather than the full history. With log.cleanup.policy=compact, Kafka's log cleaner scans segments and removes records whose key appears in a later record—preserving the most recent value for each key. This is used for Kafka Streams state store changelogs (the latest state per key), database CDC tombstones, and configuration topics. Compacted topics grow much more slowly than non-compacted topics for key-value update workloads."
+      ],
+      "bullets": [
+        "Partition: independent ordered log; unit of parallelism and ordering guarantee",
+        "Offset: monotonically increasing position in partition log; consumer tracks its own offset",
+        "Segment files: 1GB default; immutable once closed; zero-copy sendfile for network transfer",
+        "Log compaction: retain only latest value per key; use for state changelog topics"
+      ]
+    },
+    {
+      "title": "Producer Mechanics: Batching, Compression, and Delivery Guarantees",
+      "paragraphs": [
+        "The Kafka producer batches records before sending them to brokers. The linger.ms setting controls how long the producer waits to accumulate records into a batch (default: 0ms = send immediately). Increasing linger.ms to 5-20ms dramatically improves throughput at the cost of slightly higher latency—batching 1000 small records into one batch is 100x more efficient than 1000 individual sends. batch.size controls the maximum batch size in bytes (default: 16KB; set 64KB–1MB for high-throughput producers). Compression (snappy, lz4, zstd) is applied per batch—larger batches achieve better compression ratios.",
+        "Producer delivery guarantees are configured via acks: acks=0 (no acknowledgment, maximum throughput, possible loss), acks=1 (leader acknowledges, possible loss if leader fails before replication), acks=all (all in-sync replicas must acknowledge—this is the durable guarantee). Idempotent producers (enable.idempotence=true) add a producer ID and sequence number to each record, allowing brokers to deduplicate retries. Combined with transactions (producer.initTransactions()), Kafka provides exactly-once semantics for the producer-to-broker path.",
+        "max.in.flight.requests.per.connection controls how many unacknowledged requests a producer sends in parallel. The default of 5 allows higher throughput but can cause reordering if a request is retried after a later one succeeds. With enable.idempotence=true, Kafka guarantees order preservation even with max.in.flight=5. For non-idempotent producers requiring strict ordering, set max.in.flight=1 at the cost of throughput."
+      ],
+      "bullets": [
+        "linger.ms: batch accumulation delay; 0ms=immediate, 20ms=high-throughput mode",
+        "acks=all: all in-sync replicas acknowledge; required for durability",
+        "enable.idempotence: deduplicates retries via producer ID + sequence number",
+        "Compression: snappy (fast), lz4 (balanced), zstd (best ratio); apply per batch"
+      ]
+    },
+    {
+      "title": "Replication: ISR, Leader Election, and Durability",
+      "paragraphs": [
+        "Each partition has a leader broker (which handles all reads and writes) and follower brokers (which replicate from the leader). The In-Sync Replica (ISR) set contains the leader plus all followers that are within replica.lag.time.max.ms (default: 30s) of the leader's latest offset. A follower that falls behind exits the ISR. Producing with acks=all requires all ISR members to acknowledge, so if the ISR has shrunk to just the leader (a lagging follower exited), acks=all only requires the leader to acknowledge—potentially allowing data loss if the leader fails before the follower catches up.",
+        "min.insync.replicas (default: 1) is the safety knob: when acks=all, at least min.insync.replicas brokers must be in the ISR and acknowledge the write. Setting min.insync.replicas=2 with replication.factor=3 ensures at least 2 brokers have the data before acknowledging—you can tolerate 1 broker failure without data loss. If the ISR falls below min.insync.replicas, the partition becomes unavailable for writes (NotEnoughReplicasException), protecting against silent data loss in degraded states.",
+        "Leader election happens via the controller—a special Kafka broker responsible for partition assignment and leader changes. When a broker fails, the controller detects it via ZooKeeper (or KRaft in newer versions) and elects a new leader from the ISR for each partition the failed broker led. The new leader's log is the reference—any messages the failed leader had not yet replicated to the new leader are lost. This is why acks=all + min.insync.replicas=2 is the minimum durable configuration for critical data.",
+        "KRaft (Kafka Raft) replaces ZooKeeper as Kafka's metadata management layer. Rather than a separate ZooKeeper ensemble, Kafka brokers form their own Raft quorum for metadata (partition assignments, leader elections, topic configurations). KRaft was the default from Kafka 3.3 and ZooKeeper support was removed in Kafka 4.0. KRaft simplifies Kafka deployment dramatically—one fewer system to operate, faster metadata propagation, and no ZooKeeper session timeout issues during long GC pauses."
+      ],
+      "bullets": [
+        "ISR: leader + followers within lag.time.max.ms; acks=all requires all ISR members",
+        "min.insync.replicas=2: minimum ISR size for acknowledged writes; prevents silent loss",
+        "replication.factor=3: standard; tolerates 1 broker failure without partition unavailability",
+        "KRaft: Raft-based metadata without ZooKeeper; default since Kafka 3.3; ZK removed in 4.0"
+      ]
+    },
+    {
+      "title": "Consumer Groups and Offset Management",
+      "paragraphs": [
+        "Consumer groups enable parallel consumption: a group of consumers shares a topic's partitions. Each partition is assigned to exactly one consumer within a group—a consumer may be assigned multiple partitions but no two consumers in the same group share a partition. This assignment means a topic with 12 partitions can be consumed in parallel by up to 12 consumers in a group; adding a 13th consumer leaves one idle. When a consumer joins or leaves, the group rebalances (partitions are redistributed). Rebalancing pauses all consumption briefly (stop-the-world in older protocols; incremental cooperative rebalancing in newer Kafka versions minimizes this pause).",
+        "Offset management determines where consumers resume after restart. Consumers commit offsets to Kafka's internal __consumer_offsets topic. auto.commit.interval.ms (default 5s with enable.auto.commit=true) commits the latest fetched offset periodically. The risk: if the consumer crashes after auto-commit but before processing the committed records, those records are skipped on restart. For at-least-once processing, commit offsets only after successful processing. For exactly-once, combine Kafka transactions with idempotent downstream writes or use a transactional sink.",
+        "Consumer group rebalance strategies: Eager (default, now legacy): all consumers drop their partitions, then all partitions are reassigned from scratch—causes processing pause proportional to partition count. Incremental Cooperative (Kafka 2.4+): only the partitions that need to move are revoked; other partitions continue processing. This dramatically reduces rebalance impact for large consumer groups. Static group membership (group.instance.id) prevents rebalancing when a consumer briefly disconnects (e.g., deployment restart)—the consumer reclaims its previous partitions on reconnect within session.timeout.ms.",
+        "The __consumer_offsets topic stores committed offsets with a retention of 7 days. Consumer group metadata (members, assigned partitions, generation ID) is maintained in-memory on the group coordinator (a designated broker). When a consumer joins, it registers with the coordinator, which triggers rebalance. The coordinator assigns partitions based on the configured partition.assignment.strategy. StickyAssignor minimizes partition movement across rebalances; RoundRobinAssignor maximizes balance; CooperativeStickyAssignor uses incremental rebalance with minimal movement."
+      ],
+      "bullets": [
+        "Consumer group: N consumers share topic partitions; at most 1 consumer per partition",
+        "Offset commit: manual after processing for at-least-once; auto-commit risks skip on crash",
+        "Incremental cooperative rebalance: only moved partitions are paused; other partitions continue",
+        "Static membership (group.instance.id): prevents rebalance on brief consumer restarts"
+      ]
+    },
+    {
+      "title": "Kafka Streams and Connect",
+      "paragraphs": [
+        "Kafka Streams is a client library for building stateful stream processing applications on top of Kafka. It provides high-level operations: map, filter, flatMap, groupBy, aggregate, join, and windowed operations. State stores (backed by RocksDB for local, persistent storage) enable stateful operations (counts, aggregations, joins) without an external database. State store changelogs are compacted Kafka topics—if a Streams application crashes and restarts, it replays the changelog to restore state without reprocessing all source data.",
+        "Kafka Connect is a framework for scalably and reliably streaming data between Kafka and other systems. Source connectors import data from databases, files, and APIs into Kafka. Sink connectors export data from Kafka to databases, search indexes, data warehouses, and other systems. The ecosystem has hundreds of community connectors. Debezium (source connector) uses database CDC (logical replication for PostgreSQL, binlog for MySQL) to stream every row change as a Kafka event. This is the standard CDC pipeline for event-driven architectures.",
+        "Schema registry (Confluent Schema Registry) stores Avro, Protobuf, or JSON Schema schemas for Kafka topics. Producers register their schema; consumers verify compatibility. This prevents breaking schema changes: a consumer expecting {id: int, name: string} will fail fast if a producer adds a required field without a default, rather than failing silently with corrupt data. Compatibility settings (BACKWARD, FORWARD, FULL) define what schema changes are allowed. Schema IDs embedded in message headers allow consumers to look up the exact schema used to serialize each message."
+      ],
+      "bullets": [
+        "Kafka Streams: stateful stream processing with RocksDB state stores; no separate cluster needed",
+        "Kafka Connect: source/sink connectors; hundreds of community connectors",
+        "Debezium: CDC via Kafka Connect; streams every DB row change to Kafka",
+        "Schema Registry: enforce schema compatibility; prevent breaking changes in event schemas"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Log, Partitions, and Offsets",
         "paragraphs": [
-          "This draft covers Apache Kafka Internals. Run content:generate to expand it with a model provider, or edit manually."
+          "Kafka is an append-only log partitioned across brokers. Each partition is an independent ordered sequence of records with monotonically increasing offsets.",
+          "Ordering is guaranteed per-partition only. Use partition keys to colocate related records (same order ID, same user ID) on the same partition.",
+          "Consumers own their offsets—Kafka doesn't track consumption. This enables replay, multiple independent consumers, and time-travel."
+        ],
+        "bullets": [
+          "Partition = unit of parallelism and ordering",
+          "Log compaction: retain latest value per key; use for state changelogs",
+          "Zero-copy (sendfile): disk to network without user-space copy; major throughput factor"
+        ]
+      },
+      {
+        "title": "Producer Guarantees and Consumer Groups",
+        "paragraphs": [
+          "acks=all + min.insync.replicas=2 + replication.factor=3: standard durable configuration. enable.idempotence for safe retries.",
+          "Consumer groups: partitions divided among consumers; each partition to one consumer. At most 1 consumer per partition = max parallelism bounded by partition count.",
+          "Commit offsets after processing for at-least-once. Exactly-once requires transactions or idempotent sinks."
+        ],
+        "bullets": [
+          "linger.ms + batch.size: tune for throughput vs. latency",
+          "Incremental cooperative rebalance: minimal pause when consumers join/leave",
+          "Dead-letter topic: route unprocessable messages for investigation"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Apache Kafka Internals — Deep Dive",
+        "title": "Kafka Performance Tuning",
         "paragraphs": [
-          "Extended treatment of Apache Kafka Internals: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Producer throughput tuning: increase batch.size (64KB-1MB), linger.ms (5-20ms), buffer.memory (default 32MB; increase for high-throughput), and compression.type (zstd for best ratio/CPU tradeoff). The goal is large batches—compression efficiency and network utilization both improve dramatically with larger batches. Monitor record-send-rate, batch-size-avg, and compression-rate-avg JMX metrics.",
+          "Consumer throughput tuning: increase fetch.min.bytes (causes broker to wait until N bytes available, reducing fetch RPCs), fetch.max.wait.ms (max wait for fetch.min.bytes), and max.partition.fetch.bytes (default 1MB; increase for large messages). Process records in batches rather than one at a time—process the entire ConsumerRecords batch, commit once at the end. Use parallel processing within each partition assignment with an executor service, but commit in order to maintain at-least-once semantics.",
+          "Broker tuning for throughput: num.io.threads (default 8; set to 2× CPU cores), num.network.threads (default 3; increase for high-connection-count), socket.send.buffer.bytes and socket.receive.buffer.bytes (256KB or more for high-throughput), log.flush.interval.messages=long and log.flush.interval.ms=long (rely on OS page cache flushing rather than explicit fsync per message; massively improves throughput). Set num.partitions high enough for anticipated consumer parallelism—you cannot reduce partitions without topic recreation."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Producer: linger.ms + batch.size + compression = major throughput levers",
+          "Consumer: fetch.min.bytes + batch processing + parallel per-partition executor",
+          "Broker: num.io.threads = 2×CPU; OS page cache flushing > explicit fsync",
+          "Partition count: set high at creation; cannot reduce; standard: 20-100 for high-throughput topics"
+        ]
+      },
+      {
+        "title": "Kafka Exactly-Once Semantics (EOS)",
+        "paragraphs": [
+          "Kafka's exactly-once semantics (EOS) provides end-to-end exactly-once delivery for the read-process-write pattern. The producer uses transactions: beginTransaction(), produce records to output topics, sendOffsetsToTransaction() (atomically writes output records and commits consumed offsets), commitTransaction(). Either all output records are written and input offsets are committed, or nothing is—a transaction boundary. Downstream consumers use isolation.level=read_committed to see only committed transaction data.",
+          "EOS has a performance cost: transactions add write amplification (transaction markers, offset commits), and read_committed adds latency (consumers must wait for transaction markers). Throughput reduction is 10-30% compared to at-least-once. EOS is appropriate for financial calculations, inventory updates, and other cases where duplicates cause business harm. For most event processing (analytics, notifications), at-least-once with idempotent processing is simpler and sufficient.",
+          "Kafka Streams implements EOS transparently when processing.guarantee=exactly_once_v2. The Streams application wraps each processing loop in a Kafka transaction: read from source partitions, produce to output topics, commit offsets—all atomically. processing.guarantee=exactly_once_v2 uses a single transaction manager per Streams task (more efficient than the original exactly_once which used a manager per partition). This provides end-to-end EOS for stateful Streams applications with minimal code changes."
+        ],
+        "bullets": [
+          "Transactions: atomic produce + offset commit across multiple partitions/topics",
+          "read_committed isolation: consumer sees only committed transaction records",
+          "EOS cost: 10-30% throughput reduction vs. at-least-once",
+          "Kafka Streams EOS: processing.guarantee=exactly_once_v2; transparent to application code"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Apache Kafka Internals — Expert Notes",
+        "title": "Kafka at Scale: Multi-Region and MirrorMaker 2",
         "paragraphs": [
-          "Expert considerations for Apache Kafka Internals: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Multi-region Kafka for disaster recovery uses MirrorMaker 2 (MM2), a Kafka Connect-based replication tool that mirrors topics between clusters. MM2 preserves offsets via an offset translation mechanism: consumer groups tracked in the source cluster are translated to corresponding positions in the target cluster, enabling failover without losing consumer position. Active-active setups (each region produces and consumes) require careful topic naming (prefix with region) and consumer group isolation to prevent feedback loops.",
+          "Confluent Platform's Cluster Linking (and open-source mirror topics) provides lower-latency, offset-preserving replication for active-standby setups. Unlike MM2 (which re-produces messages, changing offsets), Cluster Linking preserves the original offsets and can replicate with 100ms lag. On failover, consumers simply point to the target cluster and resume from their last committed offset without offset translation. This is the recommended approach for RPO < 1 minute.",
+          "Kafka capacity planning: storage = retention_days × daily_write_MB × replication_factor. At 1 GB/day write rate, 7-day retention, RF=3: 21GB per topic. Throughput: a single partition can sustain ~100MB/s write on modern hardware; plan for 70% utilization ceiling. Consumer lag budget: at 100MB/s write rate and 500MB/s consumer throughput, a consumer 1TB behind can catch up in ~20 minutes—budget for maximum acceptable lag recovery time when sizing consumer throughput."
         ]
       }
     ]
   },
   "concepts": [
-    "Apache Kafka Internals: core idea"
+    "Commit log: append-only, ordered, immutable sequence of records; retained by time or size",
+    "Partition: independent ordered log; unit of parallelism; ordering guaranteed within partition only",
+    "Offset: monotonically increasing record position; consumer tracks its own offset independently",
+    "ISR (In-Sync Replica): brokers within lag threshold of leader; acks=all requires all ISR members",
+    "Consumer group: N consumers sharing topic partitions; each partition assigned to one consumer",
+    "Log compaction: retain latest value per key; grow much slower than time-based retention",
+    "Producer idempotence: deduplicates retries via producer ID + sequence number",
+    "Kafka Transactions: atomic write to multiple partitions; enables exactly-once semantics",
+    "Kafka Streams: stateful stream processing library; RocksDB state stores; no separate cluster",
+    "Kafka Connect: source/sink framework; Debezium for CDC, S3 Sink for archival",
+    "Schema Registry: enforce Avro/Protobuf/JSON schema compatibility across topic producers and consumers",
+    "KRaft: Raft-based Kafka metadata replacing ZooKeeper; default since Kafka 3.3"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Use acks=all + min.insync.replicas=2 + replication.factor=3 for durable production topics",
+    "Set partition count at topic creation for maximum anticipated consumer parallelism—cannot reduce without recreation",
+    "Enable enable.idempotence=true on producers for safe retries on transient broker errors",
+    "Use incremental cooperative rebalance (partition.assignment.strategy=CooperativeStickyAssignor) to minimize consumer pause",
+    "Configure linger.ms=5-20ms and batch.size=1MB for high-throughput producers to maximize batching",
+    "Route unprocessable messages to a dead-letter topic rather than blocking the consumer indefinitely",
+    "Monitor consumer lag per partition group as a primary operational metric; alert when lag grows unexpectedly"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Using partition count=1 for a topic—caps maximum consumer parallelism at 1; impossible to increase without data loss",
+    "Setting acks=1 for critical data—a leader failure after acknowledgment but before replication loses messages",
+    "Enabling auto.commit without manual offset management—records are committed before processing, skipped on consumer crash",
+    "Creating consumers in a group with count > partition count—excess consumers are idle; a waste of resources",
+    "Missing schema registry—a producer schema change breaks all consumers silently with deserialization errors",
+    "Not configuring a dead-letter topic—a single poison pill message blocks the consumer indefinitely",
+    "Infinite retention on high-throughput topics—broker storage fills; plan retention based on reprocessing requirements"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Order Processing Event Stream",
+      "description": "An e-commerce platform uses a Kafka topic 'orders' with 48 partitions (partition key: order_id). Producers send OrderPlaced events at 50,000/second with acks=all, enable.idempotence, and linger.ms=10ms. Three consumer groups each process independently: fulfillment (assigns pickers), analytics (updates dashboards), and notifications (sends emails). Each group has 48 consumers for maximum parallelism. The fulfillment consumer commits offsets after completing each order batch, with a dead-letter topic for orders that fail validation repeatedly."
+    },
+    {
+      "title": "Database CDC Pipeline",
+      "description": "A startup migrates from a monolith to microservices. Debezium Kafka Connect source connector reads PostgreSQL's logical replication log and publishes every INSERT/UPDATE/DELETE from the orders table as a Kafka event. New services (inventory, analytics, ML feature store) consume from the Kafka topic independently. The Avro schema registry ensures that schema changes in PostgreSQL are detected and consumers are notified before they encounter incompatible messages. The monolith continues writing directly to PostgreSQL; the event stream enables microservices to react without direct coupling."
+    }
+  ],
   "keyTakeaways": [
-    "Apache Kafka Internals belongs in the curriculum as living content"
+    "Kafka's append-only log with consumer-managed offsets enables independent consumption, replay, and fan-out",
+    "Ordering is guaranteed per partition only—use partition keys to ensure related messages go to the same partition",
+    "acks=all + min.insync.replicas=2 + replication.factor=3 is the minimum durable configuration",
+    "Consumer groups provide parallel consumption; max parallelism = partition count",
+    "Log compaction preserves the latest value per key—use for state changelogs and configuration topics",
+    "Kafka Streams and Kafka Connect are first-class tools for stream processing and system integration",
+    "Schema Registry prevents breaking changes from silently corrupting consumers in production"
   ],
-  "whyItMatters": "Understanding Apache Kafka Internals improves design judgment for production systems.",
+  "whyItMatters": "Kafka has become the backbone of modern data infrastructure—the central event stream that connects microservices, feeds analytics pipelines, enables CDC, and powers real-time features. Its durability, scalability, and replay capability make it fundamentally different from traditional message queues. Understanding Kafka's design is mandatory for any senior engineer working on distributed systems, event-driven architectures, or data infrastructure.",
   "reflectionQuestions": [
-    "When would you reach for Apache Kafka Internals in a real design?"
+    "You need to process 1 million events per second from a Kafka topic with strict ordering per user ID. How do you configure the topic, producers, and consumers?",
+    "A consumer group is falling behind—lag is growing at 10,000 messages/second. Walk through your diagnosis and resolution options.",
+    "Compare Kafka's exactly-once semantics to at-least-once + idempotent processing. When is each appropriate and what is the performance trade-off?",
+    "Design a CDC pipeline from a PostgreSQL database to populate a search index in Elasticsearch. What components would you use, what guarantees do you get, and what failure modes must you handle?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Kafka partition throughput: ~100MB/s write per partition on SSD-backed broker",
+    "Replication lag SLO: replica.lag.time.max.ms=30s default; ISR membership threshold",
+    "Consumer group rebalance time: 1-30 seconds depending on partition count and protocol",
+    "Kafka retention default: 7 days (168 hours) or 100GB per partition, whichever is smaller",
+    "Producer batch latency: linger.ms=0 (sub-ms) to linger.ms=50ms (high-throughput batching)",
+    "min.insync.replicas=2 with RF=3: tolerates 1 broker failure without write unavailability"
   ],
   "diagrams": [
     {
-      "id": "int-kafka-overview",
-      "title": "Apache Kafka Internals overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "int-kafka-architecture",
+      "title": "Kafka Topic, Partitions, and Consumer Groups",
+      "mermaid": "flowchart LR\n  subgraph Topic: orders [48 partitions]\n    P0[Partition 0\\nBroker 1 leader]\n    P1[Partition 1\\nBroker 2 leader]\n    PN[Partition N...]\n  end\n  PROD[Producer\\npartition key: order_id] -->|hash| P0\n  PROD -->|hash| P1\n  subgraph Consumer Group: fulfillment\n    C1[Consumer 1 → P0]\n    C2[Consumer 2 → P1]\n  end\n  subgraph Consumer Group: analytics\n    CA1[Consumer 1 → P0]\n    CA2[Consumer 2 → P1]\n  end\n  P0 --> C1\n  P0 --> CA1\n  P1 --> C2\n  P1 --> CA2"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Apache Kafka Internals and the main trade-offs in 3 minutes."
+    "What is a Kafka partition and why does it matter for ordering guarantees and consumer parallelism?",
+    "Explain the difference between acks=1 and acks=all. What is min.insync.replicas and why is it needed?",
+    "How do Kafka consumer groups work? What happens when a consumer crashes during processing?",
+    "Design an event-driven order processing system using Kafka. Address partitioning, consumer groups, offset management, and failure handling.",
+    "What is log compaction in Kafka and when would you use it over time-based retention?"
   ],
   "exercises": [
-    "Design a small system that depends on Apache Kafka Internals; list 3 trade-offs."
+    "Design a Kafka topic configuration for a financial transactions stream: define partition count, replication factor, min.insync.replicas, retention policy, and producer acks settings. Justify each decision based on the correctness and throughput requirements.",
+    "A Kafka consumer group for order processing is experiencing frequent rebalances that cause processing pauses. Identify three possible causes and their solutions.",
+    "Design a system using Debezium + Kafka to replicate data from a PostgreSQL orders database to an Elasticsearch index for search. Address: schema evolution, failure recovery, and ensuring the search index is eventually consistent with the database."
   ],
-  "sources": [],
-  "relatedLessons": [
-    "int-cassandra",
-    "int-clickhouse",
-    "int-etcd"
-  ]
+  "sources": [
+    {"title": "Apache Kafka Documentation (kafka.apache.org/documentation)"},
+    {"title": "Jay Kreps — The Log: What every software engineer should know (engineering.linkedin.com)"},
+    {"title": "Confluent — Kafka: The Definitive Guide, 2nd ed. (O'Reilly, free PDF at confluent.io)"},
+    {"title": "Martin Kleppmann — Designing Data-Intensive Applications, Chapter 11 (O'Reilly)"},
+    {"title": "Gunnar Morling — Change Data Capture with Debezium (debezium.io/blog)"}
+  ],
+  "relatedLessons": ["fund-messaging", "fund-stream-processing", "int-redis", "int-postgres", "arch-event-cqrs"]
 }

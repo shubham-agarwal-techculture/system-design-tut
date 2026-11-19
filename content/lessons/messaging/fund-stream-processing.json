@@ -1,100 +1,234 @@
 {
   "id": "fund-stream-processing",
-  "title": "Stream Processing (Flink, Kafka Streams)",
+  "title": "Stream Processing",
   "moduleId": "messaging",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "Stream Processing (Flink, Kafka Streams) — draft awaiting generation and review.",
-  "kind": "living",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "durationMinutes": 42,
+  "summary": "Stream processing computes results over unbounded data streams in real time—or near-real time—as events arrive, rather than waiting to batch them. It enables fraud detection, real-time analytics, live dashboards, and event-driven microservices. Apache Flink, Kafka Streams, and Spark Structured Streaming are the dominant frameworks, each making different trade-offs between latency, throughput, and consistency.",
+  "kind": "evergreen",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "fund-messaging"
-  ],
-  "tags": [
-    "messaging",
-    "living",
-    "fundamentals"
-  ],
+  "prerequisites": ["fund-messaging", "fund-distributed"],
+  "tags": ["messaging", "streaming", "analytics", "evergreen", "fundamentals"],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Stream Processing vs Batch Processing",
       "paragraphs": [
-        "This draft covers Stream Processing (Flink, Kafka Streams). Run content:generate to expand it with a model provider, or edit manually."
+        "Batch processing operates on a bounded, finite dataset: load yesterday's orders, compute revenue by category, write the result. It runs periodically (hourly, daily) and produces results with latency proportional to the batch interval. Stream processing operates on an unbounded, continuously arriving dataset: compute revenue by category over a sliding 1-hour window, updated every second. The result is always current, with latency measured in milliseconds to seconds rather than hours.",
+        "The fundamental shift is from pull (batch job reads all data, computes, finishes) to push (events arrive continuously; the stream processor maintains state and updates results as events arrive). This requires different primitives: windowing (how to group time-based streams into finite chunks for aggregation), state management (keeping running counts, averages, and aggregates between events), and time semantics (what does 'events in the last hour' mean when events arrive late due to network delays?).",
+        "Lambda Architecture (batch layer + speed layer + serving layer) was the original answer to needing both real-time and accurate historical results. Batch layer computes accurate results on historical data; speed layer computes approximate results on the latest data; serving layer merges both. The complexity of maintaining two separate codebases (batch and streaming) has led to the Kappa Architecture: a single streaming system that can reprocess historical data by replaying from Kafka. This is the current industry direction."
+      ],
+      "bullets": [
+        "Batch: bounded data, periodic, latency in hours; Streaming: unbounded, continuous, latency in ms–s",
+        "Stream primitives: windowing, stateful operators, time semantics",
+        "Lambda: batch + speed layer; complex; largely superseded by Kappa (unified streaming)",
+        "Kappa: single Kafka-based streaming pipeline; reprocess by replaying from beginning"
+      ]
+    },
+    {
+      "title": "Time Semantics: Event Time vs Processing Time",
+      "paragraphs": [
+        "Event time is when the event actually occurred (embedded in the event's timestamp). Processing time is when the stream processor receives and processes the event. These differ because events travel over networks, may be buffered on mobile devices, and may arrive late due to retries. A mobile app that records user behavior offline may upload events hours after they occurred. If you window by processing time, offline events appear in the wrong window—your 'events in the last hour' query is actually 'events processed in the last hour,' which may include yesterday's offline events.",
+        "Flink, Kafka Streams, and Spark Structured Streaming all support event-time processing. The key mechanism is the watermark: a signal from the streaming system that says 'I believe all events with event_time before T have now arrived.' When the watermark passes T, windows closing at T can safely be computed and emitted. The watermark is typically derived from the maximum event timestamp seen minus a configurable delay (the allowed lateness). Setting allowed lateness too low drops late-arriving events; setting it too high delays window completion.",
+        "Late events are events that arrive after their window's watermark has passed. Options: (1) Drop them—simplest, some data loss. (2) Emit an updated result when late events arrive (Flink's side outputs; a correction message). (3) Extend the window's allowed lateness. For fraud detection (needs immediate results) or operational monitoring (latency over accuracy), processing time semantics may be acceptable. For billing, analytics, and anything where accuracy matters over long windows, event time with appropriate allowed lateness is correct."
+      ],
+      "bullets": [
+        "Event time: when event occurred; embedded in event payload; correct for analytics",
+        "Processing time: when processor receives event; simpler; incorrect for late-arriving events",
+        "Watermark: signal that all events before timestamp T have arrived; enables window completion",
+        "Allowed lateness: how long to wait for late events; trade-off between accuracy and latency"
+      ]
+    },
+    {
+      "title": "Windowing: Grouping Streams into Computations",
+      "paragraphs": [
+        "Tumbling windows divide time into fixed, non-overlapping intervals: 1-minute windows from 00:00–01:00, 01:00–02:00, etc. Each event belongs to exactly one window. Use for metrics that should not overlap: 'requests per minute,' 'revenue per hour.' Sliding windows have a fixed length and slide at a fixed interval: a 10-minute window sliding every 1 minute creates windows that overlap by 9 minutes. Each event appears in multiple windows. Use for continuously updated metrics: 'average response time over the last 10 minutes, computed every minute.'",
+        "Session windows group events by user activity: a session window opens when the first event from a user arrives and closes after a configurable idle gap (e.g., 30 minutes of inactivity). Sessions have variable length. This is natural for user journey analytics: 'number of page views per user session.' Flink's session window implementation assigns events to sessions dynamically, merging sessions when new events bridge two previously separate sessions.",
+        "Global windows collect all events into a single window; a custom trigger defines when to fire. This is the most flexible but requires careful trigger design. For example: accumulate events until a watermark is reached (collect everything until the stream thinks it's complete) or trigger every N events. Flink's trigger API is a low-level but powerful mechanism for custom windowing semantics beyond the standard tumbling/sliding/session windows."
+      ],
+      "bullets": [
+        "Tumbling: non-overlapping fixed intervals; each event in one window; for 'per period' metrics",
+        "Sliding: overlapping windows; each event in multiple windows; for 'over last N' metrics",
+        "Session: variable-length; idle gap closes window; for user journey analysis",
+        "Global window: custom trigger; most flexible; requires careful trigger design"
+      ]
+    },
+    {
+      "title": "Apache Flink: Stateful Stream Processing",
+      "paragraphs": [
+        "Apache Flink is the production standard for stateful stream processing. Flink operators maintain state (counts, aggregations, keyed windows) in managed state backends: RocksDB (spills to disk; handles terabytes of state) or memory (faster; limited by RAM). State is partitioned by key (same key always goes to the same operator instance), enabling parallel stateful computation without coordination. Flink's checkpointing mechanism periodically snapshots all operator state to durable storage (S3), enabling recovery from failure without data loss.",
+        "Flink's exactly-once semantics are achieved via two-phase commit with Kafka. Flink operators buffer output during checkpoint; when all operators complete a checkpoint, Flink commits the Kafka offsets and flushes output atomically. If a failure occurs between checkpoints, Flink restores the last checkpoint, replays events from Kafka from the saved offset, and recomputes—no duplicates because outputs after the last checkpoint are discarded. This transactional commitment model is what makes Flink's exactly-once semantics meaningful.",
+        "Flink's Job Manager (job coordination, checkpointing) and Task Managers (operator execution) are separate processes. A Flink cluster can run as a Kubernetes StatefulSet; task manager pods scale horizontally. For production, Flink's savepoints (manual checkpoints) enable version migrations: pause the job, take a savepoint, upgrade the code, restart from the savepoint. This upgrade mechanism is Flink's operational advantage over streaming systems that cannot be paused and resumed with state."
+      ],
+      "bullets": [
+        "Flink state backends: RocksDB (disk; terabyte state) or heap memory (fast; RAM-limited)",
+        "Checkpointing: periodic state snapshot to S3; enables exactly-once fault recovery",
+        "Exactly-once via 2PC with Kafka: atomic offset commit + output flush on checkpoint completion",
+        "Savepoints: manual checkpoints for version migration; pause, upgrade, restart from state"
+      ]
+    },
+    {
+      "title": "Kafka Streams and Spark Structured Streaming",
+      "paragraphs": [
+        "Kafka Streams is a client library (not a separate cluster) for stream processing within Kafka. Stateful operators (joins, aggregations, windowed computations) store state in RocksDB on the application's local disk, backed by Kafka changelog topics. No external cluster is needed—it runs inside your existing Java application. Kafka Streams is excellent for microservice-local stream processing where you don't want to operate Flink or Spark, and for simple to medium complexity transformations. It lacks Flink's sophisticated event-time semantics and advanced windowing, but is simpler operationally.",
+        "Spark Structured Streaming is a micro-batch streaming model: Spark processes data in small batches (default 100ms trigger interval). Each micro-batch is a complete Spark SQL query on the latest arriving data. This gives you the full Spark SQL ecosystem (joins, aggregations, UDFs, ML model inference) with streaming semantics. Latency is higher than Flink (100ms–seconds vs milliseconds) but throughput per core is very high for wide-row transformations. The continuous processing mode (beta) reduces latency to <1ms per record.",
+        "Choosing between Flink, Kafka Streams, and Spark Structured Streaming: Kafka Streams for simple stateful in-process streaming; Spark for ML inference and complex SQL transformations where latency > 1 second is acceptable; Flink for sub-second latency, complex event-time semantics, or terabytes of operator state. All three integrate natively with Kafka as the input/output system and Iceberg/Delta Lake for batch output."
+      ],
+      "bullets": [
+        "Kafka Streams: client library; runs in-process; no external cluster; simpler ops; good for microservices",
+        "Spark Structured Streaming: micro-batch; full Spark SQL; latency 100ms–seconds; great for ML + SQL",
+        "Flink: sub-second latency; sophisticated event-time; terabyte state; production standard for critical pipelines",
+        "All three integrate with Kafka as source/sink and Iceberg/Delta Lake for batch output"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Stream vs Batch and Time Semantics",
         "paragraphs": [
-          "This draft covers Stream Processing (Flink, Kafka Streams). Run content:generate to expand it with a model provider, or edit manually."
+          "Stream processing: continuous, unbounded data, low latency. Batch: bounded, periodic, high latency. Kappa Architecture unifies both with a single streaming pipeline.",
+          "Event time vs processing time: event time is when it happened; processing time is when the system processes it. Event time is correct for analytics; requires watermarks.",
+          "Watermarks mark that all events before timestamp T have arrived; used to close windows safely. Allowed lateness handles stragglers."
+        ]
+      },
+      {
+        "title": "Windowing",
+        "paragraphs": [
+          "Tumbling windows: non-overlapping fixed intervals; each event in one window.",
+          "Sliding windows: overlapping; each event in multiple windows; for running averages.",
+          "Session windows: variable-length; idle gap closes window; for user sessions."
+        ]
+      },
+      {
+        "title": "Flink vs Kafka Streams vs Spark",
+        "paragraphs": [
+          "Flink: sub-second, event-time, exactly-once via 2PC, terabyte state, production standard.",
+          "Kafka Streams: in-process library, no external cluster, good for microservices, simpler operations.",
+          "Spark Structured Streaming: micro-batch, full SQL, ML integration, latency 100ms+."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Stream Processing (Flink, Kafka Streams) — Deep Dive",
+        "title": "Stateful Processing and Exactly-Once Guarantees",
         "paragraphs": [
-          "Extended treatment of Stream Processing (Flink, Kafka Streams): internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Stateful stream processing maintains running state across events: counts, averages, keyed aggregations, join tables. State must be durable to survive failures. Flink's RocksDB backend spills to local SSD and backs up to S3 via incremental checkpoints. Incremental checkpointing only writes the state delta since the last checkpoint, dramatically reducing checkpoint size for large-state applications.",
+          "Exactly-once semantics require atomic commitment of consumer offset advancement + state update + output production. Flink achieves this by injecting Chandy-Lamport checkpoint barriers into the data stream. Each source injects a barrier; barriers flow through the operator DAG; when an operator receives a barrier from all its inputs, it snapshots its state and passes the barrier downstream. When all sinks have received the barrier, the checkpoint completes atomically.",
+          "Idempotent sinks are an alternative to true exactly-once: design the sink to handle duplicate writes safely. For Kafka sinks, idempotent producers deduplicate at the broker. For database sinks, upsert-on-primary-key handles duplicates. For HTTP sinks, idempotency keys ensure duplicate requests are ignored. At-least-once + idempotent sinks is operationally simpler than exactly-once and achieves the same correctness guarantee."
+        ]
+      },
+      {
+        "title": "Stream-Table Duality and Joins",
+        "paragraphs": [
+          "In Kafka Streams and Flink, the stream-table duality is a core concept. A stream is an unbounded sequence of events; a table is the current state derived from a stream (the latest value per key). A KTable in Kafka Streams is a materialized view of a stream: for key K, the table holds the value from the most recent message with key K. Joining a stream with a table enriches each stream event with lookup data (like a hash join against a lookup table in SQL).",
+          "Stream-stream joins require both streams to be windowed: 'join order events with payment events where both have the same order_id and occurred within 10 minutes.' Flink maintains a time-bounded state for each stream (all order events in the last 10 minutes) and matches arriving events against the state. The window bounds must be large enough to tolerate event delivery latency. Unbounded stream joins would accumulate state forever—always use a window on stream-stream joins."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Stream Processing (Flink, Kafka Streams) — Expert Notes",
+        "title": "Expert: Backfill and Historical Reprocessing",
         "paragraphs": [
-          "Expert considerations for Stream Processing (Flink, Kafka Streams): multi-region behavior, cost envelopes, and edge cases under overload."
+          "One of streaming's operational challenges is reprocessing: when you fix a bug in a streaming job, you need to recompute results for the past N days. With Kafka's configurable retention (up to years), you can replay from the beginning of history. The challenge is state: your stateful operators may accumulate state from the beginning of time, requiring memory/disk proportional to the full history.",
+          "Strategies for large-scale reprocessing: bounded reprocessing windows (reprocess only the last 90 days, then bootstrap from a snapshot), state bootstrapping from a batch source (precompute initial state from a data warehouse, then start the streaming job from that initialized state rather than from empty), and dual-writing (run old and new logic in parallel, compare outputs, switch over when new logic is validated). Flink's State Processor API allows reading and writing Flink savepoints from Spark or Flink batch jobs, enabling programmatic state initialization."
         ]
       }
     ]
   },
   "concepts": [
-    "Stream Processing (Flink, Kafka Streams): core idea"
+    "Stream processing: continuous computation on unbounded data; latency in ms–seconds",
+    "Event time vs processing time: when event happened vs when system processes it",
+    "Watermark: signal that all events before timestamp T have arrived; enables window completion",
+    "Tumbling window: non-overlapping fixed intervals; each event in exactly one window",
+    "Sliding window: overlapping windows sliding at fixed interval; each event in multiple windows",
+    "Session window: variable-length, idle-gap-based window; for user activity grouping",
+    "Flink checkpoint: periodic state snapshot to S3; enables exactly-once fault recovery",
+    "Stream-table duality: stream = sequence of events; table = latest value per key",
+    "Backpressure: downstream pressure propagated upstream; prevents buffer overflow",
+    "Kappa Architecture: unified streaming pipeline; reprocess by replaying from Kafka"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Use event time for analytics; use processing time only for operational metrics where accuracy is less critical",
+    "Set allowed lateness to cover the 99th percentile of event delivery latency for your data sources",
+    "Monitor Flink checkpoint duration; alert when checkpoints take longer than their interval",
+    "Design sinks to be idempotent; at-least-once + idempotent sinks equals exactly-once correctness",
+    "Test watermark behavior with intentionally late events before deploying to production",
+    "Size Flink task manager heap and RocksDB off-heap separately; RocksDB needs managed memory configured",
+    "Use savepoints before all Flink upgrades; never upgrade in-place without a state backup"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Using processing time for analytics—late mobile events land in wrong time windows; results are incorrect",
+    "Watermarks too aggressive—late events dropped; results are silently incomplete",
+    "Unbounded stream-stream joins accumulating infinite state—always bound joins with time windows",
+    "Not monitoring consumer lag for Kafka Streams—slow consumers block partition assignment",
+    "Forgetting to test Flink recovery: checkpoint interval too long means large data reprocessing on failure",
+    "Event ordering assumption with parallel consumers—parallel Kafka consumption destroys per-partition order"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Uber's Real-Time Surge Pricing",
+      "description": "Uber computes surge pricing using a Flink streaming pipeline. Driver location pings and ride requests flow through Kafka; Flink maintains a geo-keyed stateful operator computing supply/demand ratios over sliding 5-minute windows for each geographic hexbin. When demand exceeds supply by a threshold, the surge multiplier is updated and published to a serving layer. Event-time processing ensures that GPS pings that arrive late (poor cellular connectivity) land in the correct time window."
+    },
+    {
+      "title": "LinkedIn's Kafka Streams for Notifications",
+      "description": "LinkedIn uses Kafka Streams to aggregate user activity events (views, likes, comments) and determine which users to notify with a 'You have new activity' email. The stream processes tens of billions of events per day in-process within the notification service, without a separate Flink cluster. Session windowing detects the end of a user's activity burst to trigger a summary notification rather than spamming one email per event."
+    }
+  ],
   "keyTakeaways": [
-    "Stream Processing (Flink, Kafka Streams) belongs in the curriculum as living content"
+    "Stream processing enables real-time analytics and fraud detection at millisecond-to-second latency",
+    "Event-time processing with watermarks is correct for analytics; processing-time is simpler but inaccurate",
+    "Flink's checkpointing enables exactly-once fault recovery; savepoints enable version migrations",
+    "Kafka Streams is the right choice for microservice-local streaming; Flink for complex cross-service pipelines",
+    "Windowing (tumbling/sliding/session) groups unbounded streams into finite computations",
+    "At-least-once + idempotent sinks achieves exactly-once correctness with simpler operational model"
   ],
-  "whyItMatters": "Understanding Stream Processing (Flink, Kafka Streams) improves design judgment for production systems.",
+  "whyItMatters": "Real-time processing is a distinguishing feature in competitive products. Fraud detection, live dashboards, recommendation updates, and event-driven microservices all require stream processing. Understanding the trade-offs between Flink, Kafka Streams, and Spark Structured Streaming—and when to use event time vs processing time—separates engineers who can design production streaming systems from those who can only operate batch pipelines.",
   "reflectionQuestions": [
-    "When would you reach for Stream Processing (Flink, Kafka Streams) in a real design?"
+    "Your fraud detection Flink job processes card transactions. A mobile user makes an offline payment that arrives 4 hours late. How does your event-time windowing handle this?",
+    "Design the streaming architecture for a leaderboard that must show the top 100 players by score in real time, updated every second.",
+    "When would you choose Kafka Streams over Flink, and what are you giving up?",
+    "Your Flink job's checkpoints are taking 15 minutes (interval is 10 minutes). What are the implications and how do you fix it?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Flink latency: typically 10–100ms per event; 1–5ms with continuous processing mode",
+    "Spark Structured Streaming micro-batch: 100ms–1s trigger interval typical",
+    "Kafka Streams: single-digit millisecond latency; throughput scales with partition count",
+    "Flink checkpoint overhead: typically 2–5% CPU; RocksDB incremental checkpoints are compact",
+    "Flink recovery: restores from last checkpoint; replays events from Kafka since checkpoint offset"
   ],
   "diagrams": [
     {
-      "id": "fund-stream-processing-overview",
-      "title": "Stream Processing (Flink, Kafka Streams) overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-stream-processing-windows",
+      "title": "Window Types Comparison",
+      "mermaid": "flowchart LR\n  subgraph Tumbling\n    T1[00:00-01:00] --- T2[01:00-02:00] --- T3[02:00-03:00]\n  end\n  subgraph Sliding\n    S1[00:00-00:10] --- S2[00:01-00:11] --- S3[00:02-00:12]\n  end\n  subgraph Session\n    Se1[activity burst] --- gap[idle gap] --- Se2[next session]\n  end"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Stream Processing (Flink, Kafka Streams) and the main trade-offs in 3 minutes."
+    "What is the difference between event time and processing time in stream processing? When does it matter?",
+    "Explain how watermarks enable correct event-time windowing.",
+    "Design a real-time fraud detection system using stream processing: data sources, processing logic, state management.",
+    "How does Flink achieve exactly-once semantics?",
+    "Compare Kafka Streams and Apache Flink. For what use case would you choose each?"
   ],
   "exercises": [
-    "Design a small system that depends on Stream Processing (Flink, Kafka Streams); list 3 trade-offs."
+    "Design the Flink job graph for computing real-time revenue by product category, updated every minute, using event-time semantics with 5-minute allowed lateness.",
+    "Design a session window analysis of user behavior for an e-commerce site: define the idle gap, what state you maintain per session, and how you handle concurrent sessions on multiple devices.",
+    "Estimate the state size for a Flink job maintaining a 1-hour sliding window of unique active users, given 10M users who send on average 10 events per hour."
   ],
-  "sources": [],
+  "sources": [
+    { "title": "Flink documentation — event time, watermarks, checkpointing" },
+    { "title": "Kafka Streams documentation — stateful transformations, KTable" },
+    { "title": "Streaming Systems — Reuven Lax, Slava Chernyak & Tyler Akidau (O'Reilly)" },
+    { "title": "The Dataflow Model — Akidau et al. (Google Research, VLDB 2015)" }
+  ],
   "relatedLessons": [
     "fund-messaging",
-    "msg-queues-pubsub"
+    "fund-olap",
+    "fund-exactly-once",
+    "fund-distributed"
   ]
 }

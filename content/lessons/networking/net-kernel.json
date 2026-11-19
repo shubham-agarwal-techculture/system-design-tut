@@ -1,101 +1,294 @@
 {
   "id": "net-kernel",
-  "title": "Kernel Networking (epoll, io_uring)",
+  "title": "Kernel Networking: epoll, io_uring & the Network Stack",
   "moduleId": "networking",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "Kernel Networking (epoll, io_uring) — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "High-performance network servers are constrained by how efficiently they interact with the OS kernel. The evolution from blocking I/O to non-blocking sockets, to epoll, to io_uring represents a progression of reducing kernel overhead per I/O operation and enabling higher concurrency with fewer threads. Understanding where CPU time is spent in the kernel network path—interrupt handling, socket buffer copies, system call overhead—explains the design choices in Nginx, Redis, Kafka, and every high-throughput network application.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
+    "net-tcp-udp",
     "net-http"
   ],
   "tags": [
     "networking",
-    "evergreen",
+    "kernel",
+    "epoll",
+    "io_uring",
+    "linux",
+    "performance",
     "foundations"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "The Linux Network Stack: From NIC to Application",
       "paragraphs": [
-        "This draft covers Kernel Networking (epoll, io_uring). Run content:generate to expand it with a model provider, or edit manually."
+        "When a packet arrives at a network interface card (NIC), it goes through a carefully orchestrated journey before the application sees any data. The NIC performs DMA (Direct Memory Access) to write the packet into a ring buffer in kernel memory—no CPU intervention yet. The NIC then raises a hardware interrupt. The kernel's interrupt handler executes briefly (top half), scheduling a software interrupt (softirq) for later processing. The softirq (NET_RX_SOFTIRQ) processes the ring buffer in NAPI polling mode: rather than taking an interrupt per packet, the kernel polls the NIC for more packets while there are packets to process, then re-enables interrupts. NAPI amortizes interrupt overhead across multiple packets, critical at 10+ Gbps.",
+        "In the softirq context, the kernel parses the packet through the protocol stack: Ethernet frame → IP packet → TCP segment. For TCP, the kernel looks up the socket by 4-tuple (src IP, src port, dst IP, dst port), appends the payload to the socket's receive buffer, and sets the socket as readable. If the application is blocking on read(), it is woken. If using non-blocking I/O with an event loop (epoll), the socket's readability event is enqueued for the application to discover.",
+        "The kernel send path is the reverse: the application calls send() or write(), which copies data from user-space buffer to the socket's kernel send buffer. The TCP stack segments the data, constructs IP headers, and queues IP packets to the network device queue (qdisc). The qdisc dequeues and passes packets to the NIC driver, which programs the NIC's TX ring buffer for DMA. The NIC reads from the ring buffer and transmits. Each copy between user space and kernel space is an expensive context boundary—optimizations like zero-copy (sendfile, MSG_ZEROCOPY, io_uring) aim to eliminate these copies.",
+        "CPU affinity and interrupt steering matter at high packet rates. By default, all NIC interrupts go to CPU 0, creating a bottleneck. RSS (Receive Side Scaling) distributes interrupts across CPUs by hashing the 4-tuple. RPS (Receive Packet Steering) is a software equivalent for NICs that don't support RSS. RFS (Receive Flow Steering) further routes packets to the CPU currently running the application thread for the socket, maximizing cache locality—the application sees data in cache without inter-CPU transfers."
+      ],
+      "bullets": [
+        "NAPI: NIC polling mode; reduces interrupt overhead at high packet rates",
+        "RSS: NIC hardware distributes RX interrupts by 4-tuple hash to multiple CPUs",
+        "RFS: routes packets to the CPU running the socket's application thread for cache locality"
+      ]
+    },
+    {
+      "title": "Blocking I/O, select/poll, and Their Limits",
+      "paragraphs": [
+        "The simplest network model is one thread per connection with blocking I/O. Each thread calls read() and blocks until data arrives; write() blocks until data is accepted by the kernel. This model is easy to reason about but scales poorly: at 10,000 concurrent connections you need 10,000 threads. Linux threads cost ~8 KB kernel stack + ~2 MB userspace stack by default; 10,000 threads consume 10–20 GB of memory. Context-switch overhead at that scale makes the CPU scheduler itself a bottleneck.",
+        "select() and poll() allow one thread to monitor multiple file descriptors for readability/writability. The thread passes a set of descriptors to the kernel, which blocks until any becomes ready, then returns all ready descriptors. select() has a 1024 FD limit by default and uses a bitmap; poll() removes the limit but uses a linear array. Both require the kernel to scan all monitored descriptors on every call—O(n) in the number of monitored connections, regardless of how many are actually ready. At 10,000 connections with 10 active at any moment, 99.9% of each poll() call is wasted scanning idle descriptors.",
+        "The fundamental problem with select/poll is that the entire FD set is passed across the kernel boundary on every call and scanned on every wakeup. For high-connection-count servers, this is unacceptably expensive. epoll was introduced in Linux 2.5.44 (2002) specifically to solve this: rather than a scan, epoll maintains a kernel-side data structure (a red-black tree) of monitored descriptors. When a descriptor becomes ready, the kernel adds it to a ready list. epoll_wait() returns only ready events—O(events), not O(total descriptors). This reduces the per-event cost from O(n) to O(1)."
+      ],
+      "bullets": [
+        "select() FD limit: FD_SETSIZE = 1024 (can be increased by recompiling, but rarely done)",
+        "poll() scan: O(n) per call; 10k connections with 1% active → 9,900 wasted descriptor checks",
+        "epoll ready list: kernel adds FD to ready queue on event; epoll_wait returns only ready FDs"
+      ]
+    },
+    {
+      "title": "epoll: Event-Driven I/O at Scale",
+      "paragraphs": [
+        "epoll has three syscalls: epoll_create1() creates an epoll instance (a kernel FD set); epoll_ctl() adds, modifies, or removes descriptors from the set with associated event masks (EPOLLIN, EPOLLOUT, EPOLLERR, EPOLLHUP); epoll_wait() blocks until events are available, returning a list of triggered events. The application processes each event—reads from ready sockets, writes to writable sockets—then calls epoll_wait() again. This is the event loop pattern used by Nginx, Redis, Node.js, Python asyncio, and virtually every high-performance network server on Linux.",
+        "Edge-triggered vs level-triggered mode is a critical epoll configuration choice. Level-triggered (default): epoll_wait() reports a descriptor as readable as long as there's data in the buffer—even if you don't read it all this iteration. Edge-triggered (EPOLLET): epoll_wait() reports only the transition from not-readable to readable, once. If you don't read all available data in the same event handler iteration, you'll never see another readability event until new data arrives. Edge-triggered requires non-blocking FDs and reading in a loop until EAGAIN; it allows more efficient processing when handlers can process all available data in one call, but bugs (partial reads) silently stall connections.",
+        "EPOLLONESHOT prevents spurious wakeups when multiple threads share an epoll instance. Without it, all threads waiting on epoll_wait() are woken when a socket becomes readable (thundering herd), and they all try to read the same socket. With EPOLLONESHOT, once the event fires, the descriptor is disabled until explicitly re-armed with epoll_ctl(EPOLL_CTL_MOD). The thread that handles the event re-arms after completing its work. Combined with SO_REUSEPORT per-thread sockets, this gives per-thread event loops without coordination overhead.",
+        "epoll file descriptors can be nested. An epoll FD can itself be added to another epoll instance, enabling hierarchical event multiplexing—useful in complex servers with multiple event loop stages (e.g., a TLS layer with its own I/O loop feeding a protocol parser loop). eventfd, timerfd, and signalfd integrate non-socket events into the epoll model: timers, inter-thread signals, and counter-based notifications all become FDs that epoll can monitor, unifying all async I/O under one event loop."
+      ],
+      "bullets": [
+        "Level-triggered: safe default; re-reports readability until buffer is empty",
+        "Edge-triggered (EPOLLET): one notification per transition; requires non-blocking FD + read-until-EAGAIN loop",
+        "EPOLLONESHOT: disables FD after event fires; prevents thundering herd in multi-threaded epoll"
+      ]
+    },
+    {
+      "title": "io_uring: Kernel I/O Without System Call Overhead",
+      "paragraphs": [
+        "io_uring (Linux 5.1, 2019) is a fundamentally different I/O model. Instead of syscalls per I/O operation, io_uring uses two ring buffers shared between user space and kernel space: the Submission Queue (SQ) and Completion Queue (CQ). The application writes I/O requests (SQEs—Submission Queue Entries) into the SQ ring and optionally calls io_uring_enter() to tell the kernel to process them. The kernel processes requests asynchronously and writes completion events (CQEs—Completion Queue Entries) to the CQ ring. The application polls the CQ ring for completions.",
+        "The transformative optimization is SQ polling (IORING_SETUP_SQPOLL): when enabled, the kernel spawns a thread that continuously polls the SQ ring for new submissions—the application never needs to call io_uring_enter() at all. Combined with the kernel polling the CQ ring, the application can submit and receive completions with zero syscalls. At 1 million IOPS, eliminating the syscall overhead (each syscall is ~100–300 ns) saves 100–300ms per million operations. For NVMe SSDs capable of 10 million IOPS or 10 Gbps network operations, this matters enormously.",
+        "io_uring supports chaining operations: a read completion can automatically trigger a send, without the application processing an event in between. This is expressed as linked SQEs. For proxying or piping workloads—read from socket, write to disk, read from disk, write to socket—the entire chain executes in kernel space without any user-space round trips. IORING_OP_SPLICE and fixed buffers (pre-registered with the kernel) further reduce memory copies.",
+        "Network support in io_uring has grown rapidly: IORING_OP_ACCEPT, IORING_OP_RECV, IORING_OP_SEND, IORING_OP_CONNECT are all supported as of Linux 5.19. IORING_OP_SEND_ZC (zero-copy send, Linux 6.0) eliminates the user-to-kernel copy on send by passing a reference to the user buffer that the kernel pins until the NIC DMA-reads it. TLS offload integration (kTLS + io_uring) allows encrypted sends without decrypting to user space. The io_uring ecosystem is evolving quickly; check kernel version requirements carefully."
+      ],
+      "bullets": [
+        "SQ polling (IORING_SETUP_SQPOLL): kernel thread polls SQ ring; zero syscalls in hot path",
+        "IORING_OP_SEND_ZC: zero-copy send; kernel pins user buffer until NIC DMA completes",
+        "Linked SQEs: chain operations so completions trigger next submission automatically"
+      ]
+    },
+    {
+      "title": "Beyond the Kernel: DPDK, XDP, and Kernel Bypass",
+      "paragraphs": [
+        "For workloads where even the optimized Linux kernel path is too slow, kernel bypass technologies process packets without entering the kernel at all. DPDK (Data Plane Development Kit) is a user-space framework that takes ownership of a NIC, polling for packets using huge pages and CPU pinning. The application implements its own packet processing: protocol parsing, routing, flow state—everything that the kernel would normally do. DPDK achieves <100 ns per-packet latency and 50+ Mpps per core, used in telco virtual network functions, financial trading engines, and large-scale DDoS mitigation.",
+        "XDP (eXpress Data Path) is a Linux kernel feature that runs eBPF programs at the NIC driver layer—after the interrupt, before the packet enters the socket buffer pipeline. XDP programs can drop packets (DDoS filtering, O(1) in hardware offload mode), redirect packets to other interfaces or user-space via AF_XDP sockets, or modify packet headers and pass to the normal stack. XDP achieves 10–25 Mpps per core with the eBPF constraint of limited loops and stack space—less flexible than DPDK but runs in-kernel without replacing the entire network stack.",
+        "AF_XDP sockets (Linux 4.18+) allow selective packet delivery from XDP to user-space ring buffers, bypassing the socket layer for specific flows. A QUIC server or DNS server can run with AF_XDP: an XDP program in the kernel classifies QUIC packets by Connection ID or DNS packets by port and delivers them directly to the user-space process's ring buffer. This provides near-DPDK performance with the operational simplicity of a standard Linux process (supports standard tooling, no kernel module, no huge page reservation).",
+        "Choosing the right model depends on packet rate requirements. Standard sockets: <1 Mpps, any application. epoll: 1–10 Mpps, event-driven servers. io_uring: 1–20 Mpps, storage+network unified. XDP/AF_XDP: 10–25 Mpps, security/filtering. DPDK: 25–100 Mpps, telco/HFT. The tradeoffs are engineering complexity and operational overhead: DPDK requires dedicated CPU cores, huge page configuration, and custom drivers. XDP requires eBPF expertise but is incremental."
+      ],
+      "bullets": [
+        "DPDK: user-space NIC ownership; <100 ns/packet; used in HFT and virtual network functions",
+        "XDP: eBPF at NIC driver layer; 10–25 Mpps; supports drop, redirect, pass decisions",
+        "AF_XDP: zero-copy delivery of classified packets to user-space rings; QUIC/DNS use case"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Linux Network Stack Basics",
         "paragraphs": [
-          "This draft covers Kernel Networking (epoll, io_uring). Run content:generate to expand it with a model provider, or edit manually."
+          "NIC DMA → hardware interrupt → softirq (NAPI polling) → protocol stack parsing → socket buffer → application. Each step has measurable overhead; NAPI amortizes interrupt cost at high packet rates.",
+          "RSS distributes NIC interrupts across CPUs by 4-tuple hash. RFS routes packets to the CPU running the socket's application thread for cache locality.",
+          "Send path: user-space buffer → kernel send buffer → TCP segmentation → IP headers → qdisc → NIC TX ring. Each user-to-kernel copy is expensive; zero-copy (sendfile, MSG_ZEROCOPY) eliminates it."
+        ],
+        "bullets": [
+          "NAPI: poll NIC while packets arrive; re-enable interrupts when ring empties",
+          "RSS requires NIC hardware support; RPS is software fallback",
+          "qdisc (queuing discipline): pacing and QoS applied to TX queue before NIC"
+        ]
+      },
+      {
+        "title": "epoll Event Loop",
+        "paragraphs": [
+          "epoll maintains kernel-side per-FD interest sets. epoll_wait() returns only ready events in O(events), not O(total FDs). This is the basis of Nginx, Redis, Node.js, asyncio.",
+          "Level-triggered (default) re-reports readability until buffer is consumed. Edge-triggered (EPOLLET) fires once per transition; requires non-blocking reads until EAGAIN.",
+          "EPOLLONESHOT prevents thundering herd in multi-threaded event loops by disabling the FD after the first event."
+        ],
+        "bullets": [
+          "epoll_ctl(EPOLL_CTL_ADD/MOD/DEL): manage interest set",
+          "epoll_wait(maxevents): returns up to maxevents ready descriptors",
+          "eventfd/timerfd/signalfd: non-socket events unified into epoll model"
+        ]
+      },
+      {
+        "title": "io_uring Fundamentals",
+        "paragraphs": [
+          "io_uring uses shared-memory ring buffers (SQ + CQ) between user space and kernel, reducing per-I/O syscall overhead. SQ polling mode eliminates syscalls entirely in hot paths.",
+          "Linked SQEs chain operations: read completion triggers send automatically in kernel, eliminating user-space round trips for proxy patterns.",
+          "Zero-copy send (IORING_OP_SEND_ZC) pins user buffer for NIC DMA; eliminates the last copy on the send path."
+        ],
+        "bullets": [
+          "io_uring_setup(): create ring with feature flags",
+          "io_uring_enter(): submit SQEs and optionally wait for CQEs (not needed with SQPOLL)",
+          "liburing: user-space library wrapping raw io_uring syscalls"
+        ]
+      },
+      {
+        "title": "Kernel Bypass: XDP and DPDK",
+        "paragraphs": [
+          "XDP runs eBPF programs at the NIC driver layer for 10–25 Mpps packet processing. Supports drop, redirect, and pass. AF_XDP delivers classified packets directly to user-space ring buffers.",
+          "DPDK takes complete NIC ownership in user space, achieving <100 ns/packet with dedicated CPU cores and huge pages.",
+          "Model selection: epoll for general servers, io_uring for storage+network, XDP for security/filtering, DPDK for telco/HFT."
+        ],
+        "bullets": [
+          "XDP offload mode: eBPF runs in NIC hardware, zero CPU cycles",
+          "AF_XDP: requires XDP redirect to XSKMAP; zero-copy with UMEM registration",
+          "DPDK requires isolcpus + hugepages; not suitable for general application servers"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Kernel Networking (epoll, io_uring) — Deep Dive",
+        "title": "Kernel Network Stack Optimization in Production",
         "paragraphs": [
-          "Extended treatment of Kernel Networking (epoll, io_uring): internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "sk_buff (socket buffer) is the kernel's per-packet data structure. Each skb carries the packet data, protocol headers, and metadata. Processing an skb involves multiple pointer dereferences and memory allocations; at high packet rates, skb allocation/deallocation is a CPU bottleneck. Generic Receive Offload (GRO) coalesces multiple TCP segments with the same 4-tuple into a single large skb before passing to the socket, reducing per-skb overhead by up to 10×. Generic Segmentation Offload (GSO) delays TCP segmentation until the last moment before the NIC, allowing the application to work with large buffers.",
+          "Busy polling (SO_BUSY_POLL) allows the application to spin on the socket receive queue instead of sleeping in epoll_wait(). When a packet arrives, the spinning thread sees it without any wakeup latency—critical for latency-sensitive applications like financial trading systems, where even 50μs epoll wakeup jitter is unacceptable. The tradeoff is 100% CPU usage for the polling thread; configure with net.core.busy_poll and net.core.busy_read sysctls. Busy polling is used in production by high-frequency trading systems and low-latency database clients.",
+          "TCP segmentation offload (TSO) moves TCP segmentation to the NIC hardware. Rather than the kernel CPU generating many small segments, the kernel sends one large (up to 64 KB) chunk to the NIC, which segments it according to negotiated MSS. This reduces CPU usage on the send path by 60–80% for large transfers. Similarly, Large Receive Offload (LRO) coalesces received segments in NIC hardware before DMA. TSO and LRO require NIC driver support; verify with ethtool -k <interface>."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "GRO: kernel coalesces received segments; reduces per-skb overhead",
+          "SO_BUSY_POLL: spin on RX queue instead of sleeping; reduces wakeup latency to <5μs",
+          "TSO/LRO: NIC handles segmentation/coalescing; reduces CPU on send/receive path"
+        ]
+      },
+      {
+        "title": "io_uring Production Adoption and Tradeoffs",
+        "paragraphs": [
+          "RocksDB, fio, and Seastar have adopted io_uring for storage I/O, achieving 30–50% throughput improvements over epoll+aio on NVMe SSDs. The gains are most pronounced when combining network and storage I/O in the same event loop—io_uring's unified submission model eliminates the need for separate epoll and libaio event loops with thread synchronization between them.",
+          "Security considerations: io_uring has had multiple high-severity vulnerabilities (CVE-2022-29582, CVE-2023-2598) due to complex kernel interactions. Some container runtime environments (Docker, containerd) disable io_uring by default via seccomp filters. When running in containers, verify io_uring availability; fall back gracefully to epoll if unavailable. Ubuntu 22.04 LTS restricts io_uring to processes with CAP_SYS_ADMIN in unprivileged containers by default.",
+          "Network-specific io_uring operations (IORING_OP_ACCEPT, RECV, SEND) have feature parity with epoll for most workloads as of Linux 5.19. The latency advantage over epoll is modest for network I/O compared to storage—the dominant cost is network RTT, not syscall overhead. For pure network servers, the main io_uring benefit is unified I/O model (same loop for disk reads and socket sends) rather than raw performance gain. The performance advantage is most visible in proxies and gateways that combine high-volume network I/O with disk logging or caching."
+        ],
+        "bullets": [
+          "io_uring CVE-2022-29582: use-after-free; patched in 5.17.3+",
+          "seccomp filter: container runtimes may block io_uring; test with liburing's provided test suite",
+          "Seastar framework: combines DPDK + io_uring + shared-nothing architecture; used by ScyllaDB"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Kernel Networking (epoll, io_uring) — Expert Notes",
+        "title": "Kernel Network Stack at Hyperscale",
         "paragraphs": [
-          "Expert considerations for Kernel Networking (epoll, io_uring): multi-region behavior, cost envelopes, and edge cases under overload."
+          "At hyperscale (Cloudflare, Google, Meta), the kernel network stack is frequently too slow or too inflexible. Meta's Katran uses XDP for load balancing at 100+ Gbps per server; it replaces the kernel's connection tracking with a custom ECMP consistent hash in eBPF. Cloudflare's Unimog uses XDP to implement anycast connection routing with per-packet steering decisions at the NIC driver layer. Neither would be feasible with standard iptables/netfilter, which serialize on a global lock and peak at ~1 Mpps.",
+          "The Linux kernel's networking code is a serialization bottleneck at multi-hundred-Gbps speeds because it was designed around locking abstractions suitable for 1 Gbps. DPDK removes all locks by dedicating CPU cores to polling—no sharing, no locks. eBPF/XDP achieves lock-free processing differently: each CPU core runs the eBPF program independently on its own NIC interrupt queue (via RSS), and eBPF programs use per-CPU maps for state. At 100 Gbps with 64-byte packets = 148 Mpps, only XDP offload (NIC hardware) or DPDK achieves line rate.",
+          "For multi-region, low-latency services, the kernel's interrupt coalescing can introduce 50–200μs of additional latency. Interrupt coalescing (adaptive-rx mode) delays interrupts until multiple packets arrive, trading latency for throughput. For trading systems, kernel-bypass is the answer. For general APIs, lowering ethtool --coalesce rx-usecs to 20–50μs (from the default 500μs) reduces interrupt latency at the cost of slightly higher CPU usage—a reasonable tradeoff for latency-sensitive services."
         ]
       }
     ]
   },
   "concepts": [
-    "Kernel Networking (epoll, io_uring): core idea"
+    "NAPI: NIC polling mode that batches packet processing to amortize interrupt overhead",
+    "sk_buff: kernel data structure representing a packet; allocation cost is a bottleneck at high packet rates",
+    "epoll: O(1) per-event I/O multiplexing via kernel red-black tree; basis of all modern event-driven servers",
+    "Edge-triggered vs level-triggered: epoll notification mode; edge requires read-until-EAGAIN discipline",
+    "io_uring: shared-memory ring buffer IPC between user space and kernel; zero syscalls with SQ polling",
+    "Zero-copy I/O: sendfile, MSG_ZEROCOPY, IORING_OP_SEND_ZC; eliminates user-to-kernel copy on send path",
+    "DPDK: user-space NIC ownership; <100 ns/packet; dedicated cores, huge pages required",
+    "XDP: eBPF at NIC driver layer; 10–25 Mpps; supports drop/redirect/pass without kernel stack entry",
+    "GRO/GSO/TSO: offload TCP coalescing and segmentation to kernel or NIC hardware",
+    "RSS/RPS/RFS: distribute NIC interrupt processing across CPUs for per-core scalability"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Use epoll with edge-triggered mode + non-blocking FDs for event loops; handle EAGAIN correctly",
+    "Enable GRO and TSO on production servers (verify with ethtool -k); they substantially reduce CPU on the network path",
+    "Profile CPU usage on the network path with perf before adopting DPDK or XDP; overhead may be in the application, not the kernel",
+    "Configure RSS to distribute NIC interrupts across CPUs; pin application threads to the same CPUs as NIC IRQs for cache locality",
+    "Evaluate io_uring for workloads that combine disk and network I/O in the same event loop",
+    "In containers, test io_uring availability at startup; seccomp filters may block it in restricted environments"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Using epoll level-triggered mode and not reading all available data; re-reports readability on every epoll_wait until buffer is consumed, consuming unnecessary CPU",
+    "Using epoll edge-triggered mode without reading until EAGAIN; connections silently stall when partial reads leave data in the buffer",
+    "Assuming io_uring is universally available; container seccomp filters and older kernels (< 5.1) don't support it",
+    "Enabling DPDK without profiling first; the engineering complexity is only justified at 25+ Mpps workloads",
+    "Not configuring RSS on multi-queue NICs; all packets processed on CPU 0, leaving other CPUs idle",
+    "Ignoring interrupt coalescing settings; default 500μs coalescing adds measurable latency to small-packet workloads"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Nginx Event Loop",
+      "description": "Nginx uses epoll in edge-triggered mode with non-blocking sockets. Each Nginx worker process runs a single event loop calling epoll_wait() in a tight loop. With SO_REUSEPORT, each worker has its own accept socket, eliminating lock contention. At 10,000 connections, Nginx uses roughly 10 MB of memory vs 10 GB for a thread-per-connection model. The epoll model allows Nginx to handle 100,000+ concurrent connections per worker on modern hardware."
+    },
+    {
+      "title": "Meta Katran XDP Load Balancer",
+      "description": "Meta's Katran uses XDP to implement a consistent-hash load balancer at >100 Gbps per server. An eBPF program runs at the NIC driver layer, parses IP/TCP headers, computes a consistent hash on the 5-tuple, and either XDP_REDIRECT packets to a backend or XDP_TX them back after IPIP/IPVS encapsulation. Per-CPU maps maintain connection tracking without locking. Katran handles 50 Mpps per server, replacing hardware load balancers at a fraction of the cost."
+    },
+    {
+      "title": "io_uring in ScyllaDB",
+      "description": "ScyllaDB's Seastar framework uses io_uring for all disk and network I/O, combined with DPDK for network processing and a shared-nothing architecture where each CPU core owns a shard of data. By eliminating cross-core locking and syscall overhead, ScyllaDB achieves 2× higher throughput than Cassandra on the same hardware. The io_uring integration specifically allows Seastar's event loop to dispatch thousands of disk reads per core per second without syscall overhead."
+    }
+  ],
   "keyTakeaways": [
-    "Kernel Networking (epoll, io_uring) belongs in the curriculum as evergreen content"
+    "epoll's O(1) per-event model is why modern event-driven servers (Nginx, Redis, Node.js) handle 100k+ concurrent connections with a single thread",
+    "io_uring eliminates per-I/O syscall overhead via shared-memory rings; most impactful for storage+network combined workloads",
+    "XDP runs eBPF at the NIC driver layer for 10–25 Mpps packet processing without custom kernel modules or dedicated cores",
+    "DPDK achieves <100 ns/packet with complete NIC ownership; justified only at 25+ Mpps with dedicated infrastructure",
+    "GRO, TSO, RSS, and RFS are kernel offloads that reduce CPU overhead; enable and verify them on every production server",
+    "Interrupt coalescing trades latency for throughput; tune for your workload rather than accepting kernel defaults"
   ],
-  "whyItMatters": "Understanding Kernel Networking (epoll, io_uring) improves design judgment for production systems.",
+  "whyItMatters": "Understanding kernel networking mechanics explains why Nginx handles 10,000 connections in a single thread while Apache struggled with 1,000. It explains why Redis is single-threaded yet fast, how Cloudflare absorbs Tbps DDoS attacks, and why io_uring is transforming storage-intensive services. Engineers who can reason about the kernel network path—from NIC interrupt to application recv()—can diagnose latency anomalies, design high-throughput data planes, and make informed decisions about when to use off-the-shelf event frameworks versus custom kernel bypass.",
   "reflectionQuestions": [
-    "When would you reach for Kernel Networking (epoll, io_uring) in a real design?"
+    "Your event-driven server using epoll edge-triggered mode occasionally hangs a specific client connection indefinitely while other connections work fine. What is the most likely cause, and how would you diagnose and fix it?",
+    "Design the I/O subsystem for a storage-backed reverse proxy (like nginx + disk cache) that must handle 500k RPS at <1ms p99. Walk through which I/O model you'd choose for network accepts, network reads, disk reads, and disk writes.",
+    "At what packet rate does the standard Linux kernel network path become a bottleneck, and what are the incremental steps from epoll → io_uring → XDP → DPDK to address it?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "~100–300 ns: syscall overhead per operation (kernel/user space context switch)",
+    "O(1): epoll_wait() return cost per ready event (vs O(n) for poll/select)",
+    "10–25 Mpps: XDP eBPF throughput per CPU core",
+    "25–100 Mpps: DPDK throughput per dedicated CPU core with huge pages",
+    "50–200 μs: default NIC interrupt coalescing latency; tunable via ethtool --coalesce"
   ],
   "diagrams": [
     {
-      "id": "net-kernel-overview",
-      "title": "Kernel Networking (epoll, io_uring) overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "net-kernel-io-models",
+      "title": "Linux I/O Model Evolution",
+      "mermaid": "flowchart LR\n  NIC -->|DMA| RingBuffer[NIC Ring Buffer]\n  RingBuffer -->|NAPI softirq| ProtoStack[Protocol Stack]\n  ProtoStack -->|sk_buff| SockBuf[Socket Recv Buffer]\n  SockBuf -->|select/poll O-n| AppPoll[App - poll]\n  SockBuf -->|epoll O-1| AppEpoll[App - epoll]\n  SockBuf -->|io_uring CQ ring| AppIouring[App - io_uring]\n  SockBuf -->|AF_XDP zero-copy| AppXdp[App - AF_XDP]\n  NIC -->|XDP hook| XdpProg[XDP eBPF Program]\n  XdpProg -->|XDP_PASS| ProtoStack\n  XdpProg -->|XDP_DROP| Dropped[Dropped]\n  XdpProg -->|XDP_REDIRECT| AppXdp"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Kernel Networking (epoll, io_uring) and the main trade-offs in 3 minutes."
+    "Explain the difference between select(), poll(), and epoll(). Why is epoll O(1) per event while poll() is O(n)?",
+    "What is NAPI and why was it introduced? How does it interact with interrupt coalescing and packet processing latency?",
+    "You need to build a DNS server that handles 10 Mpps on a single machine. Walk through the I/O architecture you'd choose and why."
   ],
   "exercises": [
-    "Design a small system that depends on Kernel Networking (epoll, io_uring); list 3 trade-offs."
+    "Write a minimal epoll-based TCP echo server in C or Go that handles 10,000 concurrent connections. Measure memory usage and compare to a thread-per-connection implementation.",
+    "Use perf stat to measure CPU time spent in softirq processing during a 1 Gbps iperf3 flood. Enable GRO (ethtool -K <iface> gro on) and re-measure to quantify the reduction in per-packet CPU overhead."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "The Linux Kernel — Networking documentation",
+      "url": "https://www.kernel.org/doc/html/latest/networking/"
+    },
+    {
+      "title": "Efficient I/O with io_uring (Jens Axboe, 2019)",
+      "url": "https://kernel.dk/io_uring.pdf"
+    },
+    {
+      "title": "XDP (eXpress Data Path) Paper — CONEXT 2018",
+      "url": "https://dl.acm.org/doi/10.1145/3281411.3281443"
+    },
+    {
+      "title": "The C10K Problem (Dan Kegel)",
+      "url": "http://www.kegel.com/c10k.html"
+    }
+  ],
   "relatedLessons": [
     "net-bgp-anycast",
-    "net-http",
-    "net-lb-proxy"
+    "net-congestion",
+    "net-http"
   ]
 }

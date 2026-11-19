@@ -1,100 +1,232 @@
 {
   "id": "fund-clocks",
-  "title": "Clocks (Lamport, Vector, HLC)",
+  "title": "Clocks & Time in Distributed Systems",
   "moduleId": "distributed-systems",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "Clocks (Lamport, Vector, HLC) — draft awaiting generation and review.",
+  "durationMinutes": 38,
+  "summary": "Time is fundamentally broken in distributed systems. Physical clocks drift, NTP synchronization introduces uncertainty, and there is no global 'now' across machines. Logical clocks (Lamport, vector) and hybrid logical clocks provide partial ordering guarantees without synchronized physical time. Understanding these mechanisms is essential for reasoning about causality, ordering events, and debugging distributed system behavior.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "dist-cap-consensus"
-  ],
-  "tags": [
-    "distributed-systems",
-    "evergreen",
-    "fundamentals"
-  ],
+  "prerequisites": ["fund-distributed"],
+  "tags": ["distributed-systems", "clocks", "causality", "evergreen", "fundamentals"],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Why Physical Clocks Cannot Be Trusted",
       "paragraphs": [
-        "This draft covers Clocks (Lamport, Vector, HLC). Run content:generate to expand it with a model provider, or edit manually."
+        "Every computer has a quartz crystal oscillator that generates clock ticks, but quartz crystals drift—they run slightly faster or slower than actual time. Modern servers drift at 10–200ms per day without synchronization. NTP (Network Time Protocol) corrects this drift by periodically synchronizing with time servers, but NTP's accuracy over the internet is 10–100ms; within a datacenter it's 1–10ms; with GPS-disciplined sources it's microseconds. Even with NTP, two servers in the same datacenter may disagree on the current time by several milliseconds.",
+        "Clock skew and clock jumps cause subtle bugs. If server A writes at timestamp 10:00:00.100 and server B reads at timestamp 10:00:00.095 (5ms earlier due to clock skew), and you use timestamps to establish ordering, the read appears to precede the write. Database systems that use last-write-wins conflict resolution (DynamoDB, Cassandra) rely on timestamps being reliable—clock skew can cause older writes to overwrite newer ones. This is not theoretical; Facebook and Amazon have documented real data loss incidents caused by clock skew in production.",
+        "Leap seconds introduce additional discontinuity. The earth's rotation is irregular; UTC is periodically adjusted by inserting a leap second. Many systems (Linux, Java) implement leap seconds as a step change—the system clock jumps backward one second. Applications that compute durations using wall-clock subtraction see negative durations or doubled-second periods. The standard mitigation is leap-second smearing: spread the correction over a 24-hour window, adjusting the clock rate imperceptibly rather than jumping. Google, Amazon, and Linux kernels support smearing."
+      ],
+      "bullets": [
+        "Quartz drift: 10–200ms/day without correction; NTP corrects to 1–100ms accuracy",
+        "Clock skew: two servers may differ by several ms; last-write-wins conflict resolution is affected",
+        "Clock jumps: NTP step corrections can cause time to jump backward or forward",
+        "Leap seconds: UTC step adjustment causes negative durations in subtraction; use smearing"
+      ]
+    },
+    {
+      "title": "Lamport Timestamps: Logical Clocks",
+      "paragraphs": [
+        "Leslie Lamport's 1978 paper 'Time, Clocks, and the Ordering of Events in a Distributed System' introduced the happens-before relation (denoted →). Event A → event B if: A and B occur on the same process and A before B; or A is a send of a message and B is the receipt of that message; or transitively. The happens-before relation defines a partial order: some pairs of events are ordered (one happens-before the other), and some are concurrent (neither happens-before the other).",
+        "Lamport clocks implement this: each process maintains a counter. On local event: increment counter. On send: increment counter, attach to message. On receive: set counter = max(local_counter, received_counter) + 1. If event A → event B, then clock(A) < clock(B). The converse is NOT guaranteed: clock(A) < clock(B) does not imply A → B (they might be concurrent). Lamport clocks distinguish ordered events from concurrent ones only in one direction.",
+        "Use cases for Lamport timestamps: establishing a consistent ordering for distributed logging (all events across all services ordered by Lamport timestamp), implementing distributed mutual exclusion (Lamport's mutex algorithm uses timestamp-ordered queues), and providing a simple basis for distributed snapshots (Chandy-Lamport algorithm). The key limitation: you cannot distinguish 'concurrent' from 'causally related but we don't have full context.'"
+      ],
+      "bullets": [
+        "Happens-before (→): same process order, send→receive, or transitivity",
+        "Lamport clock rule: on receive, L = max(local, received) + 1",
+        "If A → B then clock(A) < clock(B); converse NOT guaranteed",
+        "Limitation: cannot distinguish concurrent events from causally related ones"
+      ]
+    },
+    {
+      "title": "Vector Clocks: Capturing Full Causality",
+      "paragraphs": [
+        "Vector clocks extend Lamport timestamps to fully capture causality. Each process maintains a vector of N counters (one per process). On local event: increment own counter. On send: increment own counter, send full vector. On receive: set each component to max(local[i], received[i]), then increment own component. Now: event A causally precedes event B if and only if A's vector clock is component-wise less than or equal to B's (and strictly less in at least one component). Incomparable vectors indicate concurrent events.",
+        "DynamoDB, Riak, and Voldemort (LinkedIn's key-value store) use vector clocks to track object versions across replicas. When a client writes an object, the new version's vector clock reflects which replica it was written to. If two concurrent writes produce incomparable vector clocks, the system surfaces the conflict to the application rather than silently dropping data. The application resolves the conflict using domain logic (shopping cart: set union of items; counter: sum the increments).",
+        "The limitation of vector clocks is space: a vector of N counters grows linearly with cluster size. For large clusters (hundreds of nodes), vector clocks become expensive. Dotted version vectors (Basho/Riak's extension) and interval tree clocks provide more compact representations. For most practical systems (tens of nodes), standard vector clocks are fine. For event streams with many-to-many causal relationships, consider logical timestamps augmented with causal dependencies stored as references."
+      ],
+      "bullets": [
+        "Vector clock: array of N counters; captures full causality; incomparable = concurrent",
+        "On receive: take component-wise max, then increment own component",
+        "DynamoDB/Riak: vector clocks detect conflicting concurrent writes; application resolves",
+        "Space: O(N) per clock; impractical for very large clusters; use dotted version vectors"
+      ]
+    },
+    {
+      "title": "Hybrid Logical Clocks (HLC)",
+      "paragraphs": [
+        "Hybrid Logical Clocks (Kulkarni et al., 2014) combine physical and logical clocks to get the best of both worlds: they provide the causality tracking of logical clocks while staying close to physical time (within a bounded skew). HLC format: [wall_clock_time, logical_counter]. The wall_clock_time component is always the physical timestamp or the highest received timestamp (never goes backward). The logical_counter disambiguates events with the same wall_clock_time. The result: events can be queried by approximate physical time, while causality is tracked correctly.",
+        "CockroachDB uses HLC as its primary timestamp mechanism. When a transaction starts, it gets an HLC timestamp. When a write is replicated to followers, the HLC propagates to maintain causal ordering across the cluster. CockroachDB's clock uncertainty window (the spread between node clocks, typically <500ms) determines how long transactions must wait to ensure global consistency. If node A's clock says 1:00:00.500 and node B's clock says 1:00:00.000, CockroachDB adds an uncertainty delay to transactions that might straddle the boundary.",
+        "Spanner's TrueTime extends HLC further: GPS receivers and atomic clocks provide a [earliest, latest] time interval with guaranteed bounds. Spanner uses the upper bound as the commit timestamp and waits (commit-wait) for TrueTime.now > upper_bound before returning to the client. This ensures external consistency: no subsequent transaction (which starts after commit returns) can have a lower timestamp. The commit-wait (at most a few milliseconds) is the price of global consistency without central coordination."
+      ],
+      "bullets": [
+        "HLC: [wall_clock, logical_counter]; combines physical time with logical causality tracking",
+        "CockroachDB HLC: uncertainty window bounded by NTP accuracy; transactions wait out uncertainty",
+        "Spanner TrueTime: GPS/atomic clock; guaranteed [earliest, latest] interval; commit-wait",
+        "HLC advantage: events can be queried by physical time; monotonic; never goes backward"
+      ]
+    },
+    {
+      "title": "Practical Implications: Distributed Tracing, Debugging, and Ordering",
+      "paragraphs": [
+        "Distributed tracing relies on propagating context—including timestamps—across service calls. OpenTelemetry's trace context (W3C TraceContext header) propagates trace ID, span ID, and flags. When combined with accurate timestamp logging, you can reconstruct the causal chain of events across services. The practical rule: always log event timestamps from the same NTP-synchronized source (use a time server in your datacenter, not each host's local clock) and log at both the sender and receiver to detect transmission latency.",
+        "Debugging 'events happened before they should have' is a common distributed system mystery caused by clock skew. A common symptom: log entry from service B appears before log entry from service A, even though A's log entry triggered the call to B. The diagnosis: compare timestamps across services, accounting for clock skew. If service A's timestamp is 10:00:00.100 and service B's is 10:00:00.095 for an event that should follow A's, clock skew of ~5ms between hosts explains the inversion. Solution: use Lamport or vector timestamps for event ordering in logs, not wall-clock timestamps.",
+        "Database replication and ordering: when a primary fails and a replica takes over, the new primary may not have all writes from the old primary (asynchronous replication lag). Any client that read the last value from the old primary and then writes to the new primary based on that read is working with potentially stale data. This is why strong consistency databases (etcd, CockroachDB, Spanner) are preferred when you need read-then-write correctness. For eventually consistent systems, optimistic locking (compare-and-swap with version numbers) prevents writing over data that has changed since you last read it."
+      ],
+      "bullets": [
+        "Distributed tracing: propagate trace ID + timestamp; use synchronized NTP source for all hosts",
+        "Clock-skew debugging: log event at sender + receiver; compare to identify skew",
+        "Replication lag: replica may miss writes from failed primary; potential for stale reads after failover",
+        "Optimistic locking: compare-and-swap with version; prevents writing over updated data"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Physical Clock Limitations",
         "paragraphs": [
-          "This draft covers Clocks (Lamport, Vector, HLC). Run content:generate to expand it with a model provider, or edit manually."
+          "Physical clocks drift and skew. NTP accuracy: 1–100ms. Last-write-wins using physical timestamps is unsafe; clock skew can overwrite newer data with older data.",
+          "Leap seconds and step corrections cause time to jump backward; use smearing to spread the correction.",
+          "Design rule: never use physical timestamps for causal ordering; use logical clocks or version numbers."
+        ]
+      },
+      {
+        "title": "Lamport and Vector Clocks",
+        "paragraphs": [
+          "Lamport: each process increments a counter on events and receives; if A→B then clock(A)<clock(B); converse not guaranteed.",
+          "Vector clocks: N-dimensional; captures full causality; incomparable vectors = concurrent; used in DynamoDB, Riak for conflict detection.",
+          "HLC: combines physical + logical; stays close to wall clock; used in CockroachDB."
+        ]
+      },
+      {
+        "title": "Practical Debugging",
+        "paragraphs": [
+          "Use Lamport timestamps in logs for ordering across services, not wall-clock times.",
+          "Distributed tracing propagates context; always synchronize NTP from a datacenter source.",
+          "Replication lag after failover may cause stale reads; use optimistic locking or strong-consistency reads."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Clocks (Lamport, Vector, HLC) — Deep Dive",
+        "title": "Chandy-Lamport Distributed Snapshot Algorithm",
         "paragraphs": [
-          "Extended treatment of Clocks (Lamport, Vector, HLC): internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "The Chandy-Lamport algorithm captures a consistent global snapshot of a distributed system without pausing execution. A snapshot represents a consistent cut: a set of local states and in-transit messages such that for every message in the snapshot as sent, its send event is included in the snapshot. This is the foundation of Flink's checkpoint mechanism.",
+          "Algorithm: an initiator records its local state and sends a marker message on all outgoing channels. When a process receives a marker: if it has not yet recorded its state, it records its local state and sends a marker on all outgoing channels; if it has already recorded its state, it records all messages received since it recorded its state on that channel. When the initiator has received markers from all channels, the snapshot is complete.",
+          "Applications: detecting global properties (deadlock detection, termination detection), checkpointing for fault recovery (Flink's chandy-lamport-based checkpoint barriers), and debugging (taking a consistent snapshot of a running distributed system for offline analysis)."
+        ]
+      },
+      {
+        "title": "Interval Tree Clocks and Dotted Version Vectors",
+        "paragraphs": [
+          "Standard vector clocks require knowing the set of all nodes in advance and grow with cluster size. Interval Tree Clocks (ITC) generalize vector clocks to handle dynamic node membership: each process holds a subset of an identity tree, and clocks can be forked and joined as nodes join and leave. This is elegant for peer-to-peer systems where membership changes frequently.",
+          "Dotted version vectors (DVV), used in Riak since 2012, solve the false sibling problem in key-value stores with multi-master replication. Standard vector clocks in Riak could generate false conflicts (two non-conflicting writes appearing concurrent due to how versions are tracked). DVVs track which specific write each replica has seen, eliminating false conflicts while maintaining true conflict detection. The key insight: attaching a 'dot' (server, counter) to each object version instead of using a full vector."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Clocks (Lamport, Vector, HLC) — Expert Notes",
+        "title": "Expert: Time-Based Partitioning and Skew in Analytics",
         "paragraphs": [
-          "Expert considerations for Clocks (Lamport, Vector, HLC): multi-region behavior, cost envelopes, and edge cases under overload."
+          "Event-time skew in analytics databases causes data to arrive in the wrong partition. If you partition an analytics table by event_day but mobile events arrive 24 hours late, they land in yesterday's partition after you've already frozen it. Delta Lake and Apache Iceberg handle this with partition evolution and upsert capabilities, allowing late-arriving data to be inserted into the correct historical partition without full table rewrite.",
+          "Clock skew in distributed databases causes read anomalies. In a linearizable system, a read that starts after a write completes must see that write. With clock skew, a database server whose clock is behind may serve a read using a timestamp that precedes the write's commit timestamp—even though the read started after the write returned. Spanner's commit-wait and CockroachDB's uncertainty intervals both address this by ensuring that the commit timestamp of any transaction is strictly in the past relative to any observer's clock."
         ]
       }
     ]
   },
   "concepts": [
-    "Clocks (Lamport, Vector, HLC): core idea"
+    "Clock drift: quartz crystals run fast or slow; require NTP correction; residual skew 1–100ms",
+    "Clock skew: two clocks disagree on current time; dangerous for last-write-wins conflict resolution",
+    "Happens-before (→): partial order relation; same-process ordering + message send/receive",
+    "Lamport clock: logical counter; if A→B then clock(A)<clock(B); converse not guaranteed",
+    "Vector clock: N-dimensional counter; captures full causality; incomparable = concurrent",
+    "Hybrid Logical Clock (HLC): combines physical + logical; monotonic; stays close to wall time",
+    "TrueTime: GPS/atomic clock guaranteed time interval [earliest, latest]; Spanner's approach",
+    "Chandy-Lamport: distributed snapshot algorithm; captures consistent global state without pausing",
+    "Leap second: UTC correction; causes time to jump; use smearing to avoid application bugs",
+    "Optimistic locking: compare-and-swap on version number; prevents lost updates under concurrent writes"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Never use wall-clock timestamps for causal ordering between distributed systems; use logical clocks",
+    "Use NTP with a datacenter time server (not each host's default NTP pool) for tighter synchronization",
+    "Enable NTP leap-second smearing on all servers to avoid negative duration bugs",
+    "Propagate distributed trace context including logical timestamps across all service calls",
+    "Use optimistic locking (version number compare-and-swap) for read-then-write operations across services",
+    "Log timestamps at both sender and receiver to diagnose clock skew in production",
+    "In last-write-wins databases (Cassandra, DynamoDB), verify NTP health before trusting timestamp-based conflict resolution"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Using wall-clock timestamps for event ordering—clock skew causes events to appear in wrong order",
+    "Last-write-wins with skewed clocks—older writes overwrite newer ones silently",
+    "Not handling leap seconds—subtraction of wall-clock times yields negative durations",
+    "Assuming NTP gives sub-millisecond accuracy—over internet, NTP accuracy is 10–100ms",
+    "Storing wall-clock time without timezone—ambiguous during daylight saving transitions",
+    "Using vector clocks in a system with hundreds of nodes—O(N) per clock becomes expensive"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "CockroachDB Serializable Transactions Across Regions",
+      "description": "CockroachDB uses HLC to provide serializable transactions across geographically distributed nodes. Each transaction is assigned an HLC timestamp. When a transaction on a US-East node reads data last written by a US-West node, it checks the HLC to determine whether the write causally precedes the read. If clocks are within the uncertainty window, CockroachDB either waits or restarts the transaction to ensure correctness—trading a small latency increase for guaranteed serializable isolation."
+    },
+    {
+      "title": "Riak's Conflict Detection with Vector Clocks",
+      "description": "Riak (a Dynamo-inspired key-value store) uses vector clocks to track object versions. If two clients simultaneously update the same object on two different replicas, Riak detects the conflict when the replicas sync: both write's vector clocks are incomparable (neither causally precedes the other). The application receives both versions as siblings and must merge them. For shopping carts, the merge is set union. For user profiles, the application displays both and asks the user to resolve."
+    }
+  ],
   "keyTakeaways": [
-    "Clocks (Lamport, Vector, HLC) belongs in the curriculum as evergreen content"
+    "Physical clocks cannot be trusted for distributed event ordering; NTP accuracy is milliseconds, not nanoseconds",
+    "Lamport clocks: if A→B then clock(A)<clock(B); useful for establishing global event ordering",
+    "Vector clocks: fully capture causality; incomparable vectors = concurrent; used for conflict detection",
+    "HLC: combines physical + logical; stays close to wall time; CockroachDB's production solution",
+    "Spanner TrueTime: GPS/atomic clock uncertainty bounds; commit-wait achieves external consistency",
+    "Never use last-write-wins with unsynchronized clocks; use version vectors or logical timestamps instead"
   ],
-  "whyItMatters": "Understanding Clocks (Lamport, Vector, HLC) improves design judgment for production systems.",
+  "whyItMatters": "Time-related bugs are among the most subtle and damaging in distributed systems. Clock skew causing data overwrites, stale reads after failover, and ordering inversions in event logs are real production incidents at scale. Understanding logical clocks and their trade-offs enables you to design systems that order events correctly, detect conflicts reliably, and debug time-related anomalies systematically.",
   "reflectionQuestions": [
-    "When would you reach for Clocks (Lamport, Vector, HLC) in a real design?"
+    "Two servers have 50ms of clock skew. You use last-write-wins to resolve concurrent writes to DynamoDB. Describe a scenario where this causes data loss.",
+    "How does the Chandy-Lamport snapshot algorithm enable Flink's exactly-once checkpointing?",
+    "When would you choose HLC over pure vector clocks, and what are you trading off?",
+    "Your distributed log shows service A's event at timestamp T and service B's event (triggered by A's response) at T-5ms. What is the most likely explanation?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "NTP accuracy: 10–100ms over internet; 1–10ms intra-datacenter; <1ms with GPS-disciplined PTP",
+    "Quartz drift: 10–200ms/day without NTP correction",
+    "Spanner TrueTime uncertainty: typically <7ms; commit-wait bounded by this",
+    "CockroachDB uncertainty window: typically 250–500ms (configurable based on NTP accuracy)",
+    "Leap second: approximately one per 18 months on average"
   ],
   "diagrams": [
     {
-      "id": "fund-clocks-overview",
-      "title": "Clocks (Lamport, Vector, HLC) overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-clocks-lamport",
+      "title": "Lamport Clock Example",
+      "mermaid": "sequenceDiagram\n  participant A as Process A\n  participant B as Process B\n  A->>A: event (L=1)\n  A->>B: send msg (L=2)\n  B->>B: receive (L=max(0,2)+1=3)\n  B->>B: local event (L=4)\n  B->>A: send reply (L=5)\n  A->>A: receive (L=max(2,5)+1=6)"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Clocks (Lamport, Vector, HLC) and the main trade-offs in 3 minutes."
+    "Why can't we use physical timestamps to establish event ordering in a distributed system?",
+    "Explain vector clocks and how they detect concurrent updates in DynamoDB or Riak.",
+    "What is the difference between Lamport timestamps and vector clocks?",
+    "How does CockroachDB's HLC achieve serializable transactions across geographically distributed nodes?",
+    "What is a leap second and how should distributed systems handle it?"
   ],
   "exercises": [
-    "Design a small system that depends on Clocks (Lamport, Vector, HLC); list 3 trade-offs."
+    "Trace the vector clock values for three processes (A, B, C) through a sequence of 10 events including two message exchanges. Identify which pairs of events are concurrent.",
+    "Design a distributed logging system that uses Lamport timestamps to establish a total event order across 10 microservices.",
+    "Analyze a CockroachDB transaction retry scenario: draw the timeline showing uncertainty interval overlap and the restart trigger."
   ],
-  "sources": [],
+  "sources": [
+    { "title": "Time, Clocks, and the Ordering of Events in a Distributed System — Leslie Lamport, 1978" },
+    { "title": "Spanner: Google's Globally Distributed Database — Corbett et al., OSDI 2012" },
+    { "title": "Logical Physical Clocks and Consistent Snapshots (HLC paper) — Kulkarni et al., 2014" },
+    { "title": "Designing Data-Intensive Applications — Martin Kleppmann, Chapter 8" }
+  ],
   "relatedLessons": [
-    "dist-cap-consensus",
+    "fund-distributed",
     "fund-consistency-models",
     "fund-crdts"
   ]

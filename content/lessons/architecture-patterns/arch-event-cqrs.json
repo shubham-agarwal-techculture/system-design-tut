@@ -3,12 +3,12 @@
   "title": "Event-Driven, CQRS & Event Sourcing",
   "moduleId": "architecture-patterns",
   "phaseId": "architecture",
-  "durationMinutes": 30,
-  "summary": "Event-Driven, CQRS & Event Sourcing — draft awaiting generation and review.",
+  "durationMinutes": 50,
+  "summary": "Event-driven architectures communicate via events. CQRS separates write and read models. Event sourcing stores state as an append-only event log. Powerful patterns — easy to overcomplicate.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "arch-clean-ddd"
@@ -20,82 +20,146 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Event-driven integration",
       "paragraphs": [
-        "This draft covers Event-Driven, CQRS & Event Sourcing. Run content:generate to expand it with a model provider, or edit manually."
+        "Services publish facts about what happened. Consumers update their own state. Loose coupling improves autonomy; debugging becomes distributed."
+      ]
+    },
+    {
+      "title": "CQRS",
+      "paragraphs": [
+        "Writes optimize for invariants; reads optimize for queries via projections. Eventual consistency between sides is normal — design UX for it."
+      ]
+    },
+    {
+      "title": "Event sourcing",
+      "paragraphs": [
+        "State = fold(events). Auditing and replay shine; schema evolution and snapshots become mandatory ops. Not every domain wants this complexity."
+      ]
+    },
+    {
+      "title": "When not to",
+      "paragraphs": [
+        "CRUD with modest scale often needs a modular monolith first. Introduce events at real integration boundaries."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Event-driven integration",
         "paragraphs": [
-          "This draft covers Event-Driven, CQRS & Event Sourcing. Run content:generate to expand it with a model provider, or edit manually."
+          "Services publish facts about what happened. Consumers update their own state. Loose coupling improves autonomy; debugging becomes distributed."
+        ]
+      },
+      {
+        "title": "CQRS",
+        "paragraphs": [
+          "Writes optimize for invariants; reads optimize for queries via projections. Eventual consistency between sides is normal — design UX for it."
+        ]
+      },
+      {
+        "title": "Event sourcing",
+        "paragraphs": [
+          "State = fold(events). Auditing and replay shine; schema evolution and snapshots become mandatory ops. Not every domain wants this complexity."
+        ]
+      },
+      {
+        "title": "When not to",
+        "paragraphs": [
+          "CRUD with modest scale often needs a modular monolith first. Introduce events at real integration boundaries."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Event-Driven, CQRS & Event Sourcing — Deep Dive",
+        "title": "Event-Driven, CQRS & Event Sourcing — Operations",
         "paragraphs": [
-          "Extended treatment of Event-Driven, CQRS & Event Sourcing: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating Event-Driven, CQRS & Event Sourcing in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Event-Driven, CQRS & Event Sourcing — Failure modes",
+        "paragraphs": [
+          "Common failures around Event-Driven, CQRS & Event Sourcing include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Event-Driven, CQRS & Event Sourcing — Expert Notes",
+        "title": "Event-Driven, CQRS & Event Sourcing — Expert notes",
         "paragraphs": [
-          "Expert considerations for Event-Driven, CQRS & Event Sourcing: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, Event-Driven, CQRS & Event Sourcing intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "Event-Driven, CQRS & Event Sourcing: core idea"
+    "Domain event",
+    "Projection",
+    "CQRS",
+    "Event store",
+    "Snapshotting"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Keep events business-meaningful",
+    "Version events",
+    "Make projections rebuildable"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Event soup of technical notifications",
+    "Unrebuildable read models",
+    "CQRS everywhere by dogma"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Banking ledgers",
+      "description": "Natural event-sourced domains."
+    },
+    {
+      "title": "Shopping cart projections",
+      "description": "CQRS read models for queries."
+    }
+  ],
   "keyTakeaways": [
-    "Event-Driven, CQRS & Event Sourcing belongs in the curriculum as evergreen content"
+    "Events decouple at a cost of complexity",
+    "CQRS/ES need rebuild and versioning discipline"
   ],
-  "whyItMatters": "Understanding Event-Driven, CQRS & Event Sourcing improves design judgment for production systems.",
+  "whyItMatters": "These patterns dominate modern service design discussions; misuse creates distributed monoliths of events.",
   "reflectionQuestions": [
-    "When would you reach for Event-Driven, CQRS & Event Sourcing in a real design?"
+    "Where do you need rebuildable audit history vs simple CRUD?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "arch-event-cqrs-overview",
       "title": "Event-Driven, CQRS & Event Sourcing overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Event-Driven, CQRS & Event Sourcing and the main trade-offs in 3 minutes."
+    "Explain Event-Driven, CQRS & Event Sourcing and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on Event-Driven, CQRS & Event Sourcing; list 3 trade-offs."
+    "Sketch a design that depends on Event-Driven, CQRS & Event Sourcing; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
+    "arch-bff",
     "arch-clean-ddd",
-    "arch-hexagonal-ddd",
-    "arch-monolith-micro"
+    "arch-hexagonal-ddd"
   ]
 }

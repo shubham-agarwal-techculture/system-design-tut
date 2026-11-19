@@ -3,15 +3,16 @@
   "title": "QUIC Internals",
   "moduleId": "networking",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "QUIC Internals — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "QUIC is a UDP-based multiplexed transport with TLS 1.3 integrated into the handshake. It removes head-of-line blocking at the stream layer, enables 0-RTT, and is the substrate for HTTP/3 — but it changes how middleboxes, load balancers, and debugging work.",
   "kind": "living",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "net-load-balancing"
+    "net-tcp-ip",
+    "net-http"
   ],
   "tags": [
     "networking",
@@ -20,82 +21,180 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Why QUIC exists",
       "paragraphs": [
-        "This draft covers QUIC Internals. Run content:generate to expand it with a model provider, or edit manually."
+        "TCP + TLS + HTTP/2 still suffers connection setup cost (multiple RTTs) and head-of-line blocking: a lost TCP packet stalls all multiplexed HTTP/2 streams because TCP delivers a single ordered byte stream. On lossy mobile networks this dominates tail latency.",
+        "QUIC moves stream multiplexing into userspace over UDP. Each stream has independent flow control. A lost packet only blocks streams that need that data. Connection migration lets a client keep a connection ID when the IP/port changes (Wi-Fi to cellular).",
+        "TLS 1.3 is baked into the QUIC handshake, reducing round trips. 0-RTT can send application data on the first flight using prior session keys — with replay risks you must design for."
+      ],
+      "bullets": [
+        "UDP substrate + encrypted transport headers",
+        "Stream-level multiplexing without TCP HOL blocking",
+        "Connection IDs enable migration across network paths"
+      ]
+    },
+    {
+      "title": "Packets, frames, and streams",
+      "paragraphs": [
+        "QUIC packets contain frames: STREAM, ACK, MAX_DATA, CONNECTION_CLOSE, CRYPTO, and others. Stream frames carry application bytes with offsets. Flow control exists at connection and stream scope.",
+        "Unlike TCP, much of the header is encrypted after the handshake, which breaks traditional middlebox parsing. Operators rely on Connection IDs, spin bit (limited), and endpoint telemetry rather than deep packet inspection of sequence numbers.",
+        "Loss detection uses ACK frames and probe timeouts rather than classic TCP dup-ACK alone. Implementations (Chromium, quiche, mvfst, quic-go) differ in pacing and congestion controllers (often CUBIC or BBR variants)."
+      ]
+    },
+    {
+      "title": "HTTP/3 and deployment realities",
+      "paragraphs": [
+        "HTTP/3 maps requests onto QUIC streams. Alt-Svc / HTTPS DNS records advertise h3. Clients often race TCP and QUIC and prefer the winner — so your edge must handle both.",
+        "Load balancing QUIC is harder: Connection IDs must be routed consistently, and retries after CID changes need shared state or CID-aware L4 balancers. UDP payload sizes and ICMP fragmentation interact poorly with poorly configured paths.",
+        "Debugging shifts from tcpdump-friendly cleartext headers to qlog and endpoint metrics. Plan observability before a wholesale h3 cutover."
+      ]
+    },
+    {
+      "title": "When QUIC helps — and when it does not",
+      "paragraphs": [
+        "QUIC shines for browsers, APIs over lossy links, and connection migration. It helps less when you already terminate TLS at a nearby edge over excellent networks, or when enterprise firewalls block UDP 443.",
+        "gRPC and many internal RPC stacks still sit on HTTP/2 over TCP. Do not assume QUIC is universally available inside data centers — measure, then choose."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Why QUIC exists",
         "paragraphs": [
-          "This draft covers QUIC Internals. Run content:generate to expand it with a model provider, or edit manually."
+          "TCP + TLS + HTTP/2 still suffers connection setup cost (multiple RTTs) and head-of-line blocking: a lost TCP packet stalls all multiplexed HTTP/2 streams because TCP delivers a single ordered byte stream. On lossy mobile networks this dominates tail latency.",
+          "QUIC moves stream multiplexing into userspace over UDP. Each stream has independent flow control. A lost packet only blocks streams that need that data. Connection migration lets a client keep a connection ID when the IP/port changes (Wi-Fi to cellular).",
+          "TLS 1.3 is baked into the QUIC handshake, reducing round trips. 0-RTT can send application data on the first flight using prior session keys — with replay risks you must design for."
+        ],
+        "bullets": [
+          "UDP substrate + encrypted transport headers",
+          "Stream-level multiplexing without TCP HOL blocking",
+          "Connection IDs enable migration across network paths"
+        ]
+      },
+      {
+        "title": "Packets, frames, and streams",
+        "paragraphs": [
+          "QUIC packets contain frames: STREAM, ACK, MAX_DATA, CONNECTION_CLOSE, CRYPTO, and others. Stream frames carry application bytes with offsets. Flow control exists at connection and stream scope.",
+          "Unlike TCP, much of the header is encrypted after the handshake, which breaks traditional middlebox parsing. Operators rely on Connection IDs, spin bit (limited), and endpoint telemetry rather than deep packet inspection of sequence numbers.",
+          "Loss detection uses ACK frames and probe timeouts rather than classic TCP dup-ACK alone. Implementations (Chromium, quiche, mvfst, quic-go) differ in pacing and congestion controllers (often CUBIC or BBR variants)."
+        ]
+      },
+      {
+        "title": "HTTP/3 and deployment realities",
+        "paragraphs": [
+          "HTTP/3 maps requests onto QUIC streams. Alt-Svc / HTTPS DNS records advertise h3. Clients often race TCP and QUIC and prefer the winner — so your edge must handle both.",
+          "Load balancing QUIC is harder: Connection IDs must be routed consistently, and retries after CID changes need shared state or CID-aware L4 balancers. UDP payload sizes and ICMP fragmentation interact poorly with poorly configured paths.",
+          "Debugging shifts from tcpdump-friendly cleartext headers to qlog and endpoint metrics. Plan observability before a wholesale h3 cutover."
+        ]
+      },
+      {
+        "title": "When QUIC helps — and when it does not",
+        "paragraphs": [
+          "QUIC shines for browsers, APIs over lossy links, and connection migration. It helps less when you already terminate TLS at a nearby edge over excellent networks, or when enterprise firewalls block UDP 443.",
+          "gRPC and many internal RPC stacks still sit on HTTP/2 over TCP. Do not assume QUIC is universally available inside data centers — measure, then choose."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "QUIC Internals — Deep Dive",
+        "title": "0-RTT replay and application safety",
         "paragraphs": [
-          "Extended treatment of QUIC Internals: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "0-RTT data can be replayed by an attacker who captured the first flight. Safe usage restricts 0-RTT to idempotent reads or servers that implement replay detection windows.",
+          "Design APIs so non-idempotent POSTs require 1-RTT keys. Document this in your client SDK — libraries will eagerly enable early data if you let them."
+        ]
+      },
+      {
+        "title": "Congestion control and pacing",
+        "paragraphs": [
+          "Userspace congestion control must coexist with fair sharing on the bottleneck. BBR-style controllers estimate bandwidth and RTT; mis-tuned pacing can burst and induce loss.",
+          "Compare goodput and p99 under induced 1–2% loss against TCP+H2 before declaring victory."
         ]
       }
     ],
     "expert": [
       {
-        "title": "QUIC Internals — Expert Notes",
+        "title": "QUIC Internals — Expert notes",
         "paragraphs": [
-          "Expert considerations for QUIC Internals: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, QUIC Internals intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "QUIC Internals: core idea"
+    "Stream multiplexing without TCP HOL blocking",
+    "Connection ID vs 4-tuple identity",
+    "Integrated TLS 1.3 handshake",
+    "0-RTT / early data replay hazard",
+    "HTTP/3 as application mapping on QUIC",
+    "qlog for debugging"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Support h2 and h3 at the edge during migration",
+    "Treat 0-RTT as opt-in for idempotent methods only",
+    "Use CID-aware load balancing for UDP/443",
+    "Collect qlog/metrics from both client and edge"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Assuming UDP 443 is open everywhere",
+    "Enabling 0-RTT for state-changing APIs",
+    "Debugging with TCP-only tooling",
+    "Ignoring MTU / UDP amplification limits"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Chrome + Google edge",
+      "description": "Large-scale HTTP/3 deployment; connection migration across radio changes."
+    },
+    {
+      "title": "Cloudflare / Fastly",
+      "description": "CDN edges terminating QUIC with careful CID routing and fallback to TCP."
+    }
+  ],
   "keyTakeaways": [
-    "QUIC Internals belongs in the curriculum as living content"
+    "QUIC fixes TCP HOL blocking for multiplexed apps by moving streams above UDP",
+    "Security handshake and transport are integrated — fewer RTTs, different ops model",
+    "Deployment success hinges on UDP path, LB, and observability readiness"
   ],
-  "whyItMatters": "Understanding QUIC Internals improves design judgment for production systems.",
+  "whyItMatters": "Modern public HTTP performance and mobile resilience increasingly depend on QUIC/HTTP/3. System designers who only reason about TCP will mis-predict latency and fail edge migrations.",
   "reflectionQuestions": [
-    "When would you reach for QUIC Internals in a real design?"
+    "Which of your APIs are unsafe under 0-RTT replay?",
+    "How would you load-balance QUIC without sticky 4-tuples?",
+    "What metrics prove HTTP/3 improved p99 vs HTTP/2?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "TCP+TLS 1.3: often 1–2 RTT before app data; QUIC can do 1-RTT (or 0-RTT)",
+    "Mobile networks: loss and path change make HOL blocking costly",
+    "UDP 443: commonly used; still blocked on some enterprise networks"
   ],
   "diagrams": [
     {
       "id": "net-quic-overview",
-      "title": "QUIC Internals overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "title": "QUIC vs TCP stacks",
+      "mermaid": "flowchart TB\n  App --> H3[HTTP/3]\n  H3 --> QUIC\n  QUIC --> UDP\n  App2[App] --> H2[HTTP/2]\n  H2 --> TLS\n  TLS --> TCP"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain QUIC Internals and the main trade-offs in 3 minutes."
+    "Explain QUIC Internals and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on QUIC Internals; list 3 trade-offs."
+    "Sketch a design that depends on QUIC Internals; list three trade-offs and one failure mode."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "RFC 9000 — QUIC",
+      "url": "https://www.rfc-editor.org/rfc/rfc9000"
+    },
+    {
+      "title": "RFC 9114 — HTTP/3",
+      "url": "https://www.rfc-editor.org/rfc/rfc9114"
+    }
+  ],
   "relatedLessons": [
     "net-bgp-anycast",
-    "net-http",
-    "net-kernel"
+    "net-congestion",
+    "net-http"
   ]
 }

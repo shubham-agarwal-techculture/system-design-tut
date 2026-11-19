@@ -1,101 +1,293 @@
 {
   "id": "net-realtime",
-  "title": "WebSockets & gRPC",
+  "title": "Real-Time Protocols: WebSockets, SSE & gRPC Streaming",
   "moduleId": "networking",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "WebSockets & gRPC — draft awaiting generation and review.",
+  "durationMinutes": 40,
+  "summary": "Real-time communication patterns—persistent connections, server-push, and bidirectional streaming—require different transport mechanisms than the standard HTTP request/response model. WebSockets provide full-duplex TCP channels, Server-Sent Events offer a simple unidirectional push channel over HTTP, and gRPC streaming leverages HTTP/2 multiplexing for typed bidirectional streams. Each has distinct trade-offs in protocol overhead, proxy compatibility, fan-out characteristics, and operational complexity that determine which fits a given use case.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "net-quic"
+    "net-quic",
+    "net-tcp-udp"
   ],
   "tags": [
     "networking",
-    "evergreen",
+    "websockets",
+    "grpc",
+    "sse",
+    "realtime",
+    "streaming",
     "foundations"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "WebSocket: Full-Duplex over HTTP Upgrade",
       "paragraphs": [
-        "This draft covers WebSockets & gRPC. Run content:generate to expand it with a model provider, or edit manually."
+        "WebSocket starts life as an HTTP/1.1 request with an Upgrade header. The client sends 'Upgrade: websocket' and 'Connection: Upgrade'; the server responds with 101 Switching Protocols. After this single HTTP handshake, the TCP connection is handed to the WebSocket protocol—no more HTTP framing. Both endpoints can now send framed messages at any time without waiting for the other side. This bidirectionality is the fundamental capability missing from plain HTTP.",
+        "WebSocket frames have a compact header: 2–10 bytes covering FIN bit, opcode (text, binary, ping, pong, close), masking key (clients must mask frames to prevent cache poisoning via proxy), and payload length. Text frames carry UTF-8; binary frames carry arbitrary bytes. The ping/pong mechanism is the heartbeat: either side sends PING; the receiver must respond with PONG. Applications should send application-level heartbeats at shorter intervals than the proxy/LB idle timeout to prevent silent connection termination.",
+        "WebSocket connections are long-lived and stateful. This creates challenges for horizontal scaling. If a user's WebSocket connection lives on server A, only server A can push messages to that user. A message from another user routed to server B cannot directly reach the connection on server A. Solutions: sticky sessions (same user always routes to same server via cookie or connection ID), fan-out services (a pub/sub backend like Redis Pub/Sub or Kafka broadcasts messages; each server delivers to its local connections), or connection gateways (a dedicated WebSocket tier with connection state, backed by a stateless application tier).",
+        "Proxy and firewall compatibility is WebSocket's main operational headache. HTTP proxies that don't understand WebSocket (many corporate proxies) fail to pass the Upgrade header correctly. Load balancers must be configured for WebSocket-aware proxying (Nginx: proxy_http_version 1.1 + proxy_set_header Upgrade; HAProxy: 'option http-server-close'). WebSocket over TLS (wss://) bypasses most inspection proxies because they can't inspect the encrypted payload. When WebSocket fails, the standard fallback is long polling—repeated HTTP requests that the server holds open until data is available."
+      ],
+      "bullets": [
+        "WebSocket client frame masking: required by spec; prevents poisoning of intermediate caches",
+        "RFC 6455: WebSocket protocol standard; sec-websocket-key header negotiation prevents non-WebSocket servers from accepting upgrades",
+        "Socket.IO: popular WebSocket library with automatic HTTP long-poll fallback and room-based pub/sub"
+      ]
+    },
+    {
+      "title": "Server-Sent Events: Simple Unidirectional Push",
+      "paragraphs": [
+        "Server-Sent Events (SSE) is an HTTP/1.1 and HTTP/2 feature where the client makes a GET request and the server responds with Content-Type: text/event-stream. The connection stays open; the server sends newline-delimited event data periodically without the client requesting each update. The client's browser EventSource API automatically reconnects if the connection drops, using the 'Last-Event-ID' header to resume from the last received event. SSE is unidirectional—only server to client—but trivial to implement: it's just a streaming HTTP response.",
+        "SSE is vastly simpler than WebSocket for server-push workloads. No library, no protocol framing beyond newline-delimited text, no special proxy configuration beyond supporting long-lived responses. The event stream format: 'data: {json}\\n\\n' for a data event, 'event: custom\\ndata: payload\\n\\n' for a named event, 'id: 123\\n' for event IDs used in reconnection. The browser's EventSource handles reconnection, backoff, and Last-Event-ID automatically—the server only needs to track event IDs if resumability is required.",
+        "HTTP/2 makes SSE even more attractive. With HTTP/1.1, SSE requires a dedicated connection (browsers allow 6 connections per origin; SSE consumes one). With HTTP/2 multiplexing, SSE streams are lightweight streams within an existing connection—the browser can open dozens of SSE streams without hitting connection limits. This was a significant reason SSE was underutilized pre-HTTP/2; the HTTP/2 era makes SSE competitive with WebSocket for unidirectional push patterns.",
+        "Fan-out at scale requires the SSE server to maintain one open HTTP response per connected client and dispatch events to each. At 100,000 concurrent clients on a single server, each idle SSE connection consumes a file descriptor and minimal memory (~4 KB kernel socket buffer). An evented server (Nginx + SSE proxy, Node.js, Go goroutines) can handle this efficiently; a thread-per-connection model would not. The fan-out itself—sending one event to 100,000 connections—must be asynchronous and non-blocking."
+      ],
+      "bullets": [
+        "SSE reconnect: EventSource automatically reconnects after disconnect; sends Last-Event-ID for resumption",
+        "text/event-stream format: 'data: payload\\n\\n'; blank line terminates event; no binary support",
+        "HTTP/2 SSE: multiplexed stream per subscription; no browser 6-connection limit applies"
+      ]
+    },
+    {
+      "title": "gRPC Streaming: Typed Bidirectional RPC",
+      "paragraphs": [
+        "gRPC is a framework built on HTTP/2 and Protocol Buffers. It defines four RPC types: Unary (one request, one response—classic RPC), Server streaming (one request, stream of responses), Client streaming (stream of requests, one response), and Bidirectional streaming (concurrent request and response streams). All four run over HTTP/2 streams; the difference is only in the application-layer protocol framing. gRPC defines which stream direction is used by which party and what constitutes the end of a stream.",
+        "gRPC bidirectional streaming is fundamentally different from WebSocket. gRPC streams are typed—both sides agree on the message schema via protobuf IDL—and the protocol handles framing, flow control, and backpressure explicitly. HTTP/2 provides per-stream flow control: the receiver can slow the sender by not opening the flow control window, allowing backpressure to propagate from consumer to producer without application-level coordination. This is essential for streaming large datasets (database cursors, audit log exports) where the consumer might be slower than the producer.",
+        "gRPC's HTTP/2 foundation gives it multiplexing for free. Thousands of concurrent gRPC streams share a single TCP connection between two services. The connection is maintained by gRPC's channel abstraction, which handles reconnection, load balancing (pick_first or round_robin), and keepalive. For service-to-service communication with high RPC rates, one gRPC channel with multiplexed streams consumes far fewer file descriptors and TCP connections than equivalent REST over HTTP/1.1.",
+        "Deadlines and cancellation are first-class concepts in gRPC. The caller sets a deadline (absolute time) on the RPC; the deadline is propagated to the server in the HTTP/2 grpc-timeout header. If the server takes too long, the client cancels the RPC, and the server receives a cancellation signal in its streaming context—it should stop expensive work immediately. This propagation of deadlines through call chains prevents resource waste in systems where a client has already given up."
+      ],
+      "bullets": [
+        "HTTP/2 grpc-timeout header: propagates deadline to server; server should check Context.Done() periodically",
+        "gRPC keepalive: PING frames on idle connections; tune KEEPALIVE_TIME and KEEPALIVE_TIMEOUT for proxy compatibility",
+        "gRPC-web: browser-compatible gRPC over HTTP/1.1 or HTTP/2 without bidirectional streaming; uses Envoy as proxy"
+      ]
+    },
+    {
+      "title": "Long Polling: When Persistent Connections Fail",
+      "paragraphs": [
+        "Long polling is an HTTP technique where the client makes a request, the server holds it open until data is available (or a timeout), returns the response, and the client immediately makes another request. It simulates push over standard request/response HTTP, requiring no special proxy or firewall configuration. Long polling works everywhere HTTP works, making it the universal fallback for real-time updates in hostile network environments.",
+        "Long polling has significant overhead compared to WebSocket or SSE. Each event requires a full HTTP request/response cycle (headers, body, potentially TLS record framing). The server must hold open potentially thousands of requests waiting for events—using a thread or event handler per pending request. When an event arrives for many users simultaneously, N HTTP responses are sent and N new requests arrive immediately—a thundering herd on the server. Libraries like Socket.IO include adaptive polling intervals and backoff to mitigate this.",
+        "In Kubernetes environments with request timeouts enforced by ingress controllers, long polling requests may be killed before an event arrives. Set the ingress timeout to exceed the long-poll timeout. The LB idle timeout must also exceed the client's poll timeout. Mismatch between client poll timeout (e.g., 30s) and proxy idle timeout (e.g., 60s) causes phantom timeouts where the proxy closes the connection the client believes is still polling."
+      ],
+      "bullets": [
+        "Long poll timeout: set server hold time to 25–29s if proxy idle timeout is 30s; leaves buffer for response transmission",
+        "HTTP streaming (chunked transfer encoding): alternative to long poll; server streams chunks as events occur",
+        "WebTransport (HTTP/3): emerging standard combining WebSocket-like semantics with QUIC streams; available in Chrome 97+"
+      ]
+    },
+    {
+      "title": "Architecture Patterns for Real-Time at Scale",
+      "paragraphs": [
+        "Fan-out architectures separate connection management from business logic. A gateway tier (Nginx, Envoy, or a custom WebSocket service) maintains persistent client connections. Business logic services publish events to a message bus (Redis Pub/Sub, Kafka, NATS). The gateway tier subscribes to relevant topics and pushes events to connected clients. This decoupling allows the gateway tier and business logic tiers to scale independently. At Slack's scale (~32 million concurrent users), this architecture involves dedicated gateway servers maintaining WebSocket connections with no business logic, backed by Kafka for event distribution.",
+        "Presence and connection state management is a core real-time challenge. When a user connects, the gateway registers the connection; when they disconnect (gracefully or via network failure), the gateway must detect this and clean up state. Detecting ungraceful disconnects requires heartbeats with timeouts. Connection state is stored in a distributed store (Redis, Cassandra) so other services can query which users are online. The state must be replicated quickly enough to prevent stale presence from misleading other users.",
+        "Backpressure and slow consumers are production failure modes in real-time systems. If the event bus produces faster than a client can consume, the gateway's send buffer fills. For WebSocket, the gateway should drop events or close the connection rather than buffer unboundedly—a slow client consuming 1 MB/s of events that need to push at 10 MB/s would exhaust server memory across all slow clients. Implement per-client send buffer limits and drop oldest events (not newest) for non-critical streams; for critical streams, close the connection and let the client reconnect and re-sync."
+      ],
+      "bullets": [
+        "Redis Pub/Sub: low-latency fan-out; not persistent; lost events on subscriber downtime",
+        "Kafka consumer groups: persistent, replay-capable; higher latency than Redis Pub/Sub (1–10ms vs <1ms)",
+        "NATS JetStream: combines low-latency pub/sub with persistence; gaining adoption as a Redis Pub/Sub replacement"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "WebSocket Protocol Mechanics",
         "paragraphs": [
-          "This draft covers WebSockets & gRPC. Run content:generate to expand it with a model provider, or edit manually."
+          "WebSocket starts with HTTP/1.1 Upgrade handshake (101 Switching Protocols), then transitions to bidirectional framed messages. Client frames must be masked; server frames are unmasked. Ping/pong heartbeat prevents proxy idle-timeout disconnects.",
+          "Long-lived stateful connections require sticky sessions or a fan-out backend for horizontal scaling. Redis Pub/Sub is the common choice for distributing messages across WebSocket servers.",
+          "Proxy compatibility is the main operational challenge; use wss:// (WebSocket over TLS) to bypass inspection proxies."
+        ],
+        "bullets": [
+          "RFC 6455: WebSocket standard; sec-websocket-accept header validates handshake",
+          "Socket.IO: WebSocket + long-poll fallback + rooms; not interoperable with raw WebSocket",
+          "WebSocket message size: no built-in limit; implement application-level size limits to prevent memory exhaustion"
+        ]
+      },
+      {
+        "title": "SSE vs WebSocket Trade-offs",
+        "paragraphs": [
+          "SSE is unidirectional (server→client), simpler (plain HTTP streaming), and benefits from HTTP/2 multiplexing. Use SSE for dashboards, notifications, news feeds, and any push-only workload.",
+          "WebSocket is bidirectional, requires a protocol upgrade, and needs special proxy configuration. Use WebSocket for chat, collaborative editing, gaming, and any workload needing client→server push.",
+          "SSE auto-reconnects with Last-Event-ID; WebSocket requires application-level reconnection logic."
+        ],
+        "bullets": [
+          "SSE binary support: none (text/event-stream only); use WebSocket for binary data",
+          "SSE browser support: all modern browsers; IE requires polyfill",
+          "text/event-stream: response header enabling SSE; can be tested with curl"
+        ]
+      },
+      {
+        "title": "gRPC Streaming",
+        "paragraphs": [
+          "gRPC defines 4 RPC types: unary, server-streaming, client-streaming, bidirectional-streaming. All run over HTTP/2 streams with typed protobuf messages.",
+          "HTTP/2 stream-level flow control propagates backpressure from slow consumers to producers without application coordination.",
+          "gRPC deadlines propagate through call chains; servers must check Context.Done() in streaming handlers."
+        ],
+        "bullets": [
+          "gRPC channel: persistent HTTP/2 connection with multiplexed streams; use 1 channel per target service",
+          "gRPC interceptors: middleware for logging, auth, tracing applied to all RPCs in a channel",
+          "gRPC-web: browser client proxy via Envoy; no native bidirectional streaming in gRPC-web"
+        ]
+      },
+      {
+        "title": "Fan-out at Scale",
+        "paragraphs": [
+          "Gateway tier maintains client connections; business logic publishes to message bus; gateway subscribes and pushes. This decoupling allows independent scaling of connection capacity and business logic.",
+          "Presence tracking: register connection in Redis on connect; set TTL-based heartbeat key; query for online status.",
+          "Slow consumer backpressure: enforce per-client send buffer limits; drop oldest non-critical events rather than unbounded buffering."
+        ],
+        "bullets": [
+          "Redis Pub/Sub: <1ms fan-out; no persistence; messages lost on subscriber downtime",
+          "Kafka: persistent fan-out with replay; 1–10ms latency; suitable for audit-required streams",
+          "NATS: low-latency with optional JetStream persistence; growing alternative to Redis Pub/Sub"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "WebSockets & gRPC — Deep Dive",
+        "title": "WebSocket Scaling Patterns in Production",
         "paragraphs": [
-          "Extended treatment of WebSockets & gRPC: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Slack's real-time messaging architecture uses a WebSocket gateway tier receiving messages from Kafka. Each gateway server maintains ~100,000 WebSocket connections. When a message is sent in a channel, Slack publishes it to Kafka; all gateway servers subscribed to that channel's partition receive it and push to connected clients. This fanout latency target is <100ms from message publication to client receipt for 95th percentile.",
+          "Reconnection storms occur when a gateway server restarts: all clients attempt to reconnect simultaneously. Mitigate with exponential backoff and full jitter (random[0, min(cap, base × 2^attempt)]). The 'full jitter' strategy spreads reconnects uniformly over the backoff window—provably optimal for minimizing peak load during reconnection storms. Without jitter, all clients use the same exponential sequence and synchronize, defeating the purpose.",
+          "The idle connection resource budget on modern Linux: each WebSocket connection consumes 1 file descriptor + ~4 KB kernel socket buffer + application-layer state (session object, subscription list). At 100k connections: 100k FDs (increase nofile limit), 400 MB kernel memory, plus application memory for session state. A well-tuned Go or Node.js server can maintain 1 million idle WebSocket connections per machine with 8+ GB RAM and high FD limits."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Full jitter backoff: sleep(random[0, min(cap, base * 2^n)]); uniform distribution prevents reconnect synchronization",
+          "Linux nofile limit: set via /etc/security/limits.conf; default 1024 is far too low for WebSocket servers",
+          "WebSocket proxy_read_timeout: Nginx default 60s; must exceed application heartbeat interval"
+        ]
+      },
+      {
+        "title": "gRPC Operational Patterns",
+        "paragraphs": [
+          "gRPC keepalive is essential for long-lived streams through NAT and proxies. Idle gRPC streams (no message for 30+ seconds) may be silently terminated by intermediate devices. Configure GRPC_ARG_KEEPALIVE_TIME_MS (10000) and GRPC_ARG_KEEPALIVE_TIMEOUT_MS (5000). The gRPC server must also allow keepalive PINGs from clients (GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS=1); by default, servers reject keepalive PINGs on idle connections, causing GOAWAY frames that disconnect clients.",
+          "gRPC load balancing has a subtle issue: a single long-lived gRPC channel per target means all requests go through one TCP connection per target server. If the backend has multiple instances, the channel picks one at initialization (pick_first LB policy). To use all backend instances, switch to round_robin LB policy—it maintains connections to all resolved endpoints and distributes RPCs. For xDS-aware deployments, the xDS LB policy delegates routing to Envoy's control plane.",
+          "gRPC reflection (grpc.reflection.v1alpha.ServerReflection) allows tools like grpcurl and BloomRPC to inspect and call gRPC services without static proto files. Enable reflection in development and staging; disable in production to avoid leaking internal API structure. For debugging production gRPC, use gRPC server stats (via grpc/admin package) exposed as a Prometheus endpoint, covering RPC count, error rates, and latency histograms per method."
+        ],
+        "bullets": [
+          "grpcurl: curl-equivalent for gRPC; requires reflection enabled or static proto files",
+          "gRPC round_robin: maintains connections to all endpoints; requires DNS resolution to return multiple A records",
+          "GOAWAY frame: server gracefully closes HTTP/2 connection; client must reconnect; common during rolling deploys"
         ]
       }
     ],
     "expert": [
       {
-        "title": "WebSockets & gRPC — Expert Notes",
+        "title": "Real-Time at Hyperscale: Architecture and Failure Modes",
         "paragraphs": [
-          "Expert considerations for WebSockets & gRPC: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Discord maintains 7+ million concurrent WebSocket connections at peak. Their architecture uses a dedicated 'gateway' service (written in Elixir/Erlang for lightweight processes) that handles WebSocket protocol mechanics and presence. Business logic runs in separate services; the gateway fans out events received from a Kafka-backed event bus. Erlang's actor model (lightweight green threads) handles millions of concurrent connections with predictable memory per connection (~2 KB per Erlang process) and isolation—a crashing connection handler doesn't affect others.",
+          "Head-of-line blocking within a single WebSocket connection is a real failure mode. WebSocket is message-ordered: messages are delivered in send order, and a large message blocks smaller messages behind it. For multiplexed event streams with both large (file transfer) and small (cursor position) messages, interleaving is impossible within a single WebSocket connection. Solutions: use separate WebSocket connections for different urgency channels, or switch to WebTransport (QUIC) where streams within a connection are independent.",
+          "Global real-time architectures must handle split-brain scenarios. In a multi-region active-active WebSocket deployment, a user might have connections to two different regions during a transient failover. Both connections receive events from the same message bus topic. The client must deduplicate events by event ID; the server must handle the case where the same user sends a message from two connections simultaneously. Idempotency keys and event sourcing patterns (each event has a unique ID and monotonic sequence number per user) are the standard solution."
         ]
       }
     ]
   },
   "concepts": [
-    "WebSockets & gRPC: core idea"
+    "WebSocket: full-duplex TCP channel established via HTTP Upgrade; bidirectional framed messages after handshake",
+    "SSE (Server-Sent Events): unidirectional server push over HTTP; auto-reconnect with Last-Event-ID; text/event-stream format",
+    "gRPC streaming: typed bidirectional streaming over HTTP/2; 4 RPC modes; backpressure via HTTP/2 flow control",
+    "Fan-out architecture: gateway tier maintains connections; message bus distributes events; decouples connection scale from logic scale",
+    "Long polling: client holds open HTTP request until data or timeout; universal fallback for hostile networks",
+    "WebSocket sticky sessions: route client consistently to same server; enables direct push without fan-out bus",
+    "gRPC deadline propagation: caller deadline sent in grpc-timeout header; server must honor via context cancellation",
+    "HTTP/2 stream multiplexing: multiple independent streams over one TCP connection; eliminates connection-per-RPC overhead",
+    "Backpressure: HTTP/2 per-stream flow control; consumer limits producer rate without application-layer coordination",
+    "WebTransport: emerging HTTP/3-based protocol combining WebSocket semantics with QUIC stream independence"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Implement application-level heartbeats on WebSocket connections shorter than the proxy idle timeout (default 60s in Nginx)",
+    "Use SSE over HTTP/2 instead of WebSocket for unidirectional push; simpler, standard, and no special proxy config needed",
+    "Configure gRPC keepalive on both client and server; idle streams through NAT are silently dropped without keepalive PINGs",
+    "Implement exponential backoff with full jitter on WebSocket reconnection to prevent reconnect storms",
+    "Set per-client send buffer limits in WebSocket servers; slow consumers must be disconnected, not buffered indefinitely",
+    "Use gRPC deadline propagation throughout call chains; every streaming handler must check Context.Done() periodically"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Using WebSocket when SSE suffices for unidirectional push; SSE is simpler, reconnects automatically, and works better with HTTP/2",
+    "Not implementing WebSocket proxy configuration in Nginx/HAProxy; default HTTP proxy config silently drops WebSocket upgrade headers",
+    "Missing gRPC keepalive server configuration (GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS); server rejects client keepalive PINGs, causing silent disconnects",
+    "Buffering slow WebSocket consumers unboundedly; memory exhaustion kills the server for all connected users",
+    "Not deduplicating SSE events by ID on reconnect; clients may process the same event twice after reconnection",
+    "Single gRPC channel with pick_first LB to a service with multiple instances; all RPCs go to one backend"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Slack's WebSocket Gateway Architecture",
+      "description": "Slack routes messages via Kafka to gateway servers that maintain WebSocket connections. Each gateway server hosts ~100,000 connections. When a user sends a message, it goes to Slack's backend via REST, gets published to Kafka, and gateway servers fan it out to connected clients within ~50ms. This architecture allows horizontal scaling of the gateway tier independently from business logic, and recovering from gateway server restarts without losing message delivery (Kafka provides durability)."
+    },
+    {
+      "title": "Kubernetes Operator using gRPC Server Streaming",
+      "description": "kubectl uses gRPC server streaming (via the Kubernetes Watch API over HTTP/2) to monitor resource changes. kubectl sends one WATCH request; the API server streams change events (ADDED, MODIFIED, DELETED) as they occur. The connection stays open indefinitely; kubectl reconnects with resourceVersion on disconnect. This pattern—long-lived server streaming with resume capability—is the standard Kubernetes control-plane push model, used by all controllers and informers."
+    },
+    {
+      "title": "SSE for Real-Time Dashboard Updates",
+      "description": "A financial dashboard showing live portfolio values uses SSE to push price updates. The server streams 'data: {price: ...}\\n\\n' events every 100ms per subscribed symbol. With HTTP/2, 50 SSE streams per browser tab share one connection. The EventSource automatically reconnects with Last-Event-ID if the connection drops, and the server replays the last event for that ID. The implementation required no WebSocket library, no special nginx config, and browser's built-in retry handled reconnection."
+    }
+  ],
   "keyTakeaways": [
-    "WebSockets & gRPC belongs in the curriculum as evergreen content"
+    "WebSocket provides full-duplex TCP communication after HTTP Upgrade; use it when clients must push data to servers in real time",
+    "SSE is simpler and better for unidirectional push over HTTP/2; use it for notifications, feeds, and dashboard updates",
+    "gRPC bidirectional streaming provides typed, backpressure-aware streaming; ideal for service-to-service real-time data",
+    "Fan-out at scale requires decoupling connection management (gateway tier) from business logic (message bus)",
+    "Reconnect storms require full-jitter exponential backoff; deterministic backoff defeats itself by synchronizing clients",
+    "WebTransport over HTTP/3 is the emerging standard that combines WebSocket semantics with QUIC stream independence"
   ],
-  "whyItMatters": "Understanding WebSockets & gRPC improves design judgment for production systems.",
+  "whyItMatters": "Real-time capabilities—live updates, collaborative features, notifications, streaming data—are increasingly table-stakes for modern applications. The choice between WebSocket, SSE, gRPC streaming, and long polling determines how your system scales, how it behaves under proxy and firewall constraints, and how complex your connection state management becomes. Engineers who understand these protocols can design push architectures that handle millions of concurrent connections without overcomplicating the application layer.",
   "reflectionQuestions": [
-    "When would you reach for WebSockets & gRPC in a real design?"
+    "You need to add real-time order status updates to an e-commerce checkout flow. Users are mostly on mobile over LTE, behind various carrier-grade NATs and corporate proxies. Which real-time protocol would you choose and why?",
+    "Design the connection architecture for a collaborative document editor (like Google Docs) handling 10,000 concurrent sessions. How do you route WebSocket connections, fan out edits, and handle reconnection after network interruption?",
+    "Your gRPC bidirectional streaming service experiences frequent GOAWAY frames during peak traffic. Walk through the causes and how you'd diagnose and mitigate them."
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "2 bytes: minimum WebSocket frame header size",
+    "~4 KB: kernel socket buffer per idle WebSocket connection",
+    "HTTP/2 stream multiplexing: thousands of SSE streams or gRPC RPCs over one TCP connection",
+    "~50ms: Slack's target fan-out latency from message publication to WebSocket delivery at scale",
+    "Full jitter backoff: sleep(random[0, min(cap, base × 2^n)]); optimal for reconnect storm prevention"
   ],
   "diagrams": [
     {
-      "id": "net-realtime-overview",
-      "title": "WebSockets & gRPC overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "net-realtime-protocols",
+      "title": "Real-Time Protocol Comparison",
+      "mermaid": "flowchart LR\n  subgraph WebSocket\n    WC[Client] -->|HTTP Upgrade 101| WS[Server]\n    WS -->|Binary/Text frames| WC\n    WC -->|Binary/Text frames| WS\n  end\n  subgraph SSE\n    SC[Client] -->|GET /stream| SS[Server]\n    SS -->|data: event-1 | SC\n    SS -->|data: event-2 | SC\n  end\n  subgraph gRPC Streaming\n    GC[Client] -->|stream of proto messages| GS[Server]\n    GS -->|stream of proto messages| GC\n    GC -.->|HTTP2 flow control backpressure| GS\n  end"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain WebSockets & gRPC and the main trade-offs in 3 minutes."
+    "Compare WebSocket and Server-Sent Events. For a notification service that sends push alerts to 10 million mobile users, which would you choose and why?",
+    "Explain how gRPC bidirectional streaming provides backpressure. Why is this important for a streaming database query that returns millions of rows?",
+    "Design a horizontally scalable WebSocket service for a multiplayer game. How do you handle message routing between players on different servers?"
   ],
   "exercises": [
-    "Design a small system that depends on WebSockets & gRPC; list 3 trade-offs."
+    "Build an SSE-based live metrics dashboard: a Go or Node.js server that pushes CPU/memory stats every second as text/event-stream. Verify EventSource auto-reconnect by killing and restarting the server. Measure browser connection count with Chrome DevTools under HTTP/1.1 vs HTTP/2.",
+    "Implement a gRPC bidirectional streaming service in Go where the client streams numbers and the server streams running averages. Simulate a slow client by sleeping between reads. Verify that HTTP/2 flow control prevents the server from buffering more than the client's window."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "RFC 6455 — The WebSocket Protocol",
+      "url": "https://datatracker.ietf.org/doc/html/rfc6455"
+    },
+    {
+      "title": "MDN Web Docs — Server-Sent Events",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events"
+    },
+    {
+      "title": "gRPC Core Concepts — Streaming",
+      "url": "https://grpc.io/docs/what-is-grpc/core-concepts/"
+    },
+    {
+      "title": "Discord's Real-Time Architecture (blog)",
+      "url": "https://discord.com/blog/how-discord-scaled-elixir-to-5-000-000-concurrent-users"
+    }
+  ],
   "relatedLessons": [
     "net-bgp-anycast",
-    "net-http",
-    "net-kernel"
+    "net-congestion",
+    "net-http"
   ]
 }

@@ -1,101 +1,234 @@
 {
   "id": "fund-distributed",
-  "title": "CAP, Consensus & Consistency",
+  "title": "Distributed Systems Fundamentals",
   "moduleId": "distributed-systems",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "CAP, Consensus & Consistency — draft awaiting generation and review.",
+  "durationMinutes": 50,
+  "summary": "Distributed systems are fundamentally different from single-machine systems: nodes fail independently, networks are unreliable, clocks drift, and there is no shared memory. The core challenge is building reliable behavior from unreliable components. Understanding the impossibility results (CAP, FLP), consensus algorithms, and practical failure modes is prerequisite knowledge for designing any system that runs on multiple machines.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "fund-crdts"
-  ],
-  "tags": [
-    "distributed-systems",
-    "evergreen",
-    "fundamentals"
-  ],
+  "prerequisites": ["fund-estimation"],
+  "tags": ["distributed-systems", "consensus", "evergreen", "fundamentals"],
   "sections": [
     {
-      "title": "Overview",
+      "title": "The Eight Fallacies of Distributed Computing",
       "paragraphs": [
-        "This draft covers CAP, Consensus & Consistency. Run content:generate to expand it with a model provider, or edit manually."
+        "Peter Deutsch and James Gosling identified eight assumptions developers make when writing distributed systems that are invariably wrong: (1) The network is reliable. (2) Latency is zero. (3) Bandwidth is infinite. (4) The network is secure. (5) Topology doesn't change. (6) There is one administrator. (7) Transport cost is zero. (8) The network is homogeneous. Each fallacy represents a failure mode that will eventually manifest in production. The fundamental difference between a monolith and a distributed system is that the monolith calls a function and always gets a response; a distributed service call may succeed, fail, timeout, or succeed-but-the-response-is-lost.",
+        "The partial failure problem is the defining challenge. In a monolith, a crash fails everything. In a distributed system, a subset of components fail while others continue. A database write may succeed while the acknowledgment is lost in transit—the client doesn't know whether the write happened. A network partition may separate nodes that were previously coordinating, leaving each half unsure whether the other half is down or just unreachable. These partial failure scenarios require explicit handling; there is no automatic recovery mechanism.",
+        "The two generals problem (and its generalization, the Byzantine Generals Problem) proves that reliable communication over an unreliable channel is impossible without additional assumptions. Two armies must coordinate an attack, but their only communication is via messengers who may be captured. No matter how many acknowledgment rounds are exchanged, there is always uncertainty. This theoretical result has practical implications: TCP cannot guarantee delivery over an unreliable network; application protocols must design for acknowledged message loss."
+      ],
+      "bullets": [
+        "Network is NOT reliable: messages are lost, delayed, duplicated, reordered",
+        "Partial failure: some nodes fail while others continue; hardest failure mode to handle",
+        "Two Generals: reliable communication over unreliable channel is impossible in theory",
+        "Design for failure, not against it: assume any component can fail at any time"
+      ]
+    },
+    {
+      "title": "CAP Theorem: Consistency, Availability, Partition Tolerance",
+      "paragraphs": [
+        "The CAP theorem (Brewer, 2000; formally proved by Gilbert and Lynch, 2002) states that a distributed data store can provide at most two of three properties: Consistency (every read receives the most recent write or an error), Availability (every request receives a non-error response, though it may not be the latest data), and Partition Tolerance (the system continues operating despite network partitions). Since network partitions are inevitable in real distributed systems, the practical choice is between CP (sacrifice availability during partitions) and AP (sacrifice consistency during partitions).",
+        "CP systems (HBase, ZooKeeper, etcd) refuse requests when they cannot guarantee consistency during a partition. ZooKeeper's read-your-own-writes guarantee requires that reads go to the leader or a majority; during a partition, minority nodes stop serving reads. This prevents serving stale data at the cost of availability. AP systems (Cassandra, DynamoDB, CouchDB) continue serving requests during partitions but may serve stale or conflicting data. When the partition heals, conflicting writes must be reconciled via last-write-wins, vector clocks, or CRDTs.",
+        "The PACELC model (Daniel Abadi, 2012) extends CAP by noting that even without partitions, there is always a trade-off between latency (L) and consistency (C). Systems optimized for consistency incur higher latency because they require coordination across replicas before responding. Systems optimized for latency respond from local state without coordination. PACELC gives a more nuanced picture: a database that is available during partitions (AP) might still offer low latency/high consistency trade-offs in the normal case."
+      ],
+      "bullets": [
+        "CAP: pick 2 of Consistency, Availability, Partition Tolerance; in practice choose CP or AP",
+        "CP: refuse requests on minority partition; ZooKeeper, etcd, HBase",
+        "AP: serve potentially stale data during partition; Cassandra, DynamoDB, Riak",
+        "PACELC: even without partitions, latency vs consistency trade-off always exists"
+      ]
+    },
+    {
+      "title": "Consensus: The Core Problem",
+      "paragraphs": [
+        "Consensus is the problem of getting a group of nodes to agree on a single value—the cornerstone of distributed system correctness. Consensus is needed for leader election (which node is the primary?), distributed locks (which process holds the lock?), and replicated state machines (all nodes execute the same operations in the same order). The FLP impossibility result (Fischer, Lynch, Paterson, 1985) proves that no deterministic consensus algorithm can guarantee both safety (all nodes agree on the same value) and liveness (the algorithm always terminates) in an asynchronous system with even one faulty process.",
+        "Practical consensus algorithms resolve the FLP dilemma by weakening the liveness guarantee: they guarantee termination only when the network is stable (no ongoing failures). Paxos (Lamport, 1989) is the foundational algorithm; it is correct but notoriously difficult to implement correctly. Raft (Ongaro and Ousterhout, 2014) was designed for understandability: leader election, log replication, and cluster membership changes are separated into well-defined sub-protocols. etcd, CockroachDB, and InfluxDB use Raft. ZooKeeper uses Zab (a Paxos variant).",
+        "In practice, you rarely implement consensus yourself—you use etcd, ZooKeeper, or Consul as a consensus service. These provide distributed locks, leader election, and configuration coordination as primitives. The critical operational concern: a consensus service requires a quorum (majority of nodes) to be available. A 3-node etcd cluster can tolerate 1 failure; a 5-node cluster can tolerate 2. Never run consensus services with fewer than 3 nodes in production, and never run an even number of nodes (even N has the same fault tolerance as N-1)."
+      ],
+      "bullets": [
+        "Consensus: getting all nodes to agree on one value; needed for leader election, locks, replication",
+        "FLP impossibility: no deterministic consensus algorithm guarantees both safety + liveness asynchronously",
+        "Paxos/Raft: practical algorithms; guarantee termination when network is stable",
+        "Quorum: majority of N nodes; 3-node tolerates 1 failure; 5-node tolerates 2"
+      ]
+    },
+    {
+      "title": "Replication, Consistency Models, and Leader Election",
+      "paragraphs": [
+        "Replication serves two purposes: availability (data is available from multiple nodes; one failure doesn't lose data or service) and read scalability (multiple replicas can handle read load in parallel). Single-leader replication is the most common model: one primary accepts writes; replicas apply changes asynchronously (or synchronously with higher latency). The primary is elected via a consensus algorithm or external coordinator. When the primary fails, a new primary must be elected—this is a critical moment for consistency.",
+        "Split-brain is the catastrophic failure mode in leader election: two nodes both believe they are the primary and accept conflicting writes. It occurs when the network partitions and both halves elect a new leader. Prevention: fencing tokens (monotonically increasing token issued by the consensus service; the old leader's fencing token is lower than the new leader's; storage systems reject writes from holders of lower tokens). STONITH (Shoot The Other Node In The Head): when a new leader is elected, the cluster sends a fence signal (cut power, revoke network access) to the old leader, ensuring it stops writing before the new leader starts.",
+        "Linearizability (the strongest consistency model) requires that operations on a distributed system appear to execute atomically and in real-time order. If write W completes before read R starts, R must return the value written by W (or a later write). Achieving linearizability requires coordination: every read must contact a quorum or the leader. Sequential consistency is weaker: operations appear in some valid sequential order, but not necessarily in real-time order. Eventual consistency is the weakest: all replicas converge to the same value eventually if writes stop."
+      ],
+      "bullets": [
+        "Single-leader: primary accepts writes; replicas apply asynchronously; leader election needed on failure",
+        "Split-brain: two nodes both think they are primary; prevents using fencing tokens or STONITH",
+        "Linearizability: strongest consistency; operations appear atomic in real-time order",
+        "Eventual consistency: weakest; replicas converge eventually; allows temporary divergence"
+      ]
+    },
+    {
+      "title": "Practical Failure Handling: Timeouts, Retries, and Idempotency",
+      "paragraphs": [
+        "In a distributed system, a timeout means you don't know what happened. The request may have never arrived (safe to retry), arrived and succeeded but the response was lost (unsafe to retry—may duplicate), or is still in progress (retrying may cause two concurrent executions). This ambiguity is fundamental and cannot be resolved without additional information. Idempotency keys are the standard solution: include a unique identifier with the request; the server deduplicates based on this key and returns the same response for a repeated request regardless of whether the original succeeded.",
+        "Retry policies must implement exponential backoff with jitter. Immediate retries (or linear backoff) on transient failures cause thundering herd: if 10,000 clients all retry at the same interval, they simultaneously hammer the recovering service. Exponential backoff with jitter (random delay in range [0, 2^n × base]) spreads retries over time. Add a circuit breaker to stop retrying when a service is clearly failing—fast failure (fail immediately without waiting for timeout) prevents cascading failures where a downstream failure causes timeouts across all upstream services.",
+        "Distributed tracing (Zipkin, Jaeger, OpenTelemetry) is the essential observability tool for distributed systems. A trace ID propagated through all service calls connects all spans in a request path, allowing you to see where latency and errors originate. Without distributed tracing, debugging a request that touches 10 services is essentially impossible. Treat distributed tracing as a day-one infrastructure requirement, not an afterthought."
+      ],
+      "bullets": [
+        "Timeout ambiguity: cannot distinguish 'failed before processing' from 'succeeded but response lost'",
+        "Idempotency key: deduplicate at server; safe to retry without double-processing",
+        "Exponential backoff with jitter: prevent thundering herd on retry storms",
+        "Circuit breaker: fail fast when downstream is clearly unavailable; prevent cascading failure"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Fallacies and Partial Failure",
         "paragraphs": [
-          "This draft covers CAP, Consensus & Consistency. Run content:generate to expand it with a model provider, or edit manually."
+          "The 8 fallacies: network is reliable, latency is zero, bandwidth infinite, network secure, topology static. All false. Partial failure is the core challenge: some nodes fail while others continue.",
+          "Timeout ambiguity: cannot know if the request succeeded or not. Idempotency keys allow safe retries.",
+          "Design for failure: assume any component fails; build systems that degrade gracefully."
+        ]
+      },
+      {
+        "title": "CAP Theorem and Consensus",
+        "paragraphs": [
+          "CAP: pick 2 of Consistency/Availability/Partition-Tolerance. Since partitions are inevitable, choose CP or AP.",
+          "Consensus (Raft/Paxos): all nodes agree on one value. Requires quorum. FLP: cannot guarantee both safety and liveness in async systems with failures.",
+          "etcd/ZooKeeper/Consul: use consensus as a service; don't implement yourself."
+        ]
+      },
+      {
+        "title": "Failure Handling Patterns",
+        "paragraphs": [
+          "Exponential backoff with jitter for retries; prevents thundering herd. Circuit breaker stops retrying a clearly-failing dependency.",
+          "Fencing tokens prevent split-brain: storage rejects writes from holders of stale tokens.",
+          "Distributed tracing: trace ID propagated across all service calls; essential for debugging."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "CAP, Consensus & Consistency — Deep Dive",
+        "title": "Vector Clocks and Causal Consistency",
         "paragraphs": [
-          "Extended treatment of CAP, Consensus & Consistency: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Lamport timestamps assign logical timestamps to events such that if event A causally precedes event B, then timestamp(A) < timestamp(B). Useful for establishing event ordering without synchronized clocks. However, Lamport timestamps don't capture concurrent events—if timestamp(A) < timestamp(B), A may have caused B, or they may be concurrent.",
+          "Vector clocks (one counter per node) capture causality precisely. A vector clock V_A < V_B iff for all i, V_A[i] <= V_B[i] and at least one is strictly less. Incomparable vector clocks indicate concurrent events that may conflict. DynamoDB uses vector clocks (versioned objects) to detect conflicting concurrent writes. When a conflict is detected, it is surfaced to the application for resolution (shopping cart merge uses set union; balance uses read-repair).",
+          "Causal consistency guarantees that causally related operations are seen in causal order by all processes. Causal+ consistency (used in COPS, Bayou) also ensures that conflicting operations are ordered consistently across all replicas. Causal consistency is weaker than linearizability (allows different replicas to diverge temporarily) but stronger than eventual consistency (guarantees causal ordering). It achieves better availability than linearizability while providing stronger guarantees than eventual consistency."
+        ]
+      },
+      {
+        "title": "Byzantine Fault Tolerance",
+        "paragraphs": [
+          "Byzantine faults are nodes that behave arbitrarily—sending contradictory messages, forging messages, or acting maliciously. Byzantine Fault Tolerant (BFT) consensus requires 3f+1 nodes to tolerate f Byzantine faults (vs 2f+1 for crash-fault-tolerant). PBFT (Practical Byzantine Fault Tolerance) is the foundational algorithm; Tendermint and HotStuff are modern BFT protocols used in blockchain systems.",
+          "BFT is rarely needed in private datacenter deployments where node compromise is unlikely and crash faults (hardware/software failures) dominate. It is essential for public blockchain networks where nodes are operated by untrusted parties. The overhead is significant: BFT requires O(n^2) message complexity vs O(n) for CFT; this limits practical BFT cluster sizes to tens of nodes. For most distributed systems, crash-fault-tolerant consensus (Raft, Paxos) is appropriate."
         ]
       }
     ],
     "expert": [
       {
-        "title": "CAP, Consensus & Consistency — Expert Notes",
+        "title": "Expert: Spanner's TrueTime and External Consistency",
         "paragraphs": [
-          "Expert considerations for CAP, Consensus & Consistency: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Google Spanner achieves external consistency (a form of linearizability across geographically distributed shards) using TrueTime, a globally synchronized clock API that provides a time interval [earliest, latest] with guaranteed error bounds of <7ms. When a transaction commits, Spanner waits for TrueTime uncertainty to pass (commit-wait) before returning to the client. This ensures that any subsequent transaction (which starts after the commit returns) has a timestamp strictly greater than the committed transaction's timestamp, establishing a global causal order.",
+          "TrueTime relies on GPS receivers and atomic clocks in every Google data center, plus a carefully maintained time synchronization infrastructure. The bounded uncertainty (< 7ms) is the key: it limits commit-wait time to <7ms, making the external consistency overhead acceptable. No other cloud provider publicly offers an equivalent. CockroachDB approximates TrueTime with NTP-based hybrid logical clocks (HLC), accepting slightly weaker guarantees. Aurora DSQL (AWS 2024) uses a similar commit-wait approach."
         ]
       }
     ]
   },
   "concepts": [
-    "CAP, Consensus & Consistency: core idea"
+    "Partial failure: some nodes fail independently while others continue operating",
+    "CAP theorem: Consistency/Availability/Partition-Tolerance; choose CP or AP in practice",
+    "Consensus: getting all nodes to agree on one value; Raft and Paxos are practical algorithms",
+    "FLP impossibility: no deterministic consensus algorithm guarantees both safety and liveness asynchronously",
+    "Quorum: majority of N nodes; 3-node cluster tolerates 1 failure",
+    "Linearizability: operations appear atomic in real-time order; strongest consistency model",
+    "Eventual consistency: weakest; all replicas converge eventually if writes stop",
+    "Split-brain: two nodes both believe they are primary; prevented via fencing tokens or STONITH",
+    "Idempotency key: unique operation identifier enabling safe retries",
+    "Circuit breaker: stop retrying a clearly-failing dependency; prevent cascading failure"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Design for partial failure from day one; assume any component can fail at any time",
+    "Use idempotency keys on all non-idempotent operations to enable safe retries",
+    "Implement exponential backoff with jitter; never use immediate or linear retry",
+    "Deploy circuit breakers at every external service call boundary",
+    "Use etcd/ZooKeeper/Consul for distributed locks and leader election; never implement yourself",
+    "Run consensus clusters in odd numbers (3, 5); never even numbers",
+    "Instrument all service calls with distributed tracing from day one"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Assuming network calls are like function calls—they can fail halfway, timeout, or return stale data",
+    "No idempotency for payment processing—retried calls charge customers twice",
+    "Split-brain database primary due to missing fencing tokens—both primaries accept writes; data corruption",
+    "Using ZooKeeper/etcd for high-frequency reads (they are for coordination, not hot read paths)",
+    "Synchronous cascading failures—A calls B, B calls C, C is slow, timeout propagates upstream",
+    "Even-numbered consensus cluster—same fault tolerance as odd N-1; wastes one node"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Google Chubby and Distributed Locking",
+      "description": "Google Chubby (described in the 2006 OSDI paper) is a distributed lock service built on Paxos consensus. It provides coarse-grained locks (held for minutes to hours, not microseconds) for leader election and file distribution across Google's services. The key design insight: Chubby is not designed for high throughput; it is designed for extremely high availability of a small service (5 replicas) that rarely changes. This tradeoff enables simple, correct implementation."
+    },
+    {
+      "title": "Amazon DynamoDB Eventual Consistency",
+      "description": "DynamoDB's default read model is eventually consistent: reads may return data that is 1–2 seconds stale after a write. For use cases where this is acceptable (reading a user's preference settings), eventual consistency reads are cheaper and faster. DynamoDB also offers strongly consistent reads (read from the leader) at 2x the cost and with higher latency. This explicit trade-off exposure—letting the application choose consistency per read operation—is a model design pattern for user-facing consistency APIs."
+    }
+  ],
   "keyTakeaways": [
-    "CAP, Consensus & Consistency belongs in the curriculum as evergreen content"
+    "Partial failure is the defining challenge of distributed systems; design for it explicitly",
+    "CAP theorem: since partitions are inevitable, you choose between consistency and availability",
+    "Consensus (Raft/Paxos) is the foundation for leader election, distributed locks, and replicated state",
+    "Idempotency keys + exponential backoff + circuit breakers form the standard retry safety stack",
+    "Linearizability is the strongest consistency model; it requires coordination overhead",
+    "Use etcd/ZooKeeper as consensus services; run them in odd numbers (3 or 5)"
   ],
-  "whyItMatters": "Understanding CAP, Consensus & Consistency improves design judgment for production systems.",
+  "whyItMatters": "Distributed systems fundamentals underpin every modern infrastructure component: databases, caches, message queues, and coordination services all implement variants of consensus, replication, and consistency models. Senior engineers are expected to understand CAP, consistency levels, and failure patterns—and to design systems that handle partial failures gracefully rather than catastrophically.",
   "reflectionQuestions": [
-    "When would you reach for CAP, Consensus & Consistency in a real design?"
+    "Your service makes a payment API call that times out. What do you do next, and what must be true about the payment API for your retry to be safe?",
+    "A ZooKeeper-based leader election system is experiencing split-brain. Walk through the failure scenario and two mitigations.",
+    "Explain the trade-off you are making by choosing Cassandra (AP) over PostgreSQL (CP) for a user activity store.",
+    "Design a distributed counter that can be safely incremented from 100 servers simultaneously."
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Quorum: majority of N; 3-node tolerates 1 failure; 5-node tolerates 2 failures",
+    "Raft leader election timeout: typically 150–300ms in practice",
+    "Network partition: 1–10% of cross-datacenter calls experience partitions over a year",
+    "etcd write latency: 1–10ms within a data center; 100–300ms cross-region",
+    "Circuit breaker: typical closed->open threshold: 50% error rate over 10-second window"
   ],
   "diagrams": [
     {
-      "id": "fund-distributed-overview",
-      "title": "CAP, Consensus & Consistency overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-distributed-cap",
+      "title": "CAP Theorem Database Examples",
+      "mermaid": "graph TD\n  CAP{CAP Triangle}\n  CAP -->|CP| CP[ZooKeeper, etcd\nHBase, MongoDB]\n  CAP -->|AP| AP[Cassandra, DynamoDB\nCouchDB, Riak]\n  CAP -->|CA| CA[Single-node PostgreSQL\n not partition tolerant]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain CAP, Consensus & Consistency and the main trade-offs in 3 minutes."
+    "Explain the CAP theorem. For a shopping cart, would you choose CP or AP, and why?",
+    "What is the difference between linearizability and eventual consistency?",
+    "A distributed transaction involves two databases. How do you ensure atomicity?",
+    "How does Raft consensus prevent split-brain during leader election?",
+    "Your service calls a payment API and gets a timeout. Walk through your retry strategy."
   ],
   "exercises": [
-    "Design a small system that depends on CAP, Consensus & Consistency; list 3 trade-offs."
+    "Design a distributed rate limiter using etcd for coordination: how do you handle etcd unavailability?",
+    "Implement a leader election system without using ZooKeeper or etcd: what are the failure modes?",
+    "Design a distributed key-value store: define replication factor, consistency level, failure handling, and conflict resolution strategy."
   ],
-  "sources": [],
+  "sources": [
+    { "title": "Designing Data-Intensive Applications — Martin Kleppmann, Chapters 8–9" },
+    { "title": "In Search of an Understandable Consensus Algorithm (Raft) — Ongaro & Ousterhout" },
+    { "title": "The Google Chubby Lock Service — Burrows, OSDI 2006" },
+    { "title": "CAP Twelve Years Later: How the Rules Have Changed — Brewer, IEEE Computer 2012" }
+  ],
   "relatedLessons": [
-    "dist-cap-consensus",
     "fund-clocks",
-    "fund-consistency-models"
+    "fund-consistency-models",
+    "fund-gossip",
+    "fund-distributed-tx"
   ]
 }

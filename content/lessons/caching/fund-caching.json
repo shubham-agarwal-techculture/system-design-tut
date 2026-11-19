@@ -1,100 +1,254 @@
 {
   "id": "fund-caching",
-  "title": "Caching Layers & Strategies",
+  "title": "Caching Fundamentals",
   "moduleId": "caching",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "Caching Layers & Strategies — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "Caching is the most impactful performance optimization available to distributed systems engineers. A cache hit at 0.1ms versus a database query at 10ms is a 100x improvement. Understanding cache placement, eviction policies, invalidation, and consistency trade-offs separates engineers who apply caching effectively from those who create cache-related bugs.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "cache-strategies"
+    "fund-storage-types"
   ],
   "tags": [
     "caching",
+    "performance",
     "evergreen",
     "fundamentals"
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Why Caching Works: Locality and Skew",
       "paragraphs": [
-        "This draft covers Caching Layers & Strategies. Run content:generate to expand it with a model provider, or edit manually."
+        "Caching is effective because of two universal properties of real-world workloads: temporal locality (recently accessed data is likely to be accessed again soon) and skew (a small fraction of data accounts for a large fraction of access). The Pareto principle applies broadly: 20% of content drives 80% of reads. For a news site, the top 1000 articles out of 10 million receive 90% of traffic. If those 1000 articles fit in cache, you serve 90% of reads from memory at sub-millisecond latency, reducing database load by 10x.",
+        "Cache hit rate is the fundamental metric. A hit rate of 90% means 90% of reads are served from cache; 10% miss and hit the database. If your database can handle 10,000 QPS and your cache delivers 90% hit rate, your effective capacity is 100,000 QPS. At 99% hit rate, it is 1,000,000 QPS—a 100x multiplier. This nonlinear relationship between hit rate and effective capacity is why investing in higher hit rates pays compounding dividends.",
+        "Caches are only beneficial when reads outweigh writes and when the same data is read multiple times after each write. For write-heavy workloads with low read amplification (each record is written once and read once), caching adds memory cost and coherence complexity without benefit. Always profile your read-to-write ratio and access frequency before adding a cache layer—cache the top-N most frequently accessed keys and nothing else."
+      ],
+      "bullets": [
+        "Temporal locality + skew: small data subset accounts for large read fraction",
+        "Hit rate multiplier: 90% hit -> 10x capacity; 99% hit -> 100x capacity",
+        "Effective for: read-heavy, repeated reads of same data",
+        "Measure hit rate, miss rate, and eviction rate before tuning"
+      ]
+    },
+    {
+      "title": "Cache Placement: Where to Cache",
+      "paragraphs": [
+        "Client-side cache (browser cache, in-process application cache): fastest possible access with no network hop, but each client has its own copy. Changes to the underlying data are not propagated until TTL expires or the client explicitly invalidates. Appropriate for: user preferences, static config, reference data that changes rarely. The in-process application cache is powerful but creates consistency risks in multi-instance deployments—each instance's cache diverges after writes.",
+        "Distributed cache (Redis, Memcached): a shared external cache accessible to all application instances. Adds 0.5–2ms per lookup (network hop) but ensures all instances see the same cached values. Redis is the industry default: it supports rich data structures (strings, hashes, sorted sets, lists, streams), atomic operations, pub/sub, and optional persistence. Memcached is simpler and uses slightly less memory per key; prefer Redis unless you have a specific reason not to.",
+        "CDN edge cache (Cloudflare, Akamai, Fastly): caches responses geographically close to users. A CDN PoP (Point of Presence) in Frankfurt serves European users 150ms faster than an origin in US-East. CDNs primarily cache static assets (images, CSS, JS) and cacheable API responses. Cache-Control headers control CDN behavior. CDN placement is the highest-leverage cache for globally-distributed user-facing systems."
+      ],
+      "bullets": [
+        "In-process: zero network hops; risk of divergence across instances; best for static reference data",
+        "Distributed (Redis): 0.5–2ms; shared across all instances; industry standard",
+        "CDN: nearest edge PoP; 150ms faster for global users; best for static and cacheable responses",
+        "L1/L2 pattern: in-process (L1) backed by Redis (L2) for ultra-low latency hot path"
+      ]
+    },
+    {
+      "title": "Cache Strategies: Aside, Write-Through, Write-Behind",
+      "paragraphs": [
+        "Cache-aside (lazy loading) is the most common pattern. The application checks the cache first; on a miss, it loads from the database, populates the cache, and returns the result. On write, the application writes to the database and invalidates (or updates) the cache. Cache-aside is resilient: a cache failure falls back gracefully to the database. The main trade-off is the thundering herd on cold start—after cache restart, every request misses until warm-up completes.",
+        "Write-through cache: every write goes to both the cache and the database synchronously. Reads are always served from cache (near 100% hit rate for recent data). No stale reads after a write. The cost: every write is slower (must write to both) and the cache fills with data that may never be read (write-once, read-never entries). Best for read-heavy workloads where read latency is paramount.",
+        "Write-behind (write-back): writes go to cache immediately, with asynchronous write to the database. Very low write latency; batching reduces database write amplification. Significant risk: if the cache node fails before the async flush, data is lost. Use only for data where some loss is acceptable (view counts, analytics counters) and always with persistence and replication enabled."
+      ],
+      "bullets": [
+        "Cache-aside: app checks cache, misses go to DB, then populate cache; most common pattern",
+        "Write-through: writes go to cache + DB synchronously; consistent; slower writes",
+        "Write-behind: writes to cache, async flush to DB; risk of data loss on node failure",
+        "Read-through: cache fetches from DB on miss automatically; app only talks to cache"
+      ]
+    },
+    {
+      "title": "Eviction Policies and TTLs",
+      "paragraphs": [
+        "When a cache fills up, it must evict entries. LRU (Least Recently Used) evicts the entry that was accessed longest ago—effective for temporal locality. LFU (Least Frequently Used) evicts the entry accessed fewest times—better for skewed workloads where viral content should stay cached even if not recently accessed. Redis supports approximated LRU and LFU (allkeys-lfu policy). For most applications, LRU is correct; use LFU when access patterns are highly skewed.",
+        "TTL (Time to Live) is a mandatory expiry time on cached entries. Without TTL, stale data lives forever after updates. Setting TTL requires balancing two risks: too short and you evict entries before they are read again (unnecessary DB hits); too long and you serve stale data for extended periods. Rule of thumb: set TTL to the maximum staleness your application can tolerate. User preferences (acceptable 5 minutes stale): TTL=300s. Product prices (must be fresh for checkout): TTL=10–30s or use event-driven invalidation.",
+        "Cache stampede (thundering herd) occurs when a popular entry expires and thousands of concurrent requests simultaneously miss the cache, all querying the database at once. The database, designed for cache-assisted load, may be overwhelmed. Mitigations: probabilistic early expiration (re-fetch the entry slightly before TTL expires with probability proportional to remaining TTL), mutex-based locking (only one request rebuilds the entry; others wait or serve stale), and jitter in TTL values (spread expiration times to avoid synchronized stampedes)."
+      ],
+      "bullets": [
+        "LRU: evict least recently used; good for temporal locality",
+        "LFU: evict least frequently used; good for skewed access patterns",
+        "TTL = maximum acceptable staleness; set mandatory TTL on every cache entry",
+        "Stampede prevention: probabilistic early expiry, mutex lock on rebuild, jitter in TTL"
+      ]
+    },
+    {
+      "title": "Cache Invalidation: The Hardest Problem",
+      "paragraphs": [
+        "Phil Karlton's quip holds: 'There are only two hard things in Computer Science: cache invalidation and naming things.' When underlying data changes, cached versions must be invalidated or updated. The simplest approach is TTL-based expiry: accept that the cache may serve up to TTL-seconds of stale data. For most use cases this is sufficient. When you need fresher data, you must implement active invalidation.",
+        "Event-driven invalidation: when a write occurs, publish an invalidation event (to Redis pub/sub, Kafka, or an internal event bus) and all cache instances that hold the affected key invalidate it. This requires knowing which cache keys correspond to which data entities. The key design challenge: a single database write may affect many cache keys. Updating a user's profile might invalidate the user object cache, any feed caches that display this user's name, and any search result caches containing this user. Mapping writes to affected cache keys is the core complexity of invalidation systems.",
+        "Cache versioning (namespace invalidation): add a version number to all cache keys for a given entity. user:v3:12345 instead of user:12345. To invalidate all cached data for a user, increment the version counter. The old keys will naturally expire via TTL (they just become orphaned with the wrong version prefix). This avoids expensive enumeration of cache keys to invalidate and works well for group invalidation (invalidate all entries in a namespace by incrementing the namespace version)."
+      ],
+      "bullets": [
+        "TTL-based: accept up to N seconds of staleness; simple; sufficient for most use cases",
+        "Active invalidation: publish event on write; subscribers delete affected keys",
+        "Versioned keys: user:v3:12345; increment version to atomically orphan all old keys",
+        "Mapping challenge: one DB write may affect many cache keys; design this mapping explicitly"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Why Caching Works",
         "paragraphs": [
-          "This draft covers Caching Layers & Strategies. Run content:generate to expand it with a model provider, or edit manually."
+          "Temporal locality and access skew make caching effective: the top 20% of data drives 80% of reads. 90% hit rate gives 10x capacity multiplier; 99% gives 100x.",
+          "Profile read-to-write ratio and access frequency before adding cache. Caching write-heavy data with low read amplification adds complexity without benefit.",
+          "Measure: hit rate, miss rate, eviction rate. Alert when hit rate drops below threshold."
+        ]
+      },
+      {
+        "title": "Cache Strategies",
+        "paragraphs": [
+          "Cache-aside: check cache on read, miss -> fetch DB -> populate; write -> DB + invalidate cache. Most common. Falls back gracefully on cache failure.",
+          "Write-through: writes go to cache and DB synchronously. No stale reads; slower writes.",
+          "TTL is mandatory on every entry. Set TTL to maximum acceptable staleness. Use jitter to spread expiry times and prevent stampedes."
+        ]
+      },
+      {
+        "title": "Cache Invalidation",
+        "paragraphs": [
+          "TTL-based expiry is the simplest and usually sufficient. For fresher data, use event-driven invalidation via Redis pub/sub or Kafka.",
+          "Versioned keys (user:v3:12345) enable atomic group invalidation by incrementing the version counter.",
+          "Map each write to its affected cache keys explicitly; untracked dependencies cause silent stale data bugs."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Caching Layers & Strategies — Deep Dive",
+        "title": "Redis Deep Dive: Data Structures and Persistence",
         "paragraphs": [
-          "Extended treatment of Caching Layers & Strategies: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Redis is not just a simple key-value store. Sorted sets (ZADD/ZRANGE) implement leaderboards and rate-limiting windows efficiently. HyperLogLog provides O(1)-space cardinality estimation. Streams (XADD/XREAD) implement event sourcing and message queues. BITFIELD supports compact bit-packing for feature flags and counters. Using the right Redis data structure reduces memory usage by 2–10x compared to naively serializing everything as JSON strings.",
+          "Redis persistence: RDB snapshots create point-in-time backups at configurable intervals (every N seconds if M keys changed). AOF (Append-Only File) logs every write operation; replaying the AOF reconstructs the dataset. AOF with appendfsync=everysec provides at-most-1-second data loss with minimal performance impact. For caching use cases, disable persistence (save '') for maximum throughput; for primary data store use cases, enable AOF. Redis Sentinel provides automatic failover for standalone deployments; Redis Cluster provides horizontal sharding.",
+          "Redis Cluster partitions keys across 16384 hash slots assigned to nodes. Keys are assigned to a slot by CRC16(key) mod 16384. Hash tags ({user}:profile and {user}:permissions map to the same slot if key contains {user}) allow related keys to be colocated, enabling atomic MULTI/EXEC transactions across those keys. Avoid hot slots (all traffic going to one shard) by designing key schemas with entropy."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Sorted sets: O(log n) rank operations; perfect for leaderboards and sliding-window rate limits",
+          "HyperLogLog: estimate cardinality with 12KB of memory; <1% error",
+          "RDB vs AOF: RDB for compact snapshots; AOF for durability; use both in production",
+          "Redis Cluster: 16384 hash slots; hash tags colocate related keys to the same shard"
+        ]
+      },
+      {
+        "title": "Cache Coherence in Distributed Systems",
+        "paragraphs": [
+          "In a multi-instance deployment, each application instance may have an in-process (L1) cache. When instance A updates a record and invalidates its L1 cache, instances B and C still hold the stale value. Solutions: (1) Skip in-process cache entirely; use only the distributed Redis cache (adds 1–2ms but all instances converge quickly). (2) Broadcast invalidation messages via Redis pub/sub; each instance subscribes and deletes its local copy. (3) Short TTL (1–5 seconds) on in-process cache; accept brief window of inconsistency.",
+          "Read-your-own-writes consistency is a common requirement: after a user updates their profile, the next page load should show the updated value. With async replication to Redis replicas, the write may not yet be visible if the read hits a replica. Solutions: route writes to Redis primary and reads for the writing user to the same primary (sticky primary), or add a small delay before redirecting to the profile page, or implement read-your-own-writes by consulting a local version vector. This edge case trips up many caching implementations."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Caching Layers & Strategies — Expert Notes",
+        "title": "Expert: Hot Key Problem and Cache Sharding",
         "paragraphs": [
-          "Expert considerations for Caching Layers & Strategies: multi-region behavior, cost envelopes, and edge cases under overload."
+          "A viral post, popular product, or celebrity profile creates a hot key: millions of requests all targeting the same Redis key per second. A single Redis instance handles ~100K simple ops/second; a hot key generating 500K req/s overwhelms it. Mitigations: local replication (read the value once and cache locally for a very short TTL, 10–50ms, in the application tier—this caps Redis load at application-tier instance count × 1 request per 50ms per key), key spreading (append a random suffix hot_key:rand(0,99) and query a random shard, requiring reads to query all 100 shards for writes—acceptable for read-heavy hot keys), and Redis replica routing (direct all reads for hot keys to dedicated replicas).",
+          "Cache-on-write for social media fan-out: when a celebrity with 10M followers posts a tweet, eagerly populating 10M follower caches synchronously is too slow. Twitter's solution: use a hybrid fan-out model. Celebrities above a follower threshold write to a single timeline object; each follower's feed query fetches and merges this object on read. Users below the threshold use push fan-out (populate each follower's cache). This avoids the write amplification of pure push fan-out while still delivering good feed read latency."
         ]
       }
     ]
   },
   "concepts": [
-    "Caching Layers & Strategies: core idea"
+    "Cache hit rate: fraction of reads served from cache; determines effective capacity multiplier",
+    "Temporal locality: recently accessed data likely to be accessed again; justifies caching",
+    "Cache-aside: application-managed cache; most common pattern; resilient to cache failure",
+    "Write-through: synchronous write to cache and DB; consistent; slower writes",
+    "Write-behind: async flush from cache to DB; low write latency; risk of data loss",
+    "LRU (Least Recently Used): evict least recently accessed entry; best for temporal locality",
+    "LFU (Least Frequently Used): evict least frequently accessed; best for skewed workloads",
+    "TTL (Time to Live): mandatory expiry; set to maximum acceptable staleness",
+    "Cache stampede: expired popular key causes thundering herd to database",
+    "Cache versioning: versioned keys (user:v3:key) enable atomic group invalidation"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Profile access patterns before adding cache—identify top-N most accessed keys",
+    "Set mandatory TTL on every cache entry; never store without expiry",
+    "Add jitter to TTL values to prevent synchronized expiration and stampedes",
+    "Use Redis Cluster or consistent hashing to avoid hot key problems at scale",
+    "Implement probabilistic early expiration for critical high-traffic keys to prevent stampedes",
+    "Monitor hit rate; alert when it drops below target threshold (typically 85–95%)",
+    "Use read-your-own-writes routing (write to primary, read from primary for the writing user)"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Forgetting TTL on cache entries—stale data lives forever after underlying data changes",
+    "Storing everything in cache regardless of access frequency—wasting memory on cold data",
+    "Cache stampede: popular entry expires, thousands of concurrent misses overwhelm the database",
+    "Hot key: viral content generates more ops/second than a single Redis instance can handle",
+    "In-process cache divergence: instances hold different stale values; invalidation requires broadcast",
+    "Cache as primary store: using cache without a persistent backing store risks data loss on restart"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Facebook's Memcached at Scale",
+      "description": "Facebook famously ran the world's largest Memcached deployment to serve social graph queries. Each user profile read hit Memcached first; misses populated the cache from MySQL. Lease tokens solved the thundering herd problem: the first miss for an expired key gets a lease token and fetches from DB; subsequent misses for the same key wait for the token holder to repopulate. This one mechanism eliminated most cache stampede incidents."
+    },
+    {
+      "title": "Redis Rate Limiting with Sorted Sets",
+      "description": "API rate limiting using Redis sorted sets implements a sliding window counter: each request adds (timestamp, request_id) to a sorted set keyed by user_id; remove entries older than the window (60 seconds); count remaining entries; allow if below limit. This is atomic, accurate, and handles distributed rate limiting across any number of API servers without server-side coordination."
+    }
+  ],
   "keyTakeaways": [
-    "Caching Layers & Strategies belongs in the curriculum as evergreen content"
+    "90% cache hit rate = 10x capacity multiplier; 99% = 100x; invest in higher hit rates",
+    "Cache-aside is the most common and resilient pattern; use it as your default",
+    "TTL is mandatory on every cache entry; set it to maximum acceptable staleness",
+    "Cache invalidation is the hard problem; prefer TTL + event-driven invalidation over complex dependency tracking",
+    "Hot keys require special treatment: local short-TTL caching or key spreading",
+    "Redis sorted sets, HyperLogLog, and streams enable patterns beyond simple key-value caching"
   ],
-  "whyItMatters": "Understanding Caching Layers & Strategies improves design judgment for production systems.",
+  "whyItMatters": "Caching appears in virtually every system design interview and every high-performance production system. The ability to reason about where to cache (in-process vs. distributed vs. CDN), how to invalidate (TTL vs. event-driven), and how to handle edge cases (stampede, hot keys, stale reads) demonstrates mastery of one of the highest-leverage techniques in distributed systems.",
   "reflectionQuestions": [
-    "When would you reach for Caching Layers & Strategies in a real design?"
+    "Your API hit rate dropped from 95% to 70% after a deployment. What might have caused this, and how do you investigate?",
+    "Design a caching strategy for a product page that shows real-time inventory (must be fresh) and product description (can be stale for 1 hour).",
+    "A popular Redis key is receiving 500K requests/second, overwhelming a single shard. What are your options?",
+    "When would you choose write-through over cache-aside, and what consistency guarantees does each provide?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Redis in-process latency: 0.1–0.3ms; network round-trip to Redis: 0.5–2ms",
+    "Redis throughput: 100K–1M ops/sec per instance depending on operation type",
+    "Memcached max value size: 1MB; Redis max value size: 512MB",
+    "Redis Cluster: up to 1000 nodes; 16384 hash slots distributed across nodes",
+    "In-process LRU cache (Caffeine/Guava): sub-microsecond; holds up to available heap"
   ],
   "diagrams": [
     {
-      "id": "fund-caching-overview",
-      "title": "Caching Layers & Strategies overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-caching-aside-flow",
+      "title": "Cache-Aside Read and Write Flow",
+      "mermaid": "flowchart LR\n  Client --> App\n  App -->|1. GET key| Cache[(Redis)]\n  Cache -->|hit: return value| App\n  Cache -->|miss| App\n  App -->|2. query on miss| DB[(Database)]\n  DB -->|data| App\n  App -->|3. SET key value TTL| Cache\n  App -->|return| Client"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Caching Layers & Strategies and the main trade-offs in 3 minutes."
+    "What is cache-aside and how does it differ from write-through?",
+    "How do you prevent a cache stampede when a popular key expires?",
+    "Design the caching strategy for a social media feed that shows posts from friends.",
+    "What is the difference between LRU and LFU eviction, and when would you use each?",
+    "How do you implement cache invalidation in a system where one database write affects many cache keys?"
   ],
   "exercises": [
-    "Design a small system that depends on Caching Layers & Strategies; list 3 trade-offs."
+    "Design a Redis caching layer for a product catalog: define cache keys, TTL strategy, invalidation events, and stampede prevention.",
+    "Calculate the optimal cache size for a system with 10M items, 1% hot items receiving 90% of traffic, and 100GB available cache memory.",
+    "Implement a sliding-window rate limiter using Redis sorted sets for 1000 requests per user per minute."
   ],
-  "sources": [],
+  "sources": [
+    {
+      "title": "Redis documentation — data structures, persistence, and cluster"
+    },
+    {
+      "title": "Facebook's Scaling Memcache at Facebook — NSDI 2013"
+    },
+    {
+      "title": "Caffeine cache — github.com/ben-manes/caffeine (high-performance Java in-process cache)"
+    },
+    {
+      "title": "Caching at Scale with Redis — AWS re:Invent talk"
+    }
+  ],
   "relatedLessons": [
     "cache-strategies",
-    "fund-cdn"
+    "fund-cache-coherence",
+    "fund-cache-stampede"
   ]
 }

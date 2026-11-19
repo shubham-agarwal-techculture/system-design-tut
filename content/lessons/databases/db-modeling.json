@@ -3,15 +3,15 @@
   "title": "Data Modeling for Scale",
   "moduleId": "databases",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "Data Modeling for Scale — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "At scale, data models optimize for access patterns and partition keys, not only normalization purity. Good models make hot queries local and cheap; bad models force scatter-gather forever.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
-    "db-indexes-replication"
+    "db-isolation-deep"
   ],
   "tags": [
     "databases",
@@ -20,82 +20,147 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Access patterns first",
       "paragraphs": [
-        "This draft covers Data Modeling for Scale. Run content:generate to expand it with a model provider, or edit manually."
+        "List reads/writes with QPS and latency. Model around those paths. In partitioned stores, the partition key is the most important decision."
+      ]
+    },
+    {
+      "title": "Normalization vs denormalization",
+      "paragraphs": [
+        "Normalize to protect write integrity; denormalize to protect read latency. Duplication requires clear update rules — CDC and application dual updates are options with different failure modes."
+      ]
+    },
+    {
+      "title": "Keys and hotspots",
+      "paragraphs": [
+        "Monotonic keys create write hotspots. High cardinality + even access is ideal. Tenant+time composites need care to avoid skew."
+      ]
+    },
+    {
+      "title": "Evolving schemas",
+      "paragraphs": [
+        "Expand/contract migrations, dual writes, and backfills. Avoid locking migrations on huge tables without a plan."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Access patterns first",
         "paragraphs": [
-          "This draft covers Data Modeling for Scale. Run content:generate to expand it with a model provider, or edit manually."
+          "List reads/writes with QPS and latency. Model around those paths. In partitioned stores, the partition key is the most important decision."
+        ]
+      },
+      {
+        "title": "Normalization vs denormalization",
+        "paragraphs": [
+          "Normalize to protect write integrity; denormalize to protect read latency. Duplication requires clear update rules — CDC and application dual updates are options with different failure modes."
+        ]
+      },
+      {
+        "title": "Keys and hotspots",
+        "paragraphs": [
+          "Monotonic keys create write hotspots. High cardinality + even access is ideal. Tenant+time composites need care to avoid skew."
+        ]
+      },
+      {
+        "title": "Evolving schemas",
+        "paragraphs": [
+          "Expand/contract migrations, dual writes, and backfills. Avoid locking migrations on huge tables without a plan."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Data Modeling for Scale — Deep Dive",
+        "title": "Data Modeling for Scale — Operations",
         "paragraphs": [
-          "Extended treatment of Data Modeling for Scale: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating Data Modeling for Scale in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Data Modeling for Scale — Failure modes",
+        "paragraphs": [
+          "Common failures around Data Modeling for Scale include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Data Modeling for Scale — Expert Notes",
+        "title": "Data Modeling for Scale — Expert notes",
         "paragraphs": [
-          "Expert considerations for Data Modeling for Scale: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, Data Modeling for Scale intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "Data Modeling for Scale: core idea"
+    "Access-pattern modeling",
+    "Partition key",
+    "Denormalization",
+    "Hot partition",
+    "Expand/contract"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Write access patterns before ER diagrams",
+    "Avoid monotonic hot keys",
+    "Plan migrations as first-class work"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Pretty schemas that cannot be sharded",
+    "Unbounded fan-out reads",
+    "Blocking DDL in peak"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "DynamoDB single-table",
+      "description": "Access-pattern oriented design."
+    },
+    {
+      "title": "Postgres + read models",
+      "description": "Normalized OLTP + denormalized projections."
+    }
+  ],
   "keyTakeaways": [
-    "Data Modeling for Scale belongs in the curriculum as evergreen content"
+    "Scale models start from access paths",
+    "Partition keys dominate",
+    "Migrations need strategy"
   ],
-  "whyItMatters": "Understanding Data Modeling for Scale improves design judgment for production systems.",
+  "whyItMatters": "You cannot fix a bad key choice with more hardware alone.",
   "reflectionQuestions": [
-    "When would you reach for Data Modeling for Scale in a real design?"
+    "What is the partition key for your hottest entity?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "db-modeling-overview",
       "title": "Data Modeling for Scale overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Data Modeling for Scale and the main trade-offs in 3 minutes."
+    "Explain Data Modeling for Scale and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on Data Modeling for Scale; list 3 trade-offs."
+    "Sketch a design that depends on Data Modeling for Scale; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
+    "db-backup-pit",
     "db-cdc",
-    "db-indexes-replication",
-    "db-replication-sharding"
+    "db-connection-pooling"
   ]
 }

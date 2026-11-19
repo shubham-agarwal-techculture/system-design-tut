@@ -1,0 +1,172 @@
+{
+  "id": "arch-multi-tenant",
+  "title": "Multi-Tenant Architecture",
+  "moduleId": "architecture-patterns",
+  "phaseId": "architecture",
+  "durationMinutes": 45,
+  "summary": "Multi-tenancy trades isolation for efficiency. Choose among silo, bridge, and pool models for compute and data — and make noisy-neighbor, blast radius, and encryption boundaries explicit.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "arch-monolith-micro"
+  ],
+  "tags": [
+    "architecture-patterns",
+    "evergreen",
+    "architecture"
+  ],
+  "sections": [
+    {
+      "title": "Isolation spectrum",
+      "paragraphs": [
+        "Silo: dedicated resources per tenant (strong isolation, high cost). Pool: shared everything with logical separation (efficient, riskier). Bridge models mix — e.g., shared app tier, separate DB schemas/clusters for large tenants.",
+        "The right point on the spectrum depends on threat model, compliance, and tenant size skew."
+      ]
+    },
+    {
+      "title": "Data plane concerns",
+      "paragraphs": [
+        "Row-level tenancy needs ruthless discipline on every query (tenant_id predicates, RLS). Schema-per-tenant eases isolation but complicates migrations. Database-per-tenant maximizes isolation and operational load.",
+        "Encryption keys per tenant, backup isolation, and restore procedures are part of the design — not afterthoughts."
+      ]
+    },
+    {
+      "title": "Control plane and noisy neighbors",
+      "paragraphs": [
+        "Fair scheduling, per-tenant rate limits, and quotas prevent one tenant from exhausting shared pools. Load shedding should be tenant-aware.",
+        "Observability must tag every metric/log/trace with tenant for cost attribution and incident scoping."
+      ]
+    },
+    {
+      "title": "Migration between models",
+      "paragraphs": [
+        "Plan how a growing tenant graduates from pool to silo without downtime. Many outages happen during 'VIP tenant' exceptionalism without automation."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Isolation spectrum",
+        "paragraphs": [
+          "Silo: dedicated resources per tenant (strong isolation, high cost). Pool: shared everything with logical separation (efficient, riskier). Bridge models mix — e.g., shared app tier, separate DB schemas/clusters for large tenants.",
+          "The right point on the spectrum depends on threat model, compliance, and tenant size skew."
+        ]
+      },
+      {
+        "title": "Data plane concerns",
+        "paragraphs": [
+          "Row-level tenancy needs ruthless discipline on every query (tenant_id predicates, RLS). Schema-per-tenant eases isolation but complicates migrations. Database-per-tenant maximizes isolation and operational load.",
+          "Encryption keys per tenant, backup isolation, and restore procedures are part of the design — not afterthoughts."
+        ]
+      },
+      {
+        "title": "Control plane and noisy neighbors",
+        "paragraphs": [
+          "Fair scheduling, per-tenant rate limits, and quotas prevent one tenant from exhausting shared pools. Load shedding should be tenant-aware.",
+          "Observability must tag every metric/log/trace with tenant for cost attribution and incident scoping."
+        ]
+      },
+      {
+        "title": "Migration between models",
+        "paragraphs": [
+          "Plan how a growing tenant graduates from pool to silo without downtime. Many outages happen during 'VIP tenant' exceptionalism without automation."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Multi-Tenant Architecture — Operations",
+        "paragraphs": [
+          "Operating Multi-Tenant Architecture in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+        ],
+        "bullets": [
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Multi-Tenant Architecture — Failure modes",
+        "paragraphs": [
+          "Common failures around Multi-Tenant Architecture include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Multi-Tenant Architecture — Expert notes",
+        "paragraphs": [
+          "At the expert level, Multi-Tenant Architecture intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Silo vs pool tenancy",
+    "Row-level security",
+    "Noisy neighbor",
+    "Per-tenant quotas",
+    "Tenant-aware observability"
+  ],
+  "practices": [
+    "Default-deny data access with tenant context",
+    "Quota and rate-limit per tenant",
+    "Automate pool→silo graduation"
+  ],
+  "pitfalls": [
+    "Missing tenant filters on a single query path",
+    "Shared caches without tenant keys",
+    "One giant tenant without isolation plan"
+  ],
+  "examples": [
+    {
+      "title": "Salesforce / Slack-style pool",
+      "description": "Logical tenancy at scale."
+    },
+    {
+      "title": "Enterprise silo offerings",
+      "description": "Dedicated stacks for compliance."
+    }
+  ],
+  "keyTakeaways": [
+    "Tenancy is an isolation/cost trade-off",
+    "Every layer must enforce tenant context",
+    "Plan graduation paths early"
+  ],
+  "whyItMatters": "Most SaaS products are multi-tenant. Weak tenancy design causes security incidents and chronic performance pain.",
+  "reflectionQuestions": [
+    "Where could a missing tenant predicate leak data in your stack?"
+  ],
+  "numbersToKnow": [
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
+  ],
+  "diagrams": [
+    {
+      "id": "arch-multi-tenant-overview",
+      "title": "Multi-Tenant Architecture overview",
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Multi-Tenant Architecture and the main trade-offs in three minutes."
+  ],
+  "exercises": [
+    "Sketch a design that depends on Multi-Tenant Architecture; list three trade-offs and one failure mode."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "arch-bff",
+    "arch-clean-ddd",
+    "arch-event-cqrs"
+  ]
+}

@@ -3,12 +3,12 @@
   "title": "CRDTs",
   "moduleId": "distributed-systems",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "CRDTs — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "Conflict-free Replicated Data Types merge concurrent updates without coordination. They enable local-first and multi-master designs when you can accept their semantics and metadata costs.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "fund-consistency-models"
@@ -20,77 +20,142 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Why CRDTs",
       "paragraphs": [
-        "This draft covers CRDTs. Run content:generate to expand it with a model provider, or edit manually."
+        "When replicas accept writes offline, conflicts happen. CRDTs mathematically guarantee convergence with defined merge functions — G-Counter, OR-Set, LWW-Register, and richer text types."
+      ]
+    },
+    {
+      "title": "State vs operation based",
+      "paragraphs": [
+        "State-based (CvRDT) gossip full state merges; op-based (CmRDT) reliably deliver operations. Trade bandwidth vs delivery assumptions."
+      ]
+    },
+    {
+      "title": "Costs and limits",
+      "paragraphs": [
+        "Metadata growth (tombstones, version vectors) needs compaction. Not every business invariant is mergeable — money transfer is the classic counterexample without extra constraints."
+      ]
+    },
+    {
+      "title": "Fit",
+      "paragraphs": [
+        "Collaborative editing, presence, feature flags, shopping carts — good fits. Banking ledgers — usually not without additional protocol."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Why CRDTs",
         "paragraphs": [
-          "This draft covers CRDTs. Run content:generate to expand it with a model provider, or edit manually."
+          "When replicas accept writes offline, conflicts happen. CRDTs mathematically guarantee convergence with defined merge functions — G-Counter, OR-Set, LWW-Register, and richer text types."
+        ]
+      },
+      {
+        "title": "State vs operation based",
+        "paragraphs": [
+          "State-based (CvRDT) gossip full state merges; op-based (CmRDT) reliably deliver operations. Trade bandwidth vs delivery assumptions."
+        ]
+      },
+      {
+        "title": "Costs and limits",
+        "paragraphs": [
+          "Metadata growth (tombstones, version vectors) needs compaction. Not every business invariant is mergeable — money transfer is the classic counterexample without extra constraints."
+        ]
+      },
+      {
+        "title": "Fit",
+        "paragraphs": [
+          "Collaborative editing, presence, feature flags, shopping carts — good fits. Banking ledgers — usually not without additional protocol."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "CRDTs — Deep Dive",
+        "title": "CRDTs — Operations",
         "paragraphs": [
-          "Extended treatment of CRDTs: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating CRDTs in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "CRDTs — Failure modes",
+        "paragraphs": [
+          "Common failures around CRDTs include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "CRDTs — Expert Notes",
+        "title": "CRDTs — Expert notes",
         "paragraphs": [
-          "Expert considerations for CRDTs: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, CRDTs intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "CRDTs: core idea"
+    "Strong eventual consistency",
+    "OR-Set",
+    "LWW",
+    "Tombstones",
+    "Local-first"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Pick CRDT type matching invariants",
+    "Plan compaction",
+    "Test concurrent merges"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Using LWW for everything",
+    "Unbounded tombstones",
+    "Assuming CRDTs replace all consensus"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Automerge/Yjs",
+      "description": "Collaborative document CRDTs."
+    },
+    {
+      "title": "Redis CRDTs / Riak",
+      "description": "Data-store embedded types."
+    }
+  ],
   "keyTakeaways": [
-    "CRDTs belongs in the curriculum as evergreen content"
+    "CRDTs converge without locks",
+    "Semantics and metadata cost matter",
+    "Not universal"
   ],
-  "whyItMatters": "Understanding CRDTs improves design judgment for production systems.",
+  "whyItMatters": "Offline-first and multi-region active-active designs need conflict strategies — CRDTs are a primary tool.",
   "reflectionQuestions": [
-    "When would you reach for CRDTs in a real design?"
+    "Which of your data types are naturally mergeable?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "fund-crdts-overview",
       "title": "CRDTs overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain CRDTs and the main trade-offs in 3 minutes."
+    "Explain CRDTs and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on CRDTs; list 3 trade-offs."
+    "Sketch a design that depends on CRDTs; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [

@@ -3,99 +3,272 @@
   "title": "Redis Internals",
   "moduleId": "system-internals",
   "phaseId": "internal-designs",
-  "durationMinutes": 30,
-  "summary": "Redis Internals — draft awaiting generation and review.",
+  "durationMinutes": 50,
+  "summary": "Redis is an in-memory data structure store used as a cache, message broker, session store, and real-time leaderboard. Its single-threaded event loop, built-in data structures (strings, hashes, lists, sets, sorted sets, streams, probabilistic structures), and persistence mechanisms (RDB snapshots, AOF log) make it one of the most versatile components in distributed system architectures. Understanding its memory model, eviction policies, replication, and clustering is essential for using it effectively at scale.",
   "kind": "living",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "int-postgres"
-  ],
-  "tags": [
-    "system-internals",
-    "living",
-    "internal-designs"
-  ],
+  "prerequisites": ["fund-caching", "os-io-sync"],
+  "tags": ["system-internals", "redis", "caching", "data-structures"],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Architecture: Single-Threaded Event Loop",
       "paragraphs": [
-        "This draft covers Redis Internals. Run content:generate to expand it with a model provider, or edit manually."
+        "Redis processes commands in a single-threaded event loop using the I/O multiplexing primitives of the host OS (epoll on Linux, kqueue on BSD). Despite this single-threaded model, Redis achieves 100,000–1,000,000 operations/second on commodity hardware because all data lives in memory and operations are CPU-cheap—a GET is a hash table lookup; a ZADD is a skip list insertion. The event loop eliminates lock overhead entirely: there is no concurrent modification of shared data structures. This simplicity is a feature, not a limitation.",
+        "Redis 6.0 introduced I/O threads for network reads and writes: multiple threads handle the network layer (parsing requests, writing responses) while a single main thread still executes all commands. This threading model addresses the CPU bottleneck in high-connection-count workloads where the main thread was spending significant time on network I/O. With I/O threads, Redis can saturate 10GbE network interfaces. The command execution itself remains single-threaded, preserving the simplicity of the data model.",
+        "The command lifecycle: a client sends a command over TCP; the event loop's read handler receives it; the command is parsed (inline or RESP protocol); the main thread executes the command against the in-memory data structure; the response is buffered; the write handler sends it. For pipelining (multiple commands in one network round-trip), the client sends a batch of commands, the server processes them all, and sends responses in a single batch. Pipelining reduces round-trip overhead and can multiply throughput 10x for small-operation workloads.",
+        "Slow commands are Redis's Achilles' heel. Because the event loop is single-threaded, a single O(n) operation on a large key (KEYS *, SMEMBERS on a 10 million element set) blocks all other clients for the duration. KEYS * is documented as 'never use in production'. Use SCAN for iterating keys, SSCAN/HSCAN/ZSCAN for iterating large data structures—all use cursor-based pagination to process a small batch per call without blocking the event loop for extended periods."
+      ],
+      "bullets": [
+        "Single-threaded main loop: no locks, no race conditions, 100K-1M ops/sec on commodity hardware",
+        "I/O threads (Redis 6+): separate threads for network read/write; main thread executes commands",
+        "Pipelining: batch multiple commands in one round-trip; 10x throughput improvement for small ops",
+        "KEYS *: O(n) over all keys—blocks all clients; use SCAN with count hint instead"
+      ]
+    },
+    {
+      "title": "Data Structures and Their Use Cases",
+      "paragraphs": [
+        "String is the most fundamental Redis type—a byte array up to 512MB. Redis stores integers in a compact binary representation, allowing INCR/DECR without deserialization. Strings are used for: simple caching (key=cache-key, value=JSON), counters (INCR for page views, rate limiting counters), feature flags, session tokens, and distributed locks. The SET command with NX (set if not exists) and EX (expiry seconds) is the atomic primitive for distributed locks: SET lock:resource token NX EX 30.",
+        "Hash stores field-value pairs under a single key: ideal for objects (user:1234 → {name: 'Alice', email: '...', age: 32}). More memory-efficient than storing each field as a separate key because Redis uses a compact ziplist encoding when the hash has fewer than 128 fields and all values are under 64 bytes. Use hashes for user sessions (avoid storing the entire session JSON as a string when you only need to update one field), configuration objects, and shopping carts (hset cart:user:1234 productId quantity).",
+        "Sorted Set (ZSET) is Redis's most powerful data structure: a set of unique members, each with a floating-point score, maintained in score order. Members are stored in both a hash table (O(1) member lookup) and a skip list (O(log n) rank operations). Use cases: leaderboards (ZADD scores user_id score, ZREVRANK scores user_id), rate limiting with sliding windows (each timestamp is a member, score is the timestamp), delayed queues (score = execution time, ZRANGEBYSCORE to find due jobs), and geospatial indexing (GEOADD encodes coordinates as ZSET scores).",
+        "List is a doubly linked list supporting O(1) LPUSH/RPUSH/LPOP/RPOP and O(n) random access. Use for: message queues (LPUSH + BRPOP for blocking queue), job queues, timeline feeds, and activity logs with fixed retention (LTRIM to maintain maximum length). BRPOP/BLPOP block the client until a list element is available—this is the primitive for a reliable Redis-based queue without polling. Stream (added in Redis 5.0) supersedes lists for most queue use cases with consumer groups, message acknowledgment, and persistent message IDs."
+      ],
+      "bullets": [
+        "String: bytes, integers, JSON blobs; NX+EX for atomic distributed lock primitive",
+        "Hash: field-value object; ziplist encoding for small hashes saves significant memory",
+        "Sorted Set: members with scores in order; leaderboards, rate limiting, delayed queues",
+        "List: doubly linked; BRPOP for blocking queue; Stream for durable queue with consumer groups"
+      ]
+    },
+    {
+      "title": "Memory Management and Eviction Policies",
+      "paragraphs": [
+        "Redis stores all data in memory using an internal allocator (jemalloc by default). Every key-value pair has a Redis object header (robj: 16 bytes) plus the actual data. For small integers (0-9999), Redis maintains a shared integer pool—INCR counters to 9999 are free. For small strings, Redis may use an embedded string representation (string data stored inline in the robj, avoiding a malloc call and improving cache locality). These optimizations mean the same value stored differently can consume 10x more or less memory—memory profiling (DEBUG OBJECT key) reveals encoding.",
+        "maxmemory sets the memory ceiling. When Redis reaches maxmemory and must accept a new write, the eviction policy determines what to remove. Policy options: noeviction (return error—safe but causes writes to fail), allkeys-lru (evict least-recently-used key across all keys—good for general caching), volatile-lru (evict LRU only among keys with TTL—preserves keys without TTL), allkeys-lfu (evict least-frequently-used—better for Zipf-distributed access patterns), volatile-ttl (evict the key with shortest remaining TTL—prioritizes soon-to-expire keys).",
+        "Memory fragmentation occurs when Redis allocates and frees many different-sized objects, leaving gaps that are too small for new allocations. The mem_fragmentation_ratio in INFO memory should be close to 1.0–1.5; above 2.0 indicates significant fragmentation. Redis 4.0+ added MEMORY PURGE to trigger active defragmentation. Setting ACTIVE_DEFRAG_ENABLED yes enables background defragmentation. Restart with CONFIG REWRITE if fragmentation exceeds 3.0 and can't be resolved dynamically.",
+        "Key expiration is handled lazily (checked on access) and actively (periodic sampling). Redis samples 20 random keys with TTLs every 100ms and expires any that have exceeded their TTL. This means expired keys accumulate between sampling cycles—if you set 1 million keys with 10-second TTLs all at once, Redis may not clean them up for a few seconds. For exact expiration guarantees (e.g., sliding session windows), always use TTL-based cleanup and account for the sampling delay in your design."
+      ],
+      "bullets": [
+        "jemalloc: Redis's memory allocator; use INFO memory for fragmentation ratio",
+        "Eviction policies: noeviction, allkeys-lru, volatile-lru, allkeys-lfu, volatile-ttl",
+        "LFU vs LRU: LFU better for skewed access patterns; LRU better for sequential scan patterns",
+        "Active defragmentation (Redis 4+): background compaction; enables ACTIVE_DEFRAG_ENABLED yes"
+      ]
+    },
+    {
+      "title": "Persistence: RDB and AOF",
+      "paragraphs": [
+        "Redis Persistence Database (RDB) creates point-in-time snapshots of the entire dataset via fork-based copy-on-write. Redis forks a child process; the child writes the full dataset to a temp file while the parent continues serving requests. When the child finishes, it atomically replaces the existing RDB file. RDB is compact (compressed binary format), fast to restore on restart, and has minimal overhead during normal operation. The downside: data since the last snapshot is lost on crash. Default snapshot schedule: save after 900 seconds if 1 key changed, 300 seconds if 10 keys changed, 60 seconds if 10,000 keys changed.",
+        "Append-Only File (AOF) logs every write command to an append-only file. On restart, Redis replays the AOF to reconstruct the dataset. AOF provides much better durability: with appendfsync everysec, at most 1 second of writes is lost on crash. With appendfsync always, every write is synced to disk before acknowledging—zero data loss but significant performance impact. AOF files grow unboundedly; BGREWRITEAOF compacts the log by replacing the full sequence with a minimal set of commands that produce the same state.",
+        "In practice, use RDB + AOF together: RDB for fast restarts (replaying a large AOF on startup takes minutes; loading an RDB takes seconds), AOF for durability between snapshots. Configure AOF with appendfsync everysec for most use cases. If Redis is used purely as a cache with no durability requirement, disable both RDB and AOF—the cache will be cold on restart but correct data comes from the source of truth.",
+        "Redis 7.0 introduced RDB-AOF hybrid persistence: the AOF file starts with an RDB snapshot followed by AOF increments since the snapshot. This combines fast load times (start from RDB) with per-second durability (AOF increments). Enable with aof-use-rdb-preamble yes. This is now the recommended persistence configuration for most production deployments that need both performance and durability."
+      ],
+      "bullets": [
+        "RDB: fork + copy-on-write snapshot; compact; fast restore; up to N minutes of data loss",
+        "AOF: command log; appendfsync everysec = max 1s data loss; slower restart",
+        "Hybrid (RDB+AOF): RDB preamble + AOF increments; fast load + good durability",
+        "BGREWRITEAOF: compacts AOF file without blocking; run when AOF exceeds 2x original size"
+      ]
+    },
+    {
+      "title": "Replication, Sentinel, and Cluster",
+      "paragraphs": [
+        "Redis replication is asynchronous: the primary streams write commands to replicas; replicas apply them in order. Replicas can serve read traffic, offloading reads from the primary. Replication lag (the time between a write on primary and its visibility on a replica) is typically under 10ms on a healthy network but can grow to seconds under heavy write load or network congestion. Applications that read from replicas must tolerate stale data—never use replica reads for data that requires read-after-write consistency.",
+        "Redis Sentinel provides automatic failover for a primary-replica setup. Sentinels monitor the primary; when quorum (typically 2 of 3) agrees the primary is unreachable, they elect a replica as the new primary and reconfigure other replicas to follow the new primary. Clients use the Sentinel API to discover the current primary address. Sentinel failover typically takes 30-60 seconds and involves a brief window of unavailability. During failover, writes to the old primary may be lost (asynchronous replication lag).",
+        "Redis Cluster provides horizontal scalability by sharding data across multiple primary nodes. Keyspace is divided into 16,384 hash slots; each node is responsible for a range of slots. Keys hash to slots via CRC16(key) % 16,384. Clients route commands directly to the responsible node; if they hit the wrong node, they receive a MOVED redirection. Redis Cluster supports automatic resharding, online node addition/removal, and fault tolerance (each shard has its own replica for HA). Limitations: multi-key commands (MGET, pipeline) require all keys in the same slot (use hash tags {user}:profile and {user}:session to colocate related keys).",
+        "Redis 7.0 added Redis Functions (server-side Lua scripting replacement) and ACL v2 for fine-grained access control. Redis 7.4 introduced active-active geo-replication (Redis Stack Enterprise feature). For most use cases, Cluster (sharded, auto-failover) is the production-grade choice for scale, while Sentinel (single shard, auto-failover) is appropriate for datasets that fit in one node's memory."
+      ],
+      "bullets": [
+        "Replication: async; replicas for read scaling; stale reads possible under lag",
+        "Sentinel: HA for single-shard setups; 30-60s failover; some write loss possible",
+        "Cluster: 16,384 slots sharded across N primaries; auto-failover per shard",
+        "Hash tags {tag}: colocate keys on same slot for multi-key commands across cluster"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Event Loop and Data Structures",
         "paragraphs": [
-          "This draft covers Redis Internals. Run content:generate to expand it with a model provider, or edit manually."
+          "Redis's single-threaded event loop processes commands sequentially with no locks. This achieves 100K-1M ops/sec because all data is in memory and operations are O(1) or O(log n).",
+          "Data structures: String (cache, counters, locks), Hash (objects), List (queues), Set (membership), Sorted Set (leaderboards, rate limits), Stream (durable queues with consumer groups).",
+          "Avoid O(n) commands on large datasets: KEYS *, SMEMBERS on large sets, LRANGE 0 -1. Use SCAN for iteration."
+        ],
+        "bullets": [
+          "Pipelining: batch commands in one round-trip for 10x throughput",
+          "SCAN: cursor-based iteration; O(1) per call, no blocking",
+          "Sorted Set: skip list + hash table; O(log n) for most operations"
+        ]
+      },
+      {
+        "title": "Memory, Eviction, and Persistence",
+        "paragraphs": [
+          "maxmemory caps Redis memory. On reaching it, eviction policy (allkeys-lru, allkeys-lfu, volatile-lru, noeviction) determines what's removed.",
+          "RDB: periodic fork-based snapshot. AOF: command log with appendfsync everysec for 1s durability. Hybrid mode combines both for fast load + good durability.",
+          "Memory fragmentation (mem_fragmentation_ratio > 1.5): enable active defragmentation or restart."
+        ],
+        "bullets": [
+          "LFU (allkeys-lfu): better than LRU for skewed/Zipf access distributions",
+          "Hybrid persistence: recommended for production; RDB preamble + AOF increments",
+          "BGREWRITEAOF: compacts AOF without blocking; run when ratio exceeds 2x"
+        ]
+      },
+      {
+        "title": "Replication, Sentinel, and Cluster",
+        "paragraphs": [
+          "Replication is async: primary streams commands to replicas. Replica reads are stale by definition—never rely on them for read-after-write consistency.",
+          "Sentinel: quorum-based HA for single-shard; 30-60s failover. Cluster: 16,384 slots sharded across N nodes; per-shard HA.",
+          "Hash tags {tag} colocate keys on same slot for multi-key commands in Cluster."
+        ],
+        "bullets": [
+          "Sentinel quorum: typically 2/3 required to agree primary is down before failover",
+          "Cluster MOVED redirection: client hits wrong node; server returns correct node address",
+          "Replication lag: typically <10ms healthy; can grow under heavy write load"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Redis Internals — Deep Dive",
+        "title": "Redis Data Encoding Internals",
         "paragraphs": [
-          "Extended treatment of Redis Internals: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Redis uses different internal encodings for the same data type depending on size and content. A Hash with ≤128 fields and all values ≤64 bytes uses listpack (formerly ziplist)—a contiguous memory block with no pointers, excellent cache locality, 10x more memory-efficient than hashtable encoding. When either threshold is exceeded, Redis automatically upgrades to hashtable encoding. Knowing these thresholds lets you tune configuration or key design to stay in compact encoding.",
+          "Sorted Sets use listpack for ≤128 members with ≤64-byte values, skiplist+hashtable otherwise. A leaderboard with 10,000 users always uses skiplist. But a sorted set used as a sliding window rate limiter (ZADD with timestamps as scores, usually <100 members per user) stays in listpack encoding for most users—significantly more memory-efficient. Use OBJECT ENCODING key to inspect the current encoding and DEBUG OBJECT key for detailed memory info.",
+          "Integer encoding: strings that look like integers (0-9999) are stored as actual integers (8 bytes in a shared pool, 0 bytes if in pool). A counter key INCR count stores an integer value, consuming the minimum memory. Keys themselves are stored as dynamically allocated strings in the main hash table. Redis 7.0 added listpack for Hash and List (replacing ziplist) with slightly different threshold handling but similar memory efficiency characteristics."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "listpack (ziplist): compact encoding for small hashes/lists/zsets; 10x memory savings vs pointer-based",
+          "OBJECT ENCODING key: inspect current encoding (listpack, hashtable, skiplist, etc.)",
+          "Encoding upgrade: automatic when thresholds exceeded; never downgrade automatically",
+          "hash-max-listpack-entries 128: config knob to tune listpack→hashtable threshold"
+        ]
+      },
+      {
+        "title": "Redis Patterns: Distributed Locks, Rate Limiting, and Pub/Sub",
+        "paragraphs": [
+          "Redlock is the distributed lock algorithm for Redis: acquire a lock by running SET key token NX EX ttl against N/2+1 independent Redis nodes. The lock is considered acquired if a majority (N/2+1) of nodes succeed within a time window much shorter than the TTL. This handles single-node Redis failures. Controversy: Martin Kleppmann argued that clock drift and process pauses can cause Redlock to issue two concurrent lock holders even with a quorum. For safety-critical distributed locking, use etcd or ZooKeeper with their stronger consistency guarantees.",
+          "Sliding window rate limiting: use a Sorted Set per user with timestamps as both member and score. For each request: ZADD ratelimit:user:1234 now now, ZREMRANGEBYSCORE ratelimit:user:1234 0 (now - window_seconds), ZCARD ratelimit:user:1234. If ZCARD > limit, reject. EXPIRE ratelimit:user:1234 window_seconds to clean up idle users. Use a Lua script to make the three commands atomic. This provides exact sliding window semantics at the cost of storing one entry per request per user.",
+          "Pub/Sub and Redis Streams: Pub/Sub (PUBLISH/SUBSCRIBE) provides fire-and-forget message delivery—subscribers receive messages published after they subscribed; they miss messages published while offline. This makes it unsuitable for reliable message delivery. Redis Streams (XADD/XREAD/XGROUP) provide persistent, consumer-group-based message delivery with acknowledgments—closer to Kafka semantics. For task queues, use Streams with consumer groups. For broadcast notifications (live chat presence), Pub/Sub is appropriate. For durable task distribution, use Streams."
+        ],
+        "bullets": [
+          "Redlock: multi-node distributed lock; controversial for safety-critical locks—prefer etcd for strong guarantees",
+          "Sliding window rate limit: ZADD + ZREMRANGEBYSCORE + ZCARD in Lua script for atomicity",
+          "Pub/Sub: fire-and-forget broadcast; no persistence; missed if offline",
+          "Streams: persistent consumer groups with ACK; use for reliable task queues"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Redis Internals — Expert Notes",
+        "title": "Redis at Hyperscale: Cluster Sizing and Hotspot Mitigation",
         "paragraphs": [
-          "Expert considerations for Redis Internals: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Redis Cluster sizing: target 70-80% memory utilization per node (leave headroom for replication buffers, AOF rewrite, and fork overhead). With 64GB RAM per node at 70% utilization, effective capacity is 44GB per node. Plan for 2x replication (each primary has one replica). A 1TB dataset needs ~24 nodes (12 primary + 12 replica). Cluster rebalancing (resharding) is online but CPU-intensive—schedule during low-traffic windows.",
+          "Hot keys are the primary scaling challenge in Redis Cluster. A 'celebrity' key (product:trending:12345) receiving 100,000 reads/second hits a single shard. Mitigation: local in-process caching for the hottest keys (small TTL, refreshed on miss), read replicas for the hot shard (Redis Cluster supports replica reads for read-heavy slots), and key splitting (product:trending:12345:{1} through product:trending:12345:{N} spread reads across N shards). Key splitting requires application-layer aggregation.",
+          "Memory optimization at scale: set max 50% of memory to keys without TTL when using volatile-lru—keys without TTL are never evicted, so your cache fills with 'permanent' keys that squeeze out cached data. Enforce TTLs on all cache keys without exception. Use WAIT command to synchronously replicate critical writes before acknowledging to the client—trading latency for durability in cases where write loss is unacceptable. Keyspace notifications enable event-driven patterns (notify subscribers when a key expires) but generate significant overhead at high key creation/expiration rates."
         ]
       }
     ]
   },
   "concepts": [
-    "Redis Internals: core idea"
+    "Single-threaded event loop: processes commands sequentially; no locks; O(1) and O(log n) operations",
+    "String: byte array up to 512MB; integers stored efficiently; NX+EX for distributed lock",
+    "Hash: field-value pairs; compact listpack encoding for small hashes",
+    "Sorted Set (ZSET): unique members with scores; skip list for rank operations; leaderboards, rate limiting",
+    "Stream: persistent, consumer-group-based message queue with acknowledgment",
+    "RDB: fork-based snapshot; compact; fast restore; periodic data loss",
+    "AOF: append-only command log; appendfsync everysec = 1s max data loss",
+    "Replication: async primary-replica; stale reads from replicas",
+    "Redis Sentinel: HA for single-shard; quorum-based automatic failover",
+    "Redis Cluster: horizontal sharding across 16,384 slots; per-shard HA",
+    "maxmemory + eviction: allkeys-lru/lfu for cache; volatile-lru for mixed TTL/persistent",
+    "Pipelining: batch multiple commands in one round-trip; major throughput improvement"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Always set maxmemory and an eviction policy—running without them causes OOM process kills",
+    "Use SCAN instead of KEYS for key enumeration; SSCAN/HSCAN/ZSCAN for large data structures",
+    "Set TTLs on all cache keys; volatile-lru eviction silently fails to evict keys without TTL",
+    "Use pipelining for bulk operations—reduces round-trip overhead by 10-100x",
+    "Monitor mem_fragmentation_ratio; enable active defragmentation or schedule restarts if >2.0",
+    "Use listpack-friendly sizing (< 128 fields in Hash, < 64 bytes per value) for memory-efficient storage",
+    "Use Lua scripts for atomic multi-command operations (rate limiting, distributed lock acquire)"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Using KEYS * in production—O(n) over all keys; blocks the event loop for seconds on large datasets",
+    "Storing session data in Redis without TTLs—memory fills with dead sessions; eviction fails to clean them",
+    "Using Pub/Sub for reliable message delivery—subscribers miss messages published while offline",
+    "Missing connection pool on the client side—each request opens a new TCP connection, overwhelming Redis",
+    "Very large hash or sorted set values—single HGETALL or ZRANGE 0 -1 on a 1M member set blocks the event loop",
+    "Not accounting for fork overhead in memory planning—bgsave/bgrewriteaof can double memory usage briefly due to copy-on-write",
+    "Using Sorted Set as a durable queue without consumer groups—no acknowledgment, messages lost on crash"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Session Store with Rolling TTL",
+      "description": "An e-commerce site stores user sessions in Redis Hashes (session:token → {userId, cart, lastActivity}). On every request, HSET updates lastActivity and EXPIRE resets the TTL to 30 minutes. The rolling TTL ensures active sessions never expire, while idle sessions are automatically cleaned up. With 1 million active sessions at 500 bytes each (compact listpack encoding), memory consumption is ~500MB—well within Redis's sweet spot. Sentinel provides HA so session loss during failover is confined to the ~30s window."
+    },
+    {
+      "title": "Leaderboard with Sorted Set",
+      "description": "A gaming platform maintains real-time leaderboards using Redis Sorted Sets: ZADD leaderboard:daily score userId, ZREVRANK leaderboard:daily userId for rank, ZREVRANGE leaderboard:daily 0 99 WITHSCORES for top 100. With 10 million users, the sorted set consumes ~800MB (skiplist encoding with 8-byte score + variable user ID). ZADD/ZREVRANK are O(log n) even at this scale—10ms p99. A weekly leaderboard caches the top 1000 as a separate key, reducing query load on the main sorted set during peak traffic."
+    },
+    {
+      "title": "Rate Limiting with Sliding Window",
+      "description": "An API gateway limits each API key to 1,000 requests per minute using a sliding window algorithm: a Lua script atomically ZADDs the current timestamp, removes timestamps older than 60 seconds (ZREMRANGEBYSCORE), counts remaining members (ZCARD), and returns allow/deny. This provides exact per-minute rate limiting that doesn't reset at a fixed clock boundary (unlike fixed window algorithms). The Sorted Set TTL is set to 2 minutes to automatically clean up inactive keys without manual cleanup jobs."
+    }
+  ],
   "keyTakeaways": [
-    "Redis Internals belongs in the curriculum as living content"
+    "Redis's single-threaded event loop achieves massive throughput because all data is in memory and operations are O(1)/O(log n)",
+    "Data structure selection is a first-class design decision—Sorted Sets for leaderboards, Streams for queues, Hashes for objects",
+    "Always set maxmemory + eviction policy; use TTLs on all cache keys; monitor fragmentation",
+    "Persistence: RDB for fast restart, AOF for durability, hybrid mode for both—or no persistence for pure caches",
+    "Avoid O(n) commands on large datasets; use SCAN and structure-specific SCAN variants for iteration",
+    "Cluster provides horizontal scale; Sentinel provides HA; async replication means replica reads can be stale",
+    "Pipelining and Lua scripts are essential for high-throughput workloads and atomic multi-step operations"
   ],
-  "whyItMatters": "Understanding Redis Internals improves design judgment for production systems.",
+  "whyItMatters": "Redis appears in virtually every distributed system architecture as a cache, session store, rate limiter, leaderboard, or message queue. Understanding its data structures, memory model, and operational characteristics is essential for using it correctly and diagnosing production issues. Its single-threaded nature means a single misconfigured operation can degrade latency for all users—this knowledge is tested in every senior engineering interview that involves caching or distributed state.",
   "reflectionQuestions": [
-    "When would you reach for Redis Internals in a real design?"
+    "You're designing a rate limiter that must track 1,000 requests/minute per user across 100 service instances. How would you implement it with Redis, ensuring atomic operations and handling Redis cluster key distribution?",
+    "A Redis cache is using 90% memory and eviction rate is high, causing cache misses. Walk through your investigation: what metrics do you check, what data structure misuses might you find, and what configuration changes would you make?",
+    "Compare Redis Pub/Sub, Redis Streams, and Kafka for a notification system that must deliver notifications to 10,000 subscribers and cannot lose messages. Which would you choose?",
+    "How does Redis handle persistence during a fork() for BGSAVE? What are the memory implications on a 32GB Redis instance with active writes?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Redis throughput: 100K-1M simple ops/sec on commodity hardware with single-threaded model",
+    "listpack threshold: 128 entries, 64 bytes per value for Hash/List/ZSet compact encoding",
+    "Sentinel failover time: 30-60 seconds typical; tune down-after-milliseconds and failover-timeout",
+    "Redis Cluster: 16,384 hash slots; CRC16(key) % 16,384 determines slot assignment",
+    "AOF appendfsync everysec: at most 1 second of data loss on crash",
+    "Fork overhead: BGSAVE may temporarily require 2x memory due to copy-on-write during write-heavy periods",
+    "Cluster node capacity target: 70-80% memory utilization; leave 20-30% headroom for fork and replication"
   ],
   "diagrams": [
     {
-      "id": "int-redis-overview",
-      "title": "Redis Internals overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "int-redis-architecture",
+      "title": "Redis Architecture: Event Loop and Persistence",
+      "mermaid": "flowchart TD\n  C1[Client 1] -->|TCP RESP| EL[Event Loop / Main Thread]\n  C2[Client 2] -->|TCP RESP| EL\n  C3[Client N] -->|TCP RESP| EL\n  EL --> DS[In-Memory Data Structures\\nStrings, Hashes, ZSets, Streams]\n  EL -->|async| RDB[RDB: fork bgsave]\n  EL -->|async| AOF[AOF: append commands]\n  RDB --> DISK[(Disk: dump.rdb)]\n  AOF --> DISK2[(Disk: appendonly.aof)]\n  DS --> REP[Async Replication Stream]\n  REP --> R1[Replica 1]\n  REP --> R2[Replica 2]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Redis Internals and the main trade-offs in 3 minutes."
+    "What is Redis's threading model and why does it achieve high throughput despite being single-threaded?",
+    "Compare Redis List, Pub/Sub, and Streams for implementing a job queue. Which would you use and why?",
+    "Design a leaderboard system for 10 million users using Redis. What data structure, what commands, and what are the scaling considerations?",
+    "Explain Redis eviction policies. When would you use allkeys-lru vs. allkeys-lfu vs. volatile-lru?",
+    "What is Redis Cluster? How does it shard data, and what limitations does it impose on multi-key operations?"
   ],
   "exercises": [
-    "Design a small system that depends on Redis Internals; list 3 trade-offs."
+    "Design a Redis schema for a social media feed: users follow other users; each post appears in followers' feeds. Address: how to store the feed, how to fanout new posts, what to do with users who have 10 million followers (celebrity problem), and how to paginate the feed.",
+    "Implement a token bucket rate limiter using a Lua script in Redis. The script should: check if a token is available, consume it atomically, and return whether the request is allowed—all in a single atomic operation.",
+    "A Redis instance is consuming 50GB of a 64GB server and the OOM killer is occasionally killing the Redis process during BGSAVE. Diagnose the root cause and propose a solution without increasing server size."
   ],
-  "sources": [],
-  "relatedLessons": [
-    "int-cassandra",
-    "int-clickhouse",
-    "int-etcd"
-  ]
+  "sources": [
+    {"title": "Redis Documentation (redis.io/docs) — official internals and command reference"},
+    {"title": "antirez — Redis source code and design notes (github.com/redis/redis)"},
+    {"title": "Martin Kleppmann — How to do distributed locking (martin.kleppmann.com)"},
+    {"title": "Redis University — RU101 Introduction to Redis Data Structures (university.redis.com)"},
+    {"title": "High Scalability — Instagram Redis Deployment (highscalability.com)"}
+  ],
+  "relatedLessons": ["fund-caching", "int-kafka", "int-postgres", "pat-resilience", "int-etcd"]
 }

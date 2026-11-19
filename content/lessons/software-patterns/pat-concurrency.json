@@ -1,99 +1,297 @@
 {
-  "id": "pat-concurrency",
-  "title": "Concurrency Patterns",
-  "moduleId": "software-patterns",
-  "phaseId": "design-patterns",
-  "durationMinutes": 30,
-  "summary": "Concurrency Patterns — draft awaiting generation and review.",
-  "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
-  "lastReviewed": "2026-11-19",
-  "prerequisites": [],
-  "tags": [
-    "software-patterns",
-    "evergreen",
-    "design-patterns"
-  ],
-  "sections": [
-    {
-      "title": "Overview",
-      "paragraphs": [
-        "This draft covers Concurrency Patterns. Run content:generate to expand it with a model provider, or edit manually."
-      ]
-    }
-  ],
-  "depth": {
-    "core": [
-      {
-        "title": "Overview",
-        "paragraphs": [
-          "This draft covers Concurrency Patterns. Run content:generate to expand it with a model provider, or edit manually."
-        ]
-      }
-    ],
-    "deepDive": [
-      {
-        "title": "Concurrency Patterns — Deep Dive",
-        "paragraphs": [
-          "Extended treatment of Concurrency Patterns: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
-        ]
-      }
-    ],
-    "expert": [
-      {
-        "title": "Concurrency Patterns — Expert Notes",
-        "paragraphs": [
-          "Expert considerations for Concurrency Patterns: multi-region behavior, cost envelopes, and edge cases under overload."
-        ]
-      }
-    ]
-  },
-  "concepts": [
-    "Concurrency Patterns: core idea"
-  ],
-  "practices": [
-    "Start from requirements and constraints before choosing tools"
-  ],
-  "pitfalls": [
-    "Treating tooling fashion as architecture"
-  ],
-  "examples": [],
-  "keyTakeaways": [
-    "Concurrency Patterns belongs in the curriculum as evergreen content"
-  ],
-  "whyItMatters": "Understanding Concurrency Patterns improves design judgment for production systems.",
-  "reflectionQuestions": [
-    "When would you reach for Concurrency Patterns in a real design?"
-  ],
-  "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
-  ],
-  "diagrams": [
-    {
-      "id": "pat-concurrency-overview",
-      "title": "Concurrency Patterns overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
-    }
-  ],
-  "caseStudies": [],
-  "interviewQuestions": [
-    "Explain Concurrency Patterns and the main trade-offs in 3 minutes."
-  ],
-  "exercises": [
-    "Design a small system that depends on Concurrency Patterns; list 3 trade-offs."
-  ],
-  "sources": [],
-  "relatedLessons": [
-    "pat-core-patterns",
-    "pat-resilience",
-    "patterns-core"
-  ]
+    "id":  "pat-concurrency",
+    "title":  "Concurrency Patterns",
+    "moduleId":  "software-patterns",
+    "phaseId":  "design-patterns",
+    "durationMinutes":  50,
+    "summary":  "Concurrency patterns address the challenges of coordinating multiple execution paths—threads, goroutines, coroutines, or async tasks—that share resources or collaborate on work. From mutual exclusion and lock-free data structures to actor models and reactive streams, these patterns determine whether a system achieves its throughput and latency goals or suffers from races, deadlocks, and livelocks.",
+    "kind":  "evergreen",
+    "difficulty":  "advanced",
+    "status":  "published",
+    "version":  "1.0.0",
+    "lastReviewed":  "2026-11-19",
+    "prerequisites":  [
+                          "os-processes-threads",
+                          "os-io-sync"
+                      ],
+    "tags":  [
+                 "software-patterns",
+                 "concurrency",
+                 "threading",
+                 "async",
+                 "software-engineering"
+             ],
+    "sections":  [
+                     {
+                         "title":  "Shared-State Concurrency: Locks and Their Problems",
+                         "paragraphs":  [
+                                            "Shared-state concurrency allows multiple threads to access and modify common data, with mutual exclusion primitives (mutexes, semaphores, monitors) preventing simultaneous conflicting access. A mutex guards a critical section: only one thread executes it at a time. This model is intuitive and widely supported, but its correctness depends entirely on programmers remembering to acquire and release locks consistently—a discipline that breaks down at scale and under time pressure.",
+                                            "Deadlock occurs when two threads each hold a lock the other needs, and neither can progress. Thread A holds Lock 1 and waits for Lock 2; Thread B holds Lock 2 and waits for Lock 1. The system freezes without error. Prevention strategies: lock ordering (always acquire locks in a consistent global order), lock timeouts (tryLock with timeout; fail and retry), and lock hierarchy (establish an ownership hierarchy; lower-level code never acquires locks from higher levels). Detection requires monitoring thread states and finding cycles in the wait-for graph.",
+                                            "Livelock is the temporal counterpart to deadlock: threads keep executing but make no progress, each reacting to the other\u0027s actions. A retry-on-failure livelock: Thread A acquires Lock 1, tries Lock 2, finds it taken, releases Lock 1 and retries. Thread B does the same. Both keep releasing and retrying forever. The fix: introduce jitter in retry timing (randomized backoff) so the threads don\u0027t always conflict at exactly the same instant. Livelock is harder to detect than deadlock because threads appear busy.",
+                                            "Lock granularity is a critical performance lever. A single global lock is easy to implement but creates a bottleneck as thread count grows. Fine-grained locking (one lock per data item) maximizes parallelism but increases lock acquisition overhead and deadlock risk. Striped locking (ConcurrentHashMap\u0027s approach: 16 locks for 16 buckets, each covering 1/16 of the hash space) balances these concerns. Read-write locks allow concurrent reads but exclusive writes—use when reads vastly outnumber writes."
+                                        ],
+                         "bullets":  [
+                                         "Mutex: mutual exclusion; one holder at a time; unacquired is blocking",
+                                         "Semaphore: count-based; allows up to N concurrent holders; use for resource pools",
+                                         "Read-write lock: concurrent readers OR exclusive writer; ideal for read-heavy data structures",
+                                         "Spinlock: busy-wait instead of sleep; only for very short critical sections on multi-core systems"
+                                     ]
+                     },
+                     {
+                         "title":  "Lock-Free and Wait-Free Data Structures",
+                         "paragraphs":  [
+                                            "Lock-free data structures use atomic hardware operations (Compare-And-Swap, Fetch-And-Add) instead of locks to coordinate access. CAS is the foundation: atomically compare a memory location to an expected value and swap in a new value only if the comparison succeeds. If another thread has modified the value, the CAS fails and the caller retries. This retry loop is the key property: some thread always makes progress (lock-free), even if individual threads may retry multiple times.",
+                                            "Wait-free is a stronger guarantee: every thread completes its operation in a bounded number of steps regardless of other threads. This is harder to achieve and not always necessary. Lock-free is sufficient for most practical concurrency needs. Java\u0027s AtomicLong, AtomicReference, and ConcurrentHashMap use CAS-based lock-free algorithms. Linux\u0027s futex uses a CAS fast path with kernel blocking as a fallback for high-contention cases—the best of both worlds for typical mutex usage patterns.",
+                                            "The ABA problem is a subtle hazard with CAS: Thread A reads value A, is preempted, Thread B changes the value to B and then back to A, Thread A\u0027s CAS succeeds because the value is \u0027A\u0027 again—but the data structure may have changed in a way the CAS doesn\u0027t detect. Solution: tagged pointers (pair the pointer with a version counter; CAS both; ABA becomes a valid change). Java\u0027s AtomicStampedReference implements this. In practice, ABA matters for pointer-based data structures (linked lists, trees); for simple counters and flags, it\u0027s not an issue.",
+                                            "Memory ordering is the other face of lock-free programming. CPUs and compilers reorder instructions for performance. Without explicit memory barriers, a lock-free algorithm that works correctly on a sequentially consistent model may fail on a relaxed-consistency architecture (ARM, POWER). Java\u0027s volatile and AtomicXxx classes provide the correct memory ordering guarantees. C++11\u0027s atomic library provides fine-grained ordering (relaxed, acquire, release, seq_cst). Using the wrong ordering produces races that only manifest on specific hardware, making them nearly impossible to debug."
+                                        ],
+                         "bullets":  [
+                                         "CAS (Compare-And-Swap): atomic read-modify-write; foundation of lock-free algorithms",
+                                         "Lock-free: at least one thread always makes progress; no mutual exclusion",
+                                         "Wait-free: every thread makes progress in bounded steps; strongest guarantee",
+                                         "Memory barriers: prevent CPU/compiler reordering; required for correct lock-free code on relaxed-consistency CPUs"
+                                     ]
+                     },
+                     {
+                         "title":  "Message Passing: CSP and the Actor Model",
+                         "paragraphs":  [
+                                            "Message passing replaces shared state with communication: threads (or processes, or goroutines) communicate by sending messages rather than modifying shared data. The fundamental insight is that if data is owned by one thread at a time and transferred via messages, the need for locks disappears. Two prominent models: CSP (Communicating Sequential Processes), implemented by Go\u0027s goroutines and channels, and the Actor model, implemented by Erlang, Akka (Scala/Java), and Orleans (C#).",
+                                            "Go\u0027s goroutines and channels exemplify CSP. Goroutines are lightweight (4KB initial stack, multiplexed on OS threads) and cheap enough to create for each request or task. Channels are typed, synchronous (unbuffered) or buffered queues. The select statement multiplexes over multiple channels—wait for whichever channel has data first. The idiom \u0027do not communicate by sharing memory; instead, share memory by communicating\u0027 means data ownership transfers with the message rather than being guarded by locks.",
+                                            "The Actor model structures computation as a collection of actors: isolated units with private state that communicate only through asynchronous message passing. Each actor has a mailbox queue; it processes messages sequentially from its mailbox, eliminating concurrency within a single actor. Actors can create child actors, send messages to any actor by address, and define behavior changes in response to messages. Erlang\u0027s \u0027let it crash\u0027 philosophy builds fault tolerance on top of actors: if an actor fails, its supervisor restarts it.",
+                                            "Virtual threads (Java 21 Project Loom) bridge the gap between thread-per-request and async models. Virtual threads are user-space threads multiplexed onto carrier OS threads, costing ~1KB per thread vs. 1MB for OS threads. You can create millions of virtual threads, and blocking a virtual thread doesn\u0027t block an OS thread—the carrier thread is released for other virtual threads. This makes the synchronous, thread-per-request programming model (easy to understand and debug) work at the scale of async/reactive models without the callback hell."
+                                        ],
+                         "bullets":  [
+                                         "CSP (Go): goroutines communicate via typed channels; select for multiplexing",
+                                         "Actor model (Erlang/Akka): isolated state, async message passing, supervision hierarchies",
+                                         "Virtual threads (Java Loom): millions of cheap threads; blocking is non-blocking at OS level",
+                                         "Backpressure: signal when a consumer is overwhelmed; prevents unbounded queue growth"
+                                     ]
+                     },
+                     {
+                         "title":  "Async/Await and Reactive Streams",
+                         "paragraphs":  [
+                                            "Async/await is syntactic sugar over callback-based async I/O that makes asynchronous code look synchronous. When an async function awaits a future/promise, the runtime suspends it without blocking a thread and schedules it for resumption when the awaited value is ready. Node.js (single-threaded event loop), Python asyncio, Rust\u0027s async/await, and C#\u0027s Task are all variations of this model. The key insight: for I/O-bound workloads, a single OS thread can serve thousands of concurrent requests without context switching overhead.",
+                                            "Structured concurrency (Python 3.11 TaskGroup, Java Loom, Swift structured concurrency) addresses the \u0027lost tasks\u0027 problem in async code: when an async operation spawns sub-tasks and an exception occurs, all sub-tasks are properly cancelled and awaited before the exception propagates. Without structured concurrency, goroutine leaks, task escapes, and uncaught exceptions in background tasks are common bugs. The scope of a concurrent operation is bounded by the lexical scope of the structured concurrency construct.",
+                                            "Reactive Streams (RxJava, Project Reactor, Akka Streams) model data processing as a pipeline of operators (map, filter, flatMap, reduce) over asynchronous sequences. Backpressure is built in: downstream operators signal how many elements they can process; upstream operators respect this signal by buffering or dropping. This prevents the classic producer-faster-than-consumer problem that causes unbounded queue growth and OOM errors. Reactive streams excel for event processing pipelines and I/O-bound data transformations but add significant complexity for simple request/response patterns.",
+                                            "Thread pool sizing is deceptively important. A CPU-bound task thread pool should have N = CPU cores threads (avoid context switching overhead). An I/O-bound task thread pool can have many more threads (N = CPU cores × (1 + wait_time/compute_time))—Little\u0027s Law applied to thread sizing. For mixed workloads, use separate thread pools for CPU-bound and I/O-bound tasks to prevent I/O blocking from starving CPU tasks. Never use the common thread pool for both CPU-intensive tasks and I/O operations."
+                                        ],
+                         "bullets":  [
+                                         "Event loop (Node.js, Python asyncio): single thread serves many I/O-bound requests via async callbacks",
+                                         "async/await: coroutine-based; suspends at await points without blocking OS threads",
+                                         "Structured concurrency: scope-bounded concurrent tasks with guaranteed cleanup on error",
+                                         "Backpressure: downstream signals capacity to upstream; prevents producer-consumer imbalance"
+                                     ]
+                     },
+                     {
+                         "title":  "Concurrency Patterns in System Design",
+                         "paragraphs":  [
+                                            "Thread-per-request vs. event-loop is a fundamental architectural choice for I/O-bound services. Thread-per-request (traditional Java EE, Go HTTP) is easy to understand, debuggable, and works naturally with blocking libraries. Event-loop (Node.js, Nginx, modern Netty) handles more concurrent connections with fewer threads but requires all I/O to be non-blocking and makes CPU-intensive work problematic. Java Loom\u0027s virtual threads make thread-per-request scale like event-loop, potentially ending this debate for JVM languages.",
+                                            "Work-stealing thread pools (Java ForkJoinPool, Go\u0027s goroutine scheduler) improve utilization by allowing idle threads to \u0027steal\u0027 work from busy threads\u0027 queues. This is especially valuable for recursive task decomposition (divide a problem into sub-problems, recursively until small enough to solve directly) and for work with variable execution time (a mix of fast and slow tasks). The Fork/Join pattern decomposes work: fork creates sub-tasks; join waits for sub-task results. Java\u0027s parallel streams and CompletableFuture.allOf use the common ForkJoinPool.",
+                                            "The producer-consumer pattern with bounded queues is the workhorse of concurrent system design. Producers add work items to a queue; consumers retrieve and process them. The bounded queue provides backpressure: when full, producers block (or drop/return error), preventing unbounded memory growth. Thread pool implementations are producer-consumer: HTTP handlers are producers (submitting tasks), worker threads are consumers. Kafka is a durable, distributed producer-consumer queue. The key operational concern: monitor queue depth as a primary health indicator."
+                                        ],
+                         "bullets":  [
+                                         "Thread-per-request: one OS thread per connection; simple, debuggable, limited by thread count",
+                                         "Event loop: one thread serves many connections via async I/O; requires non-blocking everywhere",
+                                         "Work-stealing: idle threads steal from busy queues; high utilization for variable-duration tasks",
+                                         "Bounded queue: backpressure mechanism; monitor depth as a primary health metric"
+                                     ]
+                     }
+                 ],
+    "depth":  {
+                  "core":  [
+                               {
+                                   "title":  "Shared-State Concurrency and Lock Patterns",
+                                   "paragraphs":  [
+                                                      "Mutex, semaphore, and read-write locks guard shared state. Deadlock (circular wait), livelock (progress without advancement), and starvation are the main failure modes.",
+                                                      "Lock ordering, timeouts, and hierarchy prevent deadlock. Randomized backoff fixes livelock. Fair locks prevent starvation.",
+                                                      "Fine-grained locking maximizes parallelism; coarse-grained is simpler. Striped locking (ConcurrentHashMap) balances both."
+                                                  ],
+                                   "bullets":  [
+                                                   "Always acquire locks in a fixed global order to prevent deadlock",
+                                                   "Read-write lock: concurrent reads, exclusive write—ideal for read-heavy structures",
+                                                   "Lock-free alternatives are preferable when CAS operations suffice"
+                                               ]
+                               },
+                               {
+                                   "title":  "Lock-Free Programming",
+                                   "paragraphs":  [
+                                                      "CAS (Compare-And-Swap) is the hardware primitive for lock-free algorithms. CAS atomically checks-and-updates; retries on failure. At least one thread always makes progress.",
+                                                      "ABA problem: value changes A→B→A fools CAS. Fix: tagged pointers / version counters (AtomicStampedReference).",
+                                                      "Memory ordering (volatile, acquire/release semantics) is essential for correctness on relaxed-consistency CPUs (ARM)."
+                                                  ],
+                                   "bullets":  [
+                                                   "Java AtomicLong, AtomicReference: CAS-based lock-free primitives",
+                                                   "Memory barriers prevent CPU/compiler reordering",
+                                                   "Lock-free ≠ wait-free; wait-free is strictly stronger"
+                                               ]
+                               },
+                               {
+                                   "title":  "Message Passing and Modern Concurrency",
+                                   "paragraphs":  [
+                                                      "Go CSP: goroutines + channels for safe concurrency. Data ownership transfers with message—no shared mutable state.",
+                                                      "Actor model (Erlang/Akka): isolated actors process messages sequentially from mailboxes; supervision trees for fault tolerance.",
+                                                      "Java virtual threads (Loom): millions of cheap user-space threads; blocking I/O doesn\u0027t block OS threads."
+                                                  ],
+                                   "bullets":  [
+                                                   "Go select: multiplex over multiple channels",
+                                                   "Backpressure: downstream signals capacity; prevents unbounded queue growth",
+                                                   "Structured concurrency: scope-bounded tasks with guaranteed cleanup"
+                                               ]
+                               }
+                           ],
+                  "deepDive":  [
+                                   {
+                                       "title":  "Memory Models and Visibility",
+                                       "paragraphs":  [
+                                                          "The Java Memory Model (JMM) defines when writes by one thread are visible to another. Without synchronization, there is no guarantee that a value written by Thread A will ever be seen by Thread B. The happens-before relationship is the formal guarantee: actions in Thread A that happen-before actions in Thread B are guaranteed to be visible. Acquiring a lock happens-before releasing it; a volatile write happens-before the subsequent volatile read; thread start happens-before all actions in the started thread.",
+                                                          "Double-checked locking is a canonical example of JMM subtlety. The naïve implementation (check if null outside lock, acquire lock, check again, initialize) is broken without volatile: the JVM may publish a partially-constructed object to other threads. With volatile on the reference field, the write to the reference cannot be reordered before the write to the object\u0027s fields, making double-checked locking correct. This level of detail matters for high-performance singleton initialization and lazy loading patterns.",
+                                                          "Cache coherence protocols (MESI) govern how CPU cores share memory. When Core A writes to a cache line, it must invalidate that cache line in all other cores before the write completes. This invalidation traffic is the hidden cost of sharing data across cores: false sharing (two unrelated variables on the same 64-byte cache line, modified by different cores) causes the same invalidation traffic as true sharing. Solution: pad data structures to align each frequently-modified variable to its own cache line. Java @Contended annotation does this automatically."
+                                                      ],
+                                       "bullets":  [
+                                                       "JMM happens-before: visibility guarantee; without it, write visibility is undefined",
+                                                       "volatile: prevents reordering; ensures visibility; not sufficient for compound operations",
+                                                       "False sharing: unrelated variables on same cache line; use padding or @Contended to separate",
+                                                       "MESI protocol: cache coherence; writing to a shared cache line is expensive due to invalidation traffic"
+                                                   ]
+                                   },
+                                   {
+                                       "title":  "Concurrency in Distributed Systems",
+                                       "paragraphs":  [
+                                                          "Distributed concurrency extends single-node patterns to multiple machines. Distributed locks (Redis SETNX with TTL, ZooKeeper sequential ephemeral nodes, etcd leases) coordinate access to shared resources across nodes. The key difference from single-node locks: network failures and process crashes can leave locks in an inconsistent state. Always set TTLs on distributed locks; never use them without an expiry. Fencing tokens (a monotonically increasing sequence number issued with the lock) prevent stale lock holders from corrupting shared state after their lease expires.",
+                                                          "Optimistic concurrency control (OCC) avoids distributed locking by detecting conflicts at commit time rather than preventing them at access time. Each record has a version number. The reader reads the version; the writer sends the version with the update; the database atomically updates only if the current version matches. On version mismatch, the client retries. OCC is efficient when conflicts are rare; it degrades under high contention as retries increase. Cassandra\u0027s lightweight transactions (IF EXISTS, IF NOT EXISTS) implement compare-and-set at the distributed level.",
+                                                          "Eventual consistency models (Cassandra, DynamoDB with eventual consistency reads) exchange strict consistency for availability and partition tolerance. Concurrent writes to the same key may arrive at different replicas in different orders; last-write-wins (LWW) with client-side timestamps is the common conflict resolution strategy. CRDTs (Conflict-Free Replicated Data Types) provide stronger guarantees: specific data structures (counters, sets, registers) designed so concurrent updates can always be merged without conflict. Redis Cluster\u0027s CRDT-based modules enable multi-region active-active replication."
+                                                      ],
+                                       "bullets":  [
+                                                       "Distributed lock: Redis SETNX + TTL, ZooKeeper, etcd lease—always with expiry",
+                                                       "Fencing token: monotonically increasing sequence issued with lock; prevents stale holder writes",
+                                                       "Optimistic concurrency: version-based conflict detection at commit; efficient when conflicts are rare",
+                                                       "CRDT: data structures with conflict-free merge semantics; enable active-active replication"
+                                                   ]
+                                   }
+                               ],
+                  "expert":  [
+                                 {
+                                     "title":  "High-Performance Concurrent Data Structures",
+                                     "paragraphs":  [
+                                                        "LMAX Disruptor is a high-performance ring buffer for inter-thread communication that eliminates CAS contention by using sequence numbers and memory barriers instead. Each producer and consumer tracks its own sequence; the ring buffer enforces ordering via happens-before relationships without locks or CAS. At 50+ million messages/second between threads (100x faster than LinkedBlockingQueue), Disruptor is used in financial systems (LMAX Exchange), network proxies, and real-time event processing where queue throughput is a bottleneck.",
+                                                        "Skip lists are a probabilistic alternative to balanced trees for sorted concurrent data structures. Java\u0027s ConcurrentSkipListMap and ConcurrentSkipListSet use a lock-free skip list implementation. Unlike TreeMap (which requires external synchronization), ConcurrentSkipListMap provides O(log n) contains, get, and put operations in a lock-free, linearizable manner. For read-heavy workloads where sorted access is needed, ConcurrentSkipListMap outperforms ConcurrentHashMap despite higher constant factors.",
+                                                        "Non-blocking I/O multiplexing (epoll on Linux, kqueue on BSD, IOCP on Windows) is the kernel mechanism underlying event loops. Rather than blocking one thread per socket, a single thread registers interest in many file descriptors and receives notifications when they\u0027re ready. This scales to millions of concurrent connections with a single OS thread for the I/O handling layer. The io_uring interface (Linux 5.1+) further reduces syscall overhead by batching submissions and completions via a shared ring buffer—Rust\u0027s tokio and Java\u0027s Netty are exploring io_uring backends for further performance gains."
+                                                    ]
+                                 }
+                             ]
+              },
+    "concepts":  [
+                     "Mutex: mutual exclusion primitive; one holder at a time; prevents data races on shared state",
+                     "Deadlock: circular wait among threads, each holding a lock the next needs; no progress possible",
+                     "Livelock: threads keep executing but make no progress, each reacting to the other",
+                     "CAS (Compare-And-Swap): atomic hardware operation for lock-free algorithms",
+                     "Lock-free: at least one thread always makes progress; no locks required",
+                     "CSP (Communicating Sequential Processes): concurrency via channel-based message passing (Go)",
+                     "Actor model: isolated actors with mailboxes, processing messages sequentially (Erlang, Akka)",
+                     "Virtual threads (Loom): JVM user-space threads; blocking I/O doesn\u0027t block OS threads",
+                     "Structured concurrency: scope-bounded concurrent operations with guaranteed cleanup on failure",
+                     "Backpressure: downstream signals capacity to upstream to prevent producer-consumer imbalance",
+                     "False sharing: performance degradation from unrelated variables sharing a CPU cache line",
+                     "Disruptor: lock-free ring buffer for ultra-high-throughput inter-thread communication"
+                 ],
+    "practices":  [
+                      "Prefer message passing over shared state; share memory by communicating, not communicate by sharing memory",
+                      "Always acquire multiple locks in a consistent global order to prevent deadlock",
+                      "Use virtual threads (Java 21) or goroutines for I/O-bound concurrency; avoid explicit thread management",
+                      "Monitor thread pool queue depth as a primary health metric; set bounded queues with explicit rejection policies",
+                      "Use @Contended or manual padding to prevent false sharing in performance-critical concurrent data structures",
+                      "Instrument lock contention (Java Flight Recorder lock profiling, pprof mutex profile in Go) before optimizing",
+                      "Prefer optimistic concurrency (versioned updates) over distributed locking when conflict rates are low"
+                  ],
+    "pitfalls":  [
+                     "Using double-checked locking without volatile—partially-constructed objects are published to other threads",
+                     "Holding locks across I/O operations—causes long lock hold times and cascading thread starvation",
+                     "Thread pool starvation: a task submitted to a pool that itself submits tasks that must complete before the original task finishes (dependency cycle in a bounded pool)",
+                     "Unbounded queues: thread pool with unlimited queue depth masks overload until OOM kills the process",
+                     "Silent exception swallowing in thread pool tasks: RuntimeExceptions in Runnable are swallowed by default",
+                     "Distributed lock without TTL: a crashed holder never releases the lock; system freezes permanently",
+                     "Using synchronized on a class object (this) instead of a private final lock object—external callers can deadlock you"
+                 ],
+    "examples":  [
+                     {
+                         "title":  "Go Channel Pipeline",
+                         "description":  "A Go image processing pipeline uses goroutines and channels: a generator goroutine reads file paths from disk and sends to a paths channel, three worker goroutines receive paths, decode images, and send decoded images to a decode channel, and an output goroutine receives decoded images and writes thumbnails. When the generator closes the paths channel, workers drain and close the decode channel, and the output goroutine drains and exits. This fan-out pattern processes images concurrently with bounded memory—the buffered channels act as backpressure mechanisms."
+                     },
+                     {
+                         "title":  "LMAX Disruptor in Financial Trading",
+                         "description":  "LMAX Exchange built their trading platform around the Disruptor ring buffer. The incoming order stream is a single Disruptor ring buffer; multiple independent consumers (journal writer, risk checker, order book updater) each maintain their own sequence position and read the same events without coordination. The Disruptor achieves 6 million orders/second on commodity hardware. The key insight: a ring buffer with sequence-based coordination is orders of magnitude faster than a queue with CAS-based head/tail pointers because it eliminates CAS contention on the queue metadata."
+                     },
+                     {
+                         "title":  "Thread Pool Starvation Debug",
+                         "description":  "A Java microservice was experiencing intermittent hangs. Thread dump analysis revealed all 50 HTTP worker threads waiting on CompletableFuture.get() for async database calls, while the async calls were themselves submitted to the same thread pool. The pool was exhausted with the outer tasks waiting for inner tasks that couldn\u0027t execute because the pool was full—a classic thread pool deadlock. Fix: separate thread pools for HTTP handlers and async database calls, or use virtual threads (Loom) where blocking an HTTP thread doesn\u0027t exhaust the pool."
+                     }
+                 ],
+    "keyTakeaways":  [
+                         "Shared mutable state is the root cause of most concurrency bugs; prefer immutability or message passing",
+                         "Deadlock prevention requires consistent lock ordering; detection requires monitoring wait-for graphs",
+                         "CAS-based lock-free algorithms eliminate blocking but require careful attention to memory ordering and ABA",
+                         "Go\u0027s CSP model and Java Loom\u0027s virtual threads make concurrent I/O-bound code safe and scalable without explicit locking",
+                         "Backpressure is essential—unbounded queues hide overload until OOM errors occur",
+                         "False sharing can silently destroy performance on multi-core systems; profile before assuming cache behavior",
+                         "Distributed concurrency requires TTL-based locks, fencing tokens, or optimistic concurrency—not just local primitives"
+                     ],
+    "whyItMatters":  "Concurrency is unavoidable in any system that must handle multiple users, process background work, or utilize modern multi-core hardware. The wrong concurrency model produces race conditions that corrupt data, deadlocks that freeze systems, and resource exhaustion that collapses under load. The right model—message passing for most cases, careful lock-free structures for hot paths, structured concurrency for safe composition—enables reliable high-throughput systems.",
+    "reflectionQuestions":  [
+                                "Your Java service has intermittent hangs under load. The thread dump shows all threads waiting on a database connection. Walk through your diagnosis: what are the possible root causes and how do you investigate each?",
+                                "Compare Go channels, Java virtual threads, and Akka actors for a high-throughput event processing system. What are the trade-offs and when would you choose each?",
+                                "You need a distributed counter that increments on every web request across 100 servers. What are the trade-offs between: a central Redis INCR, an optimistic CAS-based approach in PostgreSQL, and a CRDT-based local counter with periodic sync?",
+                                "How does the LMAX Disruptor achieve higher throughput than a BlockingQueue, and what sacrifices does it make?"
+                            ],
+    "numbersToKnow":  [
+                          "OS thread cost: ~1MB stack, ~10μs context switch; virtual thread: ~1KB stack, ~1μs context switch",
+                          "Lock acquisition (uncontended): ~25ns (mutex); CAS: ~10ns; volatile read: ~5ns",
+                          "Cache line size: 64 bytes on x86; false sharing occurs when two threads modify variables on the same line",
+                          "LMAX Disruptor throughput: ~50 million messages/second between threads vs ~5 million for ArrayBlockingQueue",
+                          "Go goroutine initial stack: 2KB (scales dynamically); can run millions on modern hardware",
+                          "Thread pool rule of thumb: CPU-bound = N_cpu threads; I/O-bound = N_cpu × (1 + wait/compute)"
+                      ],
+    "diagrams":  [
+                     {
+                         "id":  "pat-concurrency-models",
+                         "title":  "Concurrency Model Comparison",
+                         "mermaid":  "flowchart TD\n  subgraph Shared State\n    T1[Thread 1] --\u003e|lock| M[Mutex]\n    T2[Thread 2] --\u003e|blocked| M\n    M --\u003e SD[(Shared Data)]\n  end\n  subgraph Message Passing\n    P[Producer Goroutine] --\u003e|send| CH[Buffered Channel]\n    C1[Consumer 1] --\u003e|receive| CH\n    C2[Consumer 2] --\u003e|receive| CH\n  end\n  subgraph Actor Model\n    A1[Actor 1] --\u003e|async msg| MB2[Mailbox 2]\n    MB2 --\u003e A2[Actor 2: sequential processing]\n    A2 --\u003e|async msg| MB3[Mailbox 3]\n  end"
+                     }
+                 ],
+    "caseStudies":  [
+
+                    ],
+    "interviewQuestions":  [
+                               "What is a deadlock? Give an example and explain two strategies to prevent it.",
+                               "Explain CAS (Compare-And-Swap) and how it enables lock-free data structures. What is the ABA problem?",
+                               "How does Go\u0027s channel-based concurrency model differ from Java\u0027s thread-based model? When would you prefer each?",
+                               "Design a thread-safe LRU cache that supports high concurrent read throughput. What locking strategy would you use?",
+                               "Explain backpressure and why it\u0027s important in a producer-consumer system. How does it manifest differently in a local thread pool vs. a Kafka consumer?"
+                           ],
+    "exercises":  [
+                      "Implement a thread-safe bounded blocking queue in Java without using any existing concurrent collections. Support put() (blocks when full) and take() (blocks when empty) operations. Identify where you use locks, conditions, and what invariants your lock guards.",
+                      "Design a concurrent rate limiter using the token bucket algorithm that is safe for use across multiple threads without using synchronized blocks. Use atomic operations to implement it.",
+                      "Analyze this code for concurrency bugs: a Java singleton using double-checked locking without volatile. Explain what can go wrong, on what hardware, and fix it correctly."
+                  ],
+    "sources":  [
+                    {
+                        "title":  "Brian Goetz — Java Concurrency in Practice (Addison-Wesley, 2006)"
+                    },
+                    {
+                        "title":  "Martin Thompson — LMAX Disruptor: High Performance Inter-Thread Messaging (lmax.com)"
+                    },
+                    {
+                        "title":  "Go Blog — Share Memory By Communicating (go.dev/blog)"
+                    },
+                    {
+                        "title":  "JEP 444: Virtual Threads (Project Loom) — openjdk.org"
+                    },
+                    {
+                        "title":  "Paul E. McKenney — Is Parallel Programming Hard? (kernel.org, free PDF)"
+                    }
+                ],
+    "relatedLessons":  [
+                           "pat-core-patterns",
+                           "pat-outbox",
+                           "pat-resilience"
+                       ]
 }

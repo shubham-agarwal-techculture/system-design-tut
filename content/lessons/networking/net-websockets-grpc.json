@@ -154,23 +154,32 @@
     ],
     "deepDive": [
       {
-        "title": "WebSockets & gRPC — Deep Dive",
+        "title": "WebSockets & gRPC — Operational deep dive",
         "paragraphs": [
-          "Extended treatment of WebSockets & gRPC: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating WebSockets & gRPC well means defining the scarce resource (CPU, memory, disk, network, or tokens), the SLIs that reflect user pain, and the knobs that trade cost for latency.",
+          "Under load, measure amplification: how many bytes, RPCs, or disk writes you pay per user request. Prefetch and batch only when measurements show benefit — premature batching adds tail latency.",
+          "Failure drills should include dependency slowdown (not only hard down), clock skew, and disk full. Verify alerts, dashboards, and runbooks against those drills."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Name the scarcest resource and budget it",
+          "Track p50/p99 and error rate for the user journey",
+          "Rehearse partial dependency failure"
+        ]
+      },
+      {
+        "title": "WebSockets & gRPC — Correctness edges",
+        "paragraphs": [
+          "Correctness edges around WebSockets & gRPC often appear at retries, partial writes, and schema evolution. Make handlers idempotent and state transitions explicit.",
+          "Document what clients may observe during failover: stale reads, duplicate messages, or delayed visibility. If the product cannot tolerate an anomaly, enforce a stronger consistency boundary — and pay for it knowingly."
         ]
       }
     ],
     "expert": [
       {
-        "title": "WebSockets & gRPC — Expert Notes",
+        "title": "WebSockets & gRPC — Expert / multi-region notes",
         "paragraphs": [
-          "Expert considerations for WebSockets & gRPC: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At multi-region scale, WebSockets & gRPC interacts with RTT, quorum placement, and cost of cross-region replication. Prefer region-local user paths with asynchronous global state when invariants allow.",
+          "Cost envelopes matter: chart unit cost vs QPS and vs data size. Many 'performance' projects are actually cost projects in disguise — make the objective explicit."
         ]
       }
     ]
@@ -277,7 +286,7 @@
   ],
   "relatedLessons": [
     "net-bgp-anycast",
-    "net-http",
-    "net-kernel"
+    "net-congestion",
+    "net-http"
   ]
 }

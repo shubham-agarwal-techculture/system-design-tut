@@ -3,14 +3,16 @@
   "title": "Change Data Capture",
   "moduleId": "databases",
   "phaseId": "foundations",
-  "durationMinutes": 30,
-  "summary": "Change Data Capture — draft awaiting generation and review.",
+  "durationMinutes": 40,
+  "summary": "CDC streams database changes from WAL/binlog into downstream systems without dual writes. It powers caches, search indexes, analytics, and event-driven integrations — with ordering, schema, and backfill challenges.",
   "kind": "living",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [],
+  "prerequisites": [
+    "db-backup-pit"
+  ],
   "tags": [
     "databases",
     "living",
@@ -18,82 +20,153 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Why CDC beats dual writes",
       "paragraphs": [
-        "This draft covers Change Data Capture. Run content:generate to expand it with a model provider, or edit manually."
+        "Application dual writes to DB and queue fail partially. CDC treats the database transaction log as the source of truth and emits ordered change events.",
+        "Debezium, AWS DMS, and native logical decoding plug into WAL/binlog/oplog. Consumers rebuild read models asynchronously."
+      ]
+    },
+    {
+      "title": "Semantics and ordering",
+      "paragraphs": [
+        "Events usually carry before/after images, transaction ids, and log coordinates (LSN). Ordering is per partition/key — not global across shards.",
+        "Deletes, schema changes, and toasted/large values need explicit handling. Snapshot + streaming backfill must be coordinated to avoid gaps/duplicates."
+      ]
+    },
+    {
+      "title": "Operational concerns",
+      "paragraphs": [
+        "Log retention must exceed consumer lag. Long downtime means re-snapshot. Privileges for replication slots are sensitive.",
+        "Downstream must be idempotent; at-least-once is the common delivery mode."
+      ]
+    },
+    {
+      "title": "Design patterns",
+      "paragraphs": [
+        "Use CDC for search indexing, cache hydration, and analytics lakes. Avoid using CDC as a hidden microservice choreography bus without schema contracts."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Why CDC beats dual writes",
         "paragraphs": [
-          "This draft covers Change Data Capture. Run content:generate to expand it with a model provider, or edit manually."
+          "Application dual writes to DB and queue fail partially. CDC treats the database transaction log as the source of truth and emits ordered change events.",
+          "Debezium, AWS DMS, and native logical decoding plug into WAL/binlog/oplog. Consumers rebuild read models asynchronously."
+        ]
+      },
+      {
+        "title": "Semantics and ordering",
+        "paragraphs": [
+          "Events usually carry before/after images, transaction ids, and log coordinates (LSN). Ordering is per partition/key — not global across shards.",
+          "Deletes, schema changes, and toasted/large values need explicit handling. Snapshot + streaming backfill must be coordinated to avoid gaps/duplicates."
+        ]
+      },
+      {
+        "title": "Operational concerns",
+        "paragraphs": [
+          "Log retention must exceed consumer lag. Long downtime means re-snapshot. Privileges for replication slots are sensitive.",
+          "Downstream must be idempotent; at-least-once is the common delivery mode."
+        ]
+      },
+      {
+        "title": "Design patterns",
+        "paragraphs": [
+          "Use CDC for search indexing, cache hydration, and analytics lakes. Avoid using CDC as a hidden microservice choreography bus without schema contracts."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Change Data Capture — Deep Dive",
+        "title": "Change Data Capture — Operations",
         "paragraphs": [
-          "Extended treatment of Change Data Capture: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating Change Data Capture in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Change Data Capture — Failure modes",
+        "paragraphs": [
+          "Common failures around Change Data Capture include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Change Data Capture — Expert Notes",
+        "title": "Change Data Capture — Expert notes",
         "paragraphs": [
-          "Expert considerations for Change Data Capture: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, Change Data Capture intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "Change Data Capture: core idea"
+    "WAL/binlog as event source",
+    "Snapshot + stream",
+    "LSN / binlog coordinates",
+    "Schema evolution on change events",
+    "Idempotent consumers"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Monitor replication slot lag",
+    "Version change event schemas",
+    "Plan re-bootstrap procedures"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Assuming global order across shards",
+    "Under-provisioning log retention",
+    "Silent consumer lag during peak writes"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Debezium + Kafka",
+      "description": "Popular open-source CDC pipeline."
+    },
+    {
+      "title": "Search index sync",
+      "description": "Postgres → Elasticsearch via CDC."
+    }
+  ],
   "keyTakeaways": [
-    "Change Data Capture belongs in the curriculum as living content"
+    "CDC makes the transaction log the integration backbone",
+    "Ordering and backfill define correctness",
+    "Treat lag as a first-class SLO"
   ],
-  "whyItMatters": "Understanding Change Data Capture improves design judgment for production systems.",
+  "whyItMatters": "Modern data platforms and event-driven designs increasingly start from CDC rather than fragile dual writes.",
   "reflectionQuestions": [
-    "When would you reach for Change Data Capture in a real design?"
+    "Which dual writes in your system could become CDC streams?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "db-cdc-overview",
       "title": "Change Data Capture overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Change Data Capture and the main trade-offs in 3 minutes."
+    "Explain Change Data Capture and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on Change Data Capture; list 3 trade-offs."
+    "Sketch a design that depends on Change Data Capture; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
-    "db-indexes-replication",
-    "db-modeling",
-    "db-replication-sharding"
+    "db-backup-pit",
+    "db-connection-pooling",
+    "db-indexes-replication"
   ]
 }

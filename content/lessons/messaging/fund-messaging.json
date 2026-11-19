@@ -1,98 +1,235 @@
 {
   "id": "fund-messaging",
-  "title": "Queues, Pub/Sub & Event Streaming",
+  "title": "Messaging & Queue Systems",
   "moduleId": "messaging",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "Queues, Pub/Sub & Event Streaming — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "Message queues and pub/sub systems decouple producers from consumers, enabling asynchronous processing, load leveling, and fault tolerance. Understanding queue semantics, delivery guarantees, ordering, and backpressure is essential for building reliable event-driven architectures. Kafka, SQS, RabbitMQ, and Pub/Sub each make different trade-offs that suit different use cases.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [],
-  "tags": [
-    "messaging",
-    "evergreen",
-    "fundamentals"
-  ],
+  "prerequisites": ["fund-distributed"],
+  "tags": ["messaging", "queues", "async", "evergreen", "fundamentals"],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Why Message Queues: Decoupling and Buffering",
       "paragraphs": [
-        "This draft covers Queues, Pub/Sub & Event Streaming. Run content:generate to expand it with a model provider, or edit manually."
+        "A message queue is a durable buffer between a producer (the writer) and a consumer (the reader). Without a queue, the payment service directly calls the email service synchronously: if the email service is slow or down, the payment service blocks or fails. With a queue between them, the payment service publishes an event ('payment succeeded') and immediately returns to the user. The email service consumes events at its own pace. The two services are temporally decoupled—they don't need to be available simultaneously.",
+        "Load leveling is the queue's other superpower. User traffic arrives in spikes: a flash sale generates 10x normal order volume. Without a queue, the downstream processing systems must scale to handle 10x peak. With a queue, the spike is absorbed by the queue; downstream consumers process at a steady rate. The queue depth increases during the spike and drains during quieter periods. This converts a bursty workload into a smooth one, allowing downstream services to be sized for average load, not peak.",
+        "Queues introduce a trade-off: latency. Synchronous calls complete in milliseconds; async processing via queue may take seconds to minutes depending on queue depth and consumer throughput. This is acceptable for non-time-critical operations (email, analytics, thumbnail generation) but not for user-blocking synchronous responses (checkout confirmation, search results). The rule: use queues for work that can be done asynchronously; use synchronous calls for work the user must wait for."
+      ],
+      "bullets": [
+        "Temporal decoupling: producer and consumer don't need simultaneous availability",
+        "Load leveling: absorb traffic spikes; size consumers for average, not peak load",
+        "Increased latency: async processing adds seconds to minutes; acceptable for non-blocking work",
+        "Failure isolation: consumer failure doesn't fail the producer; messages retry"
+      ]
+    },
+    {
+      "title": "Queue Semantics: At-Most-Once, At-Least-Once, Exactly-Once",
+      "paragraphs": [
+        "At-most-once delivery: the message is delivered zero or one time—it may be lost. The producer fires and forgets; the queue does not confirm delivery. Use when lost messages are acceptable (non-critical metrics, analytics events where losing 0.1% of events is fine). This gives the lowest latency and simplest implementation. SQS in its default mode (without retry on consumer failure) approximates this for messages that are processed but fail to be deleted before visibility timeout.",
+        "At-least-once delivery: the message is delivered one or more times—it will not be lost but may be duplicated. This is the standard for most messaging systems. Kafka, SQS, and RabbitMQ all provide at-least-once by default. The consumer must be idempotent: processing the same message twice must have the same effect as processing it once. For payment processing, idempotency means using a deduplication key (payment_id) and checking whether that payment has already been processed before executing.",
+        "Exactly-once delivery is theoretically possible within a single system using transactions, but across a distributed message broker and a separate database, it requires careful design. Kafka's transactional API (producer sends message + commits offset atomically) and idempotent producers (deduplicate messages at the broker) together enable exactly-once semantics end-to-end when both producer and consumer use the Kafka transactional API. In practice, most systems use at-least-once with idempotent consumers, as it's simpler and sufficient for the vast majority of use cases."
+      ],
+      "bullets": [
+        "At-most-once: may lose messages; lowest latency; use for non-critical events",
+        "At-least-once: will not lose; may duplicate; consumer must be idempotent; standard default",
+        "Exactly-once: requires transactional APIs; Kafka's transactional producer achieves this",
+        "Idempotency key: deduplication identifier per message; check before processing"
+      ]
+    },
+    {
+      "title": "Apache Kafka: Durable, Ordered, Replayable",
+      "paragraphs": [
+        "Kafka is a distributed commit log, not a traditional queue. Messages are stored durably in ordered, append-only partitions (logs). Consumers read from partitions using an offset—a monotonically increasing integer. Each consumer group maintains its own offset; multiple independent consumer groups can consume the same events independently. This replayability distinguishes Kafka from traditional queues: you can re-process historical events (e.g., re-run analytics), add new consumers without coordinating with existing ones, and debug by replaying recent events.",
+        "Kafka's architecture: topics are divided into N partitions (determined at creation; determines max parallelism). Each partition is replicated across M brokers (typically 3). Messages are assigned to partitions by key hash (or round-robin if no key). Within a partition, messages are strictly ordered; across partitions, there is no global ordering guarantee. Consumer groups: a group of K consumers shares the N partitions (each partition is assigned to exactly one consumer in the group). With K=N, each consumer handles one partition in parallel.",
+        "Kafka retains messages for a configurable period (7 days default) regardless of whether consumers have processed them. This retention enables replay, audit, and multiple independent consumers. For stream processing, Kafka Streams and Apache Flink consume directly from Kafka, process events in real time, and produce results to other Kafka topics. Kafka's durability model (acknowledgment from ISR—In-Sync Replicas—before returning to producer) provides strong durability with tunable write latency."
+      ],
+      "bullets": [
+        "Kafka: append-only partitioned log; ordered within partition; durable; replayable",
+        "Consumer groups: group of consumers shares partitions; enables parallel consumption",
+        "Retention: messages retained for N days; supports replay, audit, multiple consumers",
+        "ISR: acknowledgment from In-Sync Replicas; tune acks=all for maximum durability"
+      ]
+    },
+    {
+      "title": "SQS, RabbitMQ, and Traditional Queues",
+      "paragraphs": [
+        "Amazon SQS is a fully managed queue service with two modes: Standard (high throughput, at-least-once, best-effort ordering) and FIFO (exactly-once within a message group, 300 TPS soft limit). SQS visibility timeout is the acknowledgment mechanism: when a consumer fetches a message, it becomes invisible to other consumers for a configurable period (default 30s). If the consumer processes and deletes the message within the timeout, success. If not (consumer crash), the message reappears and is redelivered—automatic retry. SQS's dead-letter queue (DLQ) captures messages that fail N times, enabling investigation without losing the message.",
+        "RabbitMQ implements AMQP (Advanced Message Queuing Protocol) with a rich routing model: exchanges (direct, fanout, topic, headers) route messages to queues based on binding keys. A fanout exchange delivers to all bound queues simultaneously (pub/sub semantics). A topic exchange delivers to queues matching a routing pattern ('order.#' matches 'order.created', 'order.cancelled'). RabbitMQ is feature-rich but operationally complex; it shines when you need flexible routing, priority queues, or the AMQP protocol. It does not scale to Kafka-like throughput for event streaming.",
+        "Google Pub/Sub and AWS SNS implement the publisher-subscriber pattern: publishers send to a topic; multiple subscriber services each receive a copy of every message. This is ideal for event fan-out: 'order placed' event needs to trigger inventory update, email notification, analytics event, and fraud check—four independent downstream actions from one publish. SNS delivers to SQS queues, Lambda functions, HTTP endpoints, and email, making it a flexible fan-out router."
+      ],
+      "bullets": [
+        "SQS: managed queue; visibility timeout for ack; DLQ for failed messages; FIFO mode for ordering",
+        "RabbitMQ: AMQP; flexible exchange routing (direct, fanout, topic); rich features; complex ops",
+        "SNS/Pub/Sub: fan-out one event to multiple independent subscribers; each gets its own copy",
+        "DLQ (Dead Letter Queue): captures repeatedly-failed messages for investigation; prevents message loss"
+      ]
+    },
+    {
+      "title": "Backpressure, Ordering, and Consumer Design",
+      "paragraphs": [
+        "Backpressure is the mechanism by which a slow consumer signals a fast producer to slow down. Without backpressure, a producer generating 10,000 events/second into a system where the consumer can only handle 1,000/second will fill the queue indefinitely—consuming memory, increasing latency, and potentially losing messages when the queue is full. Reactive streams (RxJava, Akka Streams, Project Reactor) implement backpressure natively in push-based streaming. With Kafka, the queue depth (consumer lag) metric serves as an external backpressure signal: when lag exceeds a threshold, scale up consumers or throttle producers.",
+        "Message ordering is partition-scoped in Kafka: messages with the same key (e.g., user_id) always go to the same partition and are processed in order. This is the standard pattern for user-scoped state machines: all events for user 123 are in the same partition, consumed sequentially. For global ordering (all messages across all partitions in one total order), you need a single partition—which eliminates parallelism. Design for partition-scoped ordering and avoid the temptation of global ordering, which is a throughput anti-pattern.",
+        "Consumer group design: each consumer in a group gets an exclusive subset of partitions. If you need exactly-once processing semantics within a Kafka consumer, the consumer must commit its processed offset atomically with the side effect it performed (e.g., write to database in the same transaction as committing the Kafka offset). This transactional pattern—called 'transactional messaging' or 'read-process-commit'—requires that your downstream storage supports transactions and that the commit happens atomically."
+      ],
+      "bullets": [
+        "Backpressure: consumer lag (Kafka) is the signal; alert and scale when lag exceeds threshold",
+        "Ordering: partition-scoped in Kafka; same key goes to same partition; use for user-scoped events",
+        "Transactional consumer: commit Kafka offset + side effect atomically to avoid duplicate processing",
+        "Consumer group scaling: add consumers up to partition count; more consumers than partitions is wasteful"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Queue Fundamentals",
         "paragraphs": [
-          "This draft covers Queues, Pub/Sub & Event Streaming. Run content:generate to expand it with a model provider, or edit manually."
+          "Message queues decouple producers from consumers, absorb traffic spikes (load leveling), and isolate failures. At the cost of increased latency for async processing.",
+          "Delivery semantics: at-most-once (may lose), at-least-once (may duplicate—most common), exactly-once (requires transactions).",
+          "Idempotency is mandatory for at-least-once consumers: processing the same message twice must be safe. Use deduplication keys stored in DB."
+        ]
+      },
+      {
+        "title": "Kafka vs Traditional Queues",
+        "paragraphs": [
+          "Kafka: durable commit log; ordered within partition; consumer offsets; replayable; multiple independent consumer groups.",
+          "SQS: managed; visibility timeout for ack; DLQ for failed messages; FIFO mode for 300 TPS ordered processing.",
+          "RabbitMQ: AMQP; flexible exchange routing; SNS/Pub/Sub for fan-out to multiple independent subscribers."
+        ]
+      },
+      {
+        "title": "Consumer Design",
+        "paragraphs": [
+          "Backpressure: monitor consumer lag; scale consumers when lag exceeds threshold.",
+          "Ordering: partition-scoped in Kafka; route same key to same partition for ordered processing.",
+          "Dead Letter Queue: capture failed messages after N retries; prevents message loss on consumer errors."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Queues, Pub/Sub & Event Streaming — Deep Dive",
+        "title": "Kafka Internals: Log, Segments, and Replication",
         "paragraphs": [
-          "Extended treatment of Queues, Pub/Sub & Event Streaming: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
-        ],
-        "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Each Kafka partition is a directory of segment files on disk. The active segment receives new messages via sequential write (very fast—OS page cache buffers writes). Old segments are read-only; Kafka's retention policy deletes segments older than the configured retention period. Sequential disk I/O is key: Kafka's throughput (100s of MB/s per broker) rivals in-memory systems because sequential disk reads are nearly as fast as RAM for this access pattern.",
+          "Replication: each partition has a leader replica and N-1 follower replicas. Producers and consumers always interact with the leader. The ISR (In-Sync Replicas) set contains replicas caught up to within replica.lag.time.max.ms of the leader. When a producer sends with acks=all, the leader waits for all ISR members to acknowledge before returning success. If a broker in ISR falls behind, it's removed from ISR; if it catches up, it re-joins. This dynamic ISR ensures durability without blocking on slow replicas.",
+          "Kafka's zero-copy optimization: when serving consumers, Kafka uses the sendfile syscall (or its equivalent) to transfer data from the OS page cache directly to the network socket without copying through user space. This is a 2–4x throughput improvement over conventional read-then-write. Combined with sequential I/O and batching (producers accumulate messages before sending; consumers receive batches), Kafka achieves exceptional throughput per broker."
+        ]
+      },
+      {
+        "title": "Event-Driven Architecture Patterns",
+        "paragraphs": [
+          "Outbox pattern solves the dual-write problem: a service must write to its database AND publish an event to a message queue atomically. If the database write succeeds but the queue publish fails (or vice versa), the systems diverge. The solution: write both the business entity and the event to the database in the same transaction (the event goes to an 'outbox' table). A separate process (outbox relay) reads from the outbox table and publishes to the queue, then deletes from the outbox. Database atomicity guarantees that if the entity was written, the event record was also written.",
+          "Event sourcing: instead of storing current state, store the sequence of events that led to current state. 'User created', 'email verified', 'subscription started', 'subscription cancelled' are the events; current state (active subscriber with verified email) is derived by replaying them. Benefits: complete audit log, ability to rewind and replay to any point in time, natural fit with Kafka's durable log. Challenges: evolving event schemas, query complexity (you need a read model/projection to query current state efficiently).",
+          "Saga pattern for distributed transactions: when a business process spans multiple services (create order -> charge payment -> update inventory -> send confirmation), use a saga. Choreography-based sagas: each service listens for events and publishes the next event in the chain. Orchestration-based sagas: a central orchestrator explicitly commands each service. Sagas require compensating transactions: if payment succeeds but inventory update fails, roll back the payment by publishing a 'refund' command."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Queues, Pub/Sub & Event Streaming — Expert Notes",
+        "title": "Expert: Kafka at Scale—Tiered Storage and KRaft",
         "paragraphs": [
-          "Expert considerations for Queues, Pub/Sub & Event Streaming: multi-region behavior, cost envelopes, and edge cases under overload."
+          "Kafka's tiered storage (Confluent, AWS MSK) offloads old log segments from broker disks to S3, while keeping recent data on fast local NVMe. This decouples retention period from broker disk capacity: you can retain 1 year of data at S3 cost ($0.023/GB-month) rather than local SSD cost (~$0.10/GB-month). Consumers transparently fetch from S3 for historical data and from local disk for recent data.",
+          "KRaft (Kafka Raft Metadata mode) replaces ZooKeeper as Kafka's metadata store. ZooKeeper was a separate cluster managing partition leadership and broker membership—a painful operational dependency. KRaft uses the Raft consensus protocol implemented directly in Kafka controllers. Benefits: simpler deployment (one fewer cluster to manage), faster leader election, and support for 100x more partitions (millions vs tens of thousands) by removing ZooKeeper's partition count limitations. KRaft is production-ready as of Kafka 3.3."
         ]
       }
     ]
   },
   "concepts": [
-    "Queues, Pub/Sub & Event Streaming: core idea"
+    "Message queue: durable buffer between producer and consumer; enables temporal decoupling",
+    "Load leveling: queue absorbs traffic spikes; consumers process at steady rate",
+    "At-least-once delivery: messages not lost; may be duplicated; consumer must be idempotent",
+    "Dead Letter Queue (DLQ): captures messages that fail N retries; prevents silent message loss",
+    "Kafka partition: ordered, durable append-only log; unit of parallelism and ordering",
+    "Consumer group: group of consumers shares partitions; each partition assigned to exactly one consumer",
+    "Outbox pattern: write event to DB in same transaction as entity; relay publishes to queue",
+    "Saga pattern: distributed multi-service transactions using events + compensating transactions",
+    "Event sourcing: store events not state; derive current state by replaying event log",
+    "Backpressure: consumer lag signal; scale consumers when lag exceeds acceptable threshold"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Make all message consumers idempotent before connecting to at-least-once queues",
+    "Define a DLQ for every queue; alert when DLQ depth increases",
+    "Use partition keys to colocate related messages (same user, same order) for ordered processing",
+    "Monitor consumer lag; alert when lag exceeds acceptable threshold (e.g., > 1 minute equivalent)",
+    "Implement the outbox pattern for dual-write scenarios (DB + queue in same operation)",
+    "Size queue retention based on consumer recovery time SLA: if consumers can be down for 24h, retain for 48h",
+    "Tune producer batch size and linger.ms in Kafka to increase throughput at the cost of some latency"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Non-idempotent consumers with at-least-once queues: message replay causes duplicate charges, duplicate emails",
+    "No DLQ: failed messages retry forever or are silently dropped; both are bad",
+    "Ordering assumption without partition key: messages may be delivered out of order across partitions",
+    "Consumer group with more consumers than partitions: excess consumers are idle, wasting resources",
+    "Infinite retry without backoff: a poison pill message (always fails) loops forever, consuming queue capacity",
+    "Synchronous queue publish in hot path without timeout: queue outage causes service-wide outage"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Uber's Event Architecture with Kafka",
+      "description": "Uber uses Kafka as the central event bus for all services. A single trip generates hundreds of events (trip requested, driver matched, driver en route, pickup, drop-off, payment processed). Each event type is a separate Kafka topic; multiple downstream services (analytics, billing, notifications, compliance) independently consume from the same topics. Kafka's consumer group model allows adding new consumers without changing producers or existing consumers."
+    },
+    {
+      "title": "AWS SQS + Lambda for Thumbnail Generation",
+      "description": "An image storage service uploads photos to S3, then publishes to SQS. Lambda functions poll SQS, generate thumbnails, and upload results to S3. SQS visibility timeout handles Lambda timeouts gracefully: if a Lambda function times out without deleting the message, SQS redelivers to another Lambda. The DLQ captures images that fail after 5 retries for manual investigation. This architecture scales to millions of images without any servers to provision."
+    }
+  ],
   "keyTakeaways": [
-    "Queues, Pub/Sub & Event Streaming belongs in the curriculum as evergreen content"
+    "Message queues enable temporal decoupling and load leveling at the cost of increased latency",
+    "At-least-once delivery is the standard; build idempotent consumers to handle duplicates",
+    "Kafka's ordered, durable, replayable log is uniquely suited for event streaming and replay use cases",
+    "SQS visibility timeout + DLQ is the simplest managed queue with automatic retry and failure capture",
+    "The outbox pattern solves dual-write (DB + queue) atomically without distributed transactions",
+    "Backpressure: monitor consumer lag; it's the leading indicator of queue-related incidents"
   ],
-  "whyItMatters": "Understanding Queues, Pub/Sub & Event Streaming improves design judgment for production systems.",
+  "whyItMatters": "Message queues are foundational infrastructure for any system handling asynchronous workloads, event-driven microservices, or background processing. Every e-commerce checkout, social media post, and payment flow uses queues behind the scenes. Understanding delivery semantics, ordering guarantees, and consumer design is essential for building reliable event-driven systems and correctly reasoning about consistency and fault tolerance.",
   "reflectionQuestions": [
-    "When would you reach for Queues, Pub/Sub & Event Streaming in a real design?"
+    "Your email service consumer crashes after processing a message but before acknowledging it. What happens with SQS? With Kafka?",
+    "Design a message-driven order processing system: order placed, payment charged, inventory deducted, confirmation sent. How do you handle payment failure after inventory deduction?",
+    "When would you choose Kafka over SQS for a new project? What specific requirements drive that choice?",
+    "Your Kafka consumer lag is growing at 10,000 messages/hour. What is your incident response plan?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Kafka throughput: 100s MB/s per broker; millions of messages/second across a cluster",
+    "SQS FIFO: 300 TPS per message group (3,000 TPS without deduplication group constraint)",
+    "SQS Standard: unlimited TPS; best-effort ordering; at-least-once delivery",
+    "Kafka default retention: 7 days; configurable to years",
+    "Kafka partition: max consumer parallelism = number of partitions in a consumer group"
   ],
   "diagrams": [
     {
-      "id": "fund-messaging-overview",
-      "title": "Queues, Pub/Sub & Event Streaming overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "id": "fund-messaging-kafka-architecture",
+      "title": "Kafka Topic Partitioning and Consumer Groups",
+      "mermaid": "flowchart LR\n  P[Producer] -->|key hash| T{Topic}\n  T --> Part0[Partition 0]\n  T --> Part1[Partition 1]\n  T --> Part2[Partition 2]\n  Part0 --> C1[Consumer 1]\n  Part1 --> C2[Consumer 2]\n  Part2 --> C3[Consumer 3]\n  Part0 --> C4[Consumer Group B]\n  Part1 --> C4\n  Part2 --> C4"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Queues, Pub/Sub & Event Streaming and the main trade-offs in 3 minutes."
+    "What is the difference between a message queue and pub/sub? When would you use each?",
+    "Explain at-most-once, at-least-once, and exactly-once delivery. Which does Kafka provide by default?",
+    "How does Kafka's consumer group model enable parallel message processing?",
+    "Design a message-driven system for processing image uploads: queuing, error handling, retry logic, and dead-letter handling.",
+    "What is the outbox pattern and why is it needed?"
   ],
   "exercises": [
-    "Design a small system that depends on Queues, Pub/Sub & Event Streaming; list 3 trade-offs."
+    "Design the Kafka topic schema for a ride-sharing app: list all event types, their partition keys, consumers, and retention requirements.",
+    "Implement the outbox pattern for a payment service: define the outbox table schema, relay logic, and idempotency check.",
+    "Design a DLQ strategy for a payment processing system: how many retries, what retry backoff, and what does the DLQ handler do?"
   ],
-  "sources": [],
+  "sources": [
+    { "title": "Kafka: The Definitive Guide — Narkhede, Shapira & Palino (O'Reilly)" },
+    { "title": "Designing Event-Driven Systems — Ben Stopford (Confluent; free PDF)" },
+    { "title": "AWS SQS documentation — visibility timeout, DLQ, FIFO queues" },
+    { "title": "Enterprise Integration Patterns — Hohpe & Woolf (messaging patterns reference)" }
+  ],
   "relatedLessons": [
     "fund-stream-processing",
-    "msg-queues-pubsub"
+    "fund-exactly-once",
+    "fund-distributed",
+    "fund-reliability"
   ]
 }

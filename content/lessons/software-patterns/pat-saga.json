@@ -1,0 +1,160 @@
+{
+  "id": "pat-saga",
+  "title": "Saga & Process Managers",
+  "moduleId": "software-patterns",
+  "phaseId": "design-patterns",
+  "durationMinutes": 40,
+  "summary": "Process managers/sagas coordinate multi-step business workflows across services with explicit state machines, timeouts, and compensations — a pattern-level view of distributed transactions.",
+  "kind": "evergreen",
+  "difficulty": "intermediate",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "pat-resilience"
+  ],
+  "tags": [
+    "software-patterns",
+    "evergreen",
+    "design-patterns"
+  ],
+  "sections": [
+    {
+      "title": "Process manager role",
+      "paragraphs": [
+        "A process manager listens to events, advances a workflow state machine, and commands participants. It owns the workflow state, not the domain aggregates' invariants."
+      ]
+    },
+    {
+      "title": "State and timeouts",
+      "paragraphs": [
+        "Persist workflow state. Timeouts trigger probes or compensations. Humans may be in the loop for exceptional paths."
+      ]
+    },
+    {
+      "title": "Implementation tips",
+      "paragraphs": [
+        "Use durable workflow engines (Temporal, Cadence) or carefully built state machines. Exactly-once side effects still need idempotency keys."
+      ]
+    },
+    {
+      "title": "Anti-patterns",
+      "paragraphs": [
+        "God orchestrators that encode all business logic. Prefer managers that coordinate while domains keep invariants."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Process manager role",
+        "paragraphs": [
+          "A process manager listens to events, advances a workflow state machine, and commands participants. It owns the workflow state, not the domain aggregates' invariants."
+        ]
+      },
+      {
+        "title": "State and timeouts",
+        "paragraphs": [
+          "Persist workflow state. Timeouts trigger probes or compensations. Humans may be in the loop for exceptional paths."
+        ]
+      },
+      {
+        "title": "Implementation tips",
+        "paragraphs": [
+          "Use durable workflow engines (Temporal, Cadence) or carefully built state machines. Exactly-once side effects still need idempotency keys."
+        ]
+      },
+      {
+        "title": "Anti-patterns",
+        "paragraphs": [
+          "God orchestrators that encode all business logic. Prefer managers that coordinate while domains keep invariants."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Saga & Process Managers — Operations",
+        "paragraphs": [
+          "Operating Saga & Process Managers in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+        ],
+        "bullets": [
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Saga & Process Managers — Failure modes",
+        "paragraphs": [
+          "Common failures around Saga & Process Managers include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Saga & Process Managers — Expert notes",
+        "paragraphs": [
+          "At the expert level, Saga & Process Managers intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Process manager",
+    "Workflow state",
+    "Compensation",
+    "Durable execution"
+  ],
+  "practices": [
+    "Persist state transitions",
+    "Timeout every step",
+    "Keep domains authoritative"
+  ],
+  "pitfalls": [
+    "Orchestrator as monolith",
+    "Lost workflow state on crash",
+    "Missing compensations"
+  ],
+  "examples": [
+    {
+      "title": "Temporal workflows",
+      "description": "Durable process managers as code."
+    }
+  ],
+  "keyTakeaways": [
+    "Sagas are state machines with compensations",
+    "Durability and idempotency are required"
+  ],
+  "whyItMatters": "Long-running business processes are everywhere in real systems.",
+  "reflectionQuestions": [
+    "Where do you store workflow progress today?"
+  ],
+  "numbersToKnow": [
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
+  ],
+  "diagrams": [
+    {
+      "id": "pat-saga-overview",
+      "title": "Saga & Process Managers overview",
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Saga & Process Managers and the main trade-offs in three minutes."
+  ],
+  "exercises": [
+    "Sketch a design that depends on Saga & Process Managers; list three trade-offs and one failure mode."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "pat-concurrency",
+    "pat-core-patterns",
+    "pat-outbox"
+  ]
+}

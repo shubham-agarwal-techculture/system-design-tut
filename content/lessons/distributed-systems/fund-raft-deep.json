@@ -1,0 +1,174 @@
+{
+  "id": "fund-raft-deep",
+  "title": "Raft Deep Dive",
+  "moduleId": "distributed-systems",
+  "phaseId": "fundamentals",
+  "durationMinutes": 50,
+  "summary": "Raft elects a leader and replicates a log for consensus. Understanding elections, terms, log matching, and commit rules is essential for etcd, Consul, and many coordination services.",
+  "kind": "evergreen",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
+  "lastReviewed": "2026-11-19",
+  "prerequisites": [
+    "fund-partitioning"
+  ],
+  "tags": [
+    "distributed-systems",
+    "evergreen",
+    "fundamentals"
+  ],
+  "sections": [
+    {
+      "title": "Roles and terms",
+      "paragraphs": [
+        "Nodes are followers, candidates, or leaders. Terms are monotonically increasing eras. A leader for a term handles client writes and replicates log entries.",
+        "Heartbeats reset election timers. If followers time out, they become candidates and request votes. Majority wins; otherwise term increments and retry."
+      ]
+    },
+    {
+      "title": "Log replication",
+      "paragraphs": [
+        "Clients write to the leader. Entries are appended locally then sent to followers. An entry is committed when stored on a majority; then applied to the state machine.",
+        "The log matching property ensures consistency: if two logs have the same index and term, prior entries match. Conflicts are resolved by overwriting follower suffixes."
+      ]
+    },
+    {
+      "title": "Safety and availability",
+      "paragraphs": [
+        "Raft remains available with majority. A network partition that isolates the leader causes a new election on the majority side; the old leader steps down on seeing a higher term.",
+        "Membership changes need careful joint consensus. Mis-managed reconfiguration is a common outage class in real clusters."
+      ]
+    },
+    {
+      "title": "Using Raft in designs",
+      "paragraphs": [
+        "Put Raft where you need strong leadership and a replicated log: metadata, configuration, small coordination state — not bulk data paths.",
+        "etcd uses Raft for Kubernetes state; if you embed Raft, budget for disk fsync latency on the log."
+      ]
+    }
+  ],
+  "depth": {
+    "core": [
+      {
+        "title": "Roles and terms",
+        "paragraphs": [
+          "Nodes are followers, candidates, or leaders. Terms are monotonically increasing eras. A leader for a term handles client writes and replicates log entries.",
+          "Heartbeats reset election timers. If followers time out, they become candidates and request votes. Majority wins; otherwise term increments and retry."
+        ]
+      },
+      {
+        "title": "Log replication",
+        "paragraphs": [
+          "Clients write to the leader. Entries are appended locally then sent to followers. An entry is committed when stored on a majority; then applied to the state machine.",
+          "The log matching property ensures consistency: if two logs have the same index and term, prior entries match. Conflicts are resolved by overwriting follower suffixes."
+        ]
+      },
+      {
+        "title": "Safety and availability",
+        "paragraphs": [
+          "Raft remains available with majority. A network partition that isolates the leader causes a new election on the majority side; the old leader steps down on seeing a higher term.",
+          "Membership changes need careful joint consensus. Mis-managed reconfiguration is a common outage class in real clusters."
+        ]
+      },
+      {
+        "title": "Using Raft in designs",
+        "paragraphs": [
+          "Put Raft where you need strong leadership and a replicated log: metadata, configuration, small coordination state — not bulk data paths.",
+          "etcd uses Raft for Kubernetes state; if you embed Raft, budget for disk fsync latency on the log."
+        ]
+      }
+    ],
+    "deepDive": [
+      {
+        "title": "Raft Deep Dive — Operations",
+        "paragraphs": [
+          "Operating Raft Deep Dive in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+        ],
+        "bullets": [
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Raft Deep Dive — Failure modes",
+        "paragraphs": [
+          "Common failures around Raft Deep Dive include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+        ]
+      }
+    ],
+    "expert": [
+      {
+        "title": "Raft Deep Dive — Expert notes",
+        "paragraphs": [
+          "At the expert level, Raft Deep Dive intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+        ]
+      }
+    ]
+  },
+  "concepts": [
+    "Leader election",
+    "Term",
+    "Commit index",
+    "Log matching",
+    "Majority quorum"
+  ],
+  "practices": [
+    "Persist log before acknowledging commits",
+    "Separate bulk data from Raft-managed metadata",
+    "Test partition behavior explicitly"
+  ],
+  "pitfalls": [
+    "Using Raft as a general-purpose database",
+    "Ignoring fsync latency",
+    "Unsafe membership changes"
+  ],
+  "examples": [
+    {
+      "title": "etcd",
+      "description": "Kubernetes control plane coordination."
+    },
+    {
+      "title": "Consul / TiKV",
+      "description": "Raft for metadata or regions."
+    }
+  ],
+  "keyTakeaways": [
+    "Raft = elected leader + replicated log + majority commit",
+    "Safety depends on term and log rules",
+    "Use it for coordination, not high-volume data"
+  ],
+  "whyItMatters": "Many 'CP' systems you depend on are Raft under the hood. Designing around them requires knowing what the log guarantees — and what it costs.",
+  "reflectionQuestions": [
+    "What state in your design must be under consensus vs eventually consistent storage?"
+  ],
+  "numbersToKnow": [
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
+  ],
+  "diagrams": [
+    {
+      "id": "fund-raft-deep-overview",
+      "title": "Raft Deep Dive overview",
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+    }
+  ],
+  "caseStudies": [],
+  "interviewQuestions": [
+    "Explain Raft Deep Dive and the main trade-offs in three minutes."
+  ],
+  "exercises": [
+    "Sketch a design that depends on Raft Deep Dive; list three trade-offs and one failure mode."
+  ],
+  "sources": [],
+  "relatedLessons": [
+    "dist-cap-consensus",
+    "fund-clocks",
+    "fund-consistency-models"
+  ]
+}

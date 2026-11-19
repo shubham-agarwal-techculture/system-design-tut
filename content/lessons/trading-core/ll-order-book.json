@@ -3,12 +3,12 @@
   "title": "Order Books",
   "moduleId": "trading-core",
   "phaseId": "low-latency",
-  "durationMinutes": 30,
-  "summary": "Order Books — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "An order book stores bids and asks by price level and matches incoming orders by defined rules (price-time, pro-rata, etc.). Structure choice (trees, arrays of levels, intrusive lists) drives latency and determinism.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "difficulty": "advanced",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [
     "ll-matching"
@@ -20,82 +20,141 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Book mechanics",
       "paragraphs": [
-        "This draft covers Order Books. Run content:generate to expand it with a model provider, or edit manually."
+        "Limit orders rest; market orders aggress. Price-time priority is common: better price first, then earlier time. Partial fills and cancel/replace are first-class."
+      ]
+    },
+    {
+      "title": "Data structures",
+      "paragraphs": [
+        "Price levels often in sorted maps or contiguous arrays for hot top-of-book. Orders in FIFO queues per level. Avoid allocations on the hot path — preallocate pools."
+      ]
+    },
+    {
+      "title": "Determinism and journaling",
+      "paragraphs": [
+        "For audit and replay, apply a sequenced input log to a deterministic book. Same inputs → same trades. This is the backbone of exchange reliability."
+      ]
+    },
+    {
+      "title": "Market data",
+      "paragraphs": [
+        "Publishing top-of-book vs full depth changes bandwidth. Conflate wisely; never block matching on slow consumers."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Book mechanics",
         "paragraphs": [
-          "This draft covers Order Books. Run content:generate to expand it with a model provider, or edit manually."
+          "Limit orders rest; market orders aggress. Price-time priority is common: better price first, then earlier time. Partial fills and cancel/replace are first-class."
+        ]
+      },
+      {
+        "title": "Data structures",
+        "paragraphs": [
+          "Price levels often in sorted maps or contiguous arrays for hot top-of-book. Orders in FIFO queues per level. Avoid allocations on the hot path — preallocate pools."
+        ]
+      },
+      {
+        "title": "Determinism and journaling",
+        "paragraphs": [
+          "For audit and replay, apply a sequenced input log to a deterministic book. Same inputs → same trades. This is the backbone of exchange reliability."
+        ]
+      },
+      {
+        "title": "Market data",
+        "paragraphs": [
+          "Publishing top-of-book vs full depth changes bandwidth. Conflate wisely; never block matching on slow consumers."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Order Books — Deep Dive",
+        "title": "Order Books — Operations",
         "paragraphs": [
-          "Extended treatment of Order Books: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating Order Books in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Order Books — Failure modes",
+        "paragraphs": [
+          "Common failures around Order Books include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Order Books — Expert Notes",
+        "title": "Order Books — Expert notes",
         "paragraphs": [
-          "Expert considerations for Order Books: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, Order Books intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "Order Books: core idea"
+    "Price-time priority",
+    "Resting vs aggressing",
+    "Deterministic replay",
+    "Top-of-book vs depth"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Preallocate on hot path",
+    "Journal sequenced inputs",
+    "Decouple market-data fanout"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Allocating per order in steady state",
+    "Non-deterministic iteration order",
+    "Coupling match path to disk/network"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "Exchange matching cores",
+      "description": "Deterministic books behind gateways."
+    }
+  ],
   "keyTakeaways": [
-    "Order Books belongs in the curriculum as evergreen content"
+    "Books are specialized deterministic state machines",
+    "Latency and fairness rules dominate structure choice"
   ],
-  "whyItMatters": "Understanding Order Books improves design judgment for production systems.",
+  "whyItMatters": "Trading and other continuous double-auction markets require this pattern; it also teaches extreme low-latency design.",
   "reflectionQuestions": [
-    "When would you reach for Order Books in a real design?"
+    "How would you prove two implementations produce identical matches?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "Know your p99 latency budget before adding hops",
+    "Peak load ≠ average load — plan headroom (often 2–3×)",
+    "Cross-region RTT is often ~50–150ms one way"
   ],
   "diagrams": [
     {
       "id": "ll-order-book-overview",
       "title": "Order Books overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Order Books and the main trade-offs in 3 minutes."
+    "Explain Order Books and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on Order Books; list 3 trade-offs."
+    "Sketch a design that depends on Order Books; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
-    "ll-kernel-bypass",
-    "ll-market-data",
-    "ll-matching"
+    "ll-colocation",
+    "ll-fix",
+    "ll-kernel-bypass"
   ]
 }

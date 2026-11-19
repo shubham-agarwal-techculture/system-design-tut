@@ -3,12 +3,12 @@
   "title": "Back-of-Envelope Estimation",
   "moduleId": "scalability",
   "phaseId": "fundamentals",
-  "durationMinutes": 30,
-  "summary": "Back-of-Envelope Estimation — draft awaiting generation and review.",
+  "durationMinutes": 45,
+  "summary": "Capacity estimation turns vague requirements into storage, QPS, bandwidth, and latency budgets. Good estimates are order-of-magnitude honest, explicit about assumptions, and revised when measurements arrive.",
   "kind": "evergreen",
   "difficulty": "intermediate",
-  "status": "draft",
-  "version": "0.1.0",
+  "status": "published",
+  "version": "1.0.0",
   "lastReviewed": "2026-11-19",
   "prerequisites": [],
   "tags": [
@@ -18,82 +18,160 @@
   ],
   "sections": [
     {
-      "title": "Overview",
+      "title": "Why estimate before drawing boxes",
       "paragraphs": [
-        "This draft covers Back-of-Envelope Estimation. Run content:generate to expand it with a model provider, or edit manually."
+        "Estimates force requirements into numbers: daily active users, read/write ratio, object size, retention, peak-to-average. Without them, architectures are fashion.",
+        "Interview and production practice share the same skill: powers of ten, latency hierarchy, and stating assumptions out loud so others can challenge them.",
+        "An estimate that is 2× wrong is often useful; one that hides assumptions is dangerous."
+      ]
+    },
+    {
+      "title": "The latency and throughput vocabulary",
+      "paragraphs": [
+        "Know approximate costs: L1/L2 cache nanoseconds, DRAM ~100ns, SSD tens to hundreds of µs, HDD ms, same-rack network ~100µs–1ms, cross-region 50–150ms+. These bound how many hops your p99 can afford.",
+        "QPS = concurrency / latency for a single server under saturation (Little's Law). If a handler averages 10ms and you want 10k QPS, you need ~100 concurrent in-flight requests — and enough CPU/IO to sustain them.",
+        "Bandwidth: 1 MB objects at 1000 writes/s is ~1 GB/s before replication and indexes. Replication factor and erasure coding multiply storage and sometimes network."
+      ]
+    },
+    {
+      "title": "Storage math",
+      "paragraphs": [
+        "Rows × average size × indexes × retention × replication. Indexes often dominate. Compression helps sequential analytics more than point-lookup OLTP.",
+        "Time-series and logs: estimate ingest bytes/day and compaction overhead. 'Unlimited retention' is a cost decision, not a feature."
+      ]
+    },
+    {
+      "title": "Working the problem",
+      "paragraphs": [
+        "Start from peak QPS and object size. Derive read QPS from write QPS × ratio. Check if a single shard fits; if not, partition. Check if cache can absorb reads given hit rate assumptions.",
+        "Always leave headroom (often 2–3×) for spikes, rebalancing, and incident recovery. Publish the assumptions next to the diagram."
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Overview",
+        "title": "Why estimate before drawing boxes",
         "paragraphs": [
-          "This draft covers Back-of-Envelope Estimation. Run content:generate to expand it with a model provider, or edit manually."
+          "Estimates force requirements into numbers: daily active users, read/write ratio, object size, retention, peak-to-average. Without them, architectures are fashion.",
+          "Interview and production practice share the same skill: powers of ten, latency hierarchy, and stating assumptions out loud so others can challenge them.",
+          "An estimate that is 2× wrong is often useful; one that hides assumptions is dangerous."
+        ]
+      },
+      {
+        "title": "The latency and throughput vocabulary",
+        "paragraphs": [
+          "Know approximate costs: L1/L2 cache nanoseconds, DRAM ~100ns, SSD tens to hundreds of µs, HDD ms, same-rack network ~100µs–1ms, cross-region 50–150ms+. These bound how many hops your p99 can afford.",
+          "QPS = concurrency / latency for a single server under saturation (Little's Law). If a handler averages 10ms and you want 10k QPS, you need ~100 concurrent in-flight requests — and enough CPU/IO to sustain them.",
+          "Bandwidth: 1 MB objects at 1000 writes/s is ~1 GB/s before replication and indexes. Replication factor and erasure coding multiply storage and sometimes network."
+        ]
+      },
+      {
+        "title": "Storage math",
+        "paragraphs": [
+          "Rows × average size × indexes × retention × replication. Indexes often dominate. Compression helps sequential analytics more than point-lookup OLTP.",
+          "Time-series and logs: estimate ingest bytes/day and compaction overhead. 'Unlimited retention' is a cost decision, not a feature."
+        ]
+      },
+      {
+        "title": "Working the problem",
+        "paragraphs": [
+          "Start from peak QPS and object size. Derive read QPS from write QPS × ratio. Check if a single shard fits; if not, partition. Check if cache can absorb reads given hit rate assumptions.",
+          "Always leave headroom (often 2–3×) for spikes, rebalancing, and incident recovery. Publish the assumptions next to the diagram."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Back-of-Envelope Estimation — Deep Dive",
+        "title": "Back-of-Envelope Estimation — Operations",
         "paragraphs": [
-          "Extended treatment of Back-of-Envelope Estimation: internals, operational knobs, and failure domains.",
-          "Tune based on measured bottlenecks rather than folklore. Prefer reversible changes."
+          "Operating Back-of-Envelope Estimation in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
+          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
         ],
         "bullets": [
-          "Define SLIs before optimizing",
-          "Know amplification costs (read/write/space/network)",
-          "Document blast radius for each failure mode"
+          "Define capacity from the scarcest resource",
+          "Document blast radius per dependency",
+          "Keep rollback cheaper than forward repair when possible"
+        ]
+      },
+      {
+        "title": "Back-of-Envelope Estimation — Failure modes",
+        "paragraphs": [
+          "Common failures around Back-of-Envelope Estimation include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
+          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Back-of-Envelope Estimation — Expert Notes",
+        "title": "Back-of-Envelope Estimation — Expert notes",
         "paragraphs": [
-          "Expert considerations for Back-of-Envelope Estimation: multi-region behavior, cost envelopes, and edge cases under overload."
+          "At the expert level, Back-of-Envelope Estimation intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
+          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
         ]
       }
     ]
   },
   "concepts": [
-    "Back-of-Envelope Estimation: core idea"
+    "Little's Law",
+    "Peak vs average load",
+    "Latency hierarchy",
+    "Replication/storage amplification",
+    "Assumption tracking"
   ],
   "practices": [
-    "Start from requirements and constraints before choosing tools"
+    "Write assumptions before calculating",
+    "Use powers of ten; avoid false precision",
+    "Convert estimates into SLOs and capacity alerts"
   ],
   "pitfalls": [
-    "Treating tooling fashion as architecture"
+    "Ignoring indexes and replication in storage math",
+    "Designing for average instead of peak",
+    "Forgetting cross-region RTT in chatty APIs"
   ],
-  "examples": [],
+  "examples": [
+    {
+      "title": "URL shortener estimate",
+      "description": "Writes/day → storage; read:write → cache sizing."
+    },
+    {
+      "title": "Chat fanout",
+      "description": "Online fanout vs inbox model driven by connection counts and QPS."
+    }
+  ],
   "keyTakeaways": [
-    "Back-of-Envelope Estimation belongs in the curriculum as evergreen content"
+    "Estimates are decision tools, not predictions",
+    "Latency hierarchy constrains architecture more than brand names",
+    "Always show assumptions"
   ],
-  "whyItMatters": "Understanding Back-of-Envelope Estimation improves design judgment for production systems.",
+  "whyItMatters": "Every serious design review asks 'what scale?' Estimation is how you answer without hand-waving.",
   "reflectionQuestions": [
-    "When would you reach for Back-of-Envelope Estimation in a real design?"
+    "What is the scarcest resource in your current service — CPU, RAM, disk, or network?",
+    "How would a 10× traffic spike change your diagram?"
   ],
   "numbersToKnow": [
-    "Define p50/p99 latency and error budget before scaling"
+    "DRAM ~100ns; SSD ~100µs; HDD ~10ms; cross-region ~100ms",
+    "1 Gbps ≈ 125 MB/s",
+    "Little's Law: L = λW"
   ],
   "diagrams": [
     {
       "id": "fund-estimation-overview",
       "title": "Back-of-Envelope Estimation overview",
-      "mermaid": "flowchart LR\n  Client --> Service\n  Service --> Dependency"
+      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Back-of-Envelope Estimation and the main trade-offs in 3 minutes."
+    "Explain Back-of-Envelope Estimation and the main trade-offs in three minutes."
   ],
   "exercises": [
-    "Design a small system that depends on Back-of-Envelope Estimation; list 3 trade-offs."
+    "Sketch a design that depends on Back-of-Envelope Estimation; list three trade-offs and one failure mode."
   ],
   "sources": [],
   "relatedLessons": [
-    "fund-stateless",
-    "fund-vertical-horizontal",
-    "scale-state-management"
+    "fund-load-shedding",
+    "fund-sharding-strategies",
+    "fund-stateless"
   ]
 }
