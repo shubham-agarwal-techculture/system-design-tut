@@ -3,164 +3,232 @@
   "title": "Consistency Models",
   "moduleId": "distributed-systems",
   "phaseId": "fundamentals",
-  "durationMinutes": 45,
-  "summary": "Consistency models specify what observations clients may make. From linearizability to eventual consistency, each model enables and forbids certain anomalies — learn them to pick storage and API guarantees.",
+  "durationMinutes": 42,
+  "summary": "Consistency models define the guarantees a distributed system makes about what values reads can return relative to writes. The spectrum from linearizability (the strongest, most expensive) to eventual consistency (the weakest, most available) contains a rich set of models—sequential consistency, causal consistency, monotonic reads—each with different performance and availability trade-offs. Choosing the right model for each piece of state is a fundamental design decision.",
   "kind": "evergreen",
   "difficulty": "advanced",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "fund-clocks"
-  ],
-  "tags": [
-    "distributed-systems",
-    "evergreen",
-    "fundamentals"
-  ],
+  "prerequisites": ["fund-distributed", "fund-clocks"],
+  "tags": ["distributed-systems", "consistency", "evergreen", "fundamentals"],
   "sections": [
     {
-      "title": "Linearizability and sequential consistency",
+      "title": "The Consistency Spectrum",
       "paragraphs": [
-        "Linearizability: operations appear instantaneously at a single point between invocation and response, globally. Sequential consistency allows reordering across clients but preserves each client's order."
+        "Consistency models are contracts between a distributed storage system and its clients. They specify which values a read is allowed to return given a history of previous reads and writes. Stronger consistency models restrict allowed return values more tightly—they provide more predictable behavior but require more coordination. Weaker models allow more freedom—they are more available and lower latency but may return stale or unexpected values. The key insight: there is no universally best model; the right choice depends on what guarantees the application actually needs.",
+        "The consistency spectrum (from strongest to weakest): Linearizability > Sequential Consistency > Causal+ Consistency > Causal Consistency > PRAM/FIFO Consistency > Read-Your-Writes > Monotonic Reads > Eventual Consistency. Each step down the spectrum relaxes one guarantee: linearizability adds the real-time constraint to sequential consistency; sequential consistency adds global ordering to causal consistency; causal consistency adds causal ordering to monotonic reads. Understanding what each model gives up clarifies when weaker models are acceptable.",
+        "Practical systems don't always expose a single consistency model. DynamoDB offers three: eventually consistent reads (cheapest, may return stale data), strongly consistent reads (read from leader; always current; 2x cost), and transactions (serializable for multi-item operations). Cassandra offers tunable consistency: specify how many replicas must acknowledge a read/write (ONE, QUORUM, ALL), balancing availability against consistency per operation. This per-request tuning is powerful but requires the application to understand the implications of each choice."
+      ],
+      "bullets": [
+        "Strongest: linearizability—operations appear atomic in real-time order; most expensive",
+        "Practical: causal consistency—causally related operations seen in causal order; good balance",
+        "Weakest: eventual consistency—replicas converge eventually; highest availability, lowest cost",
+        "Tunable: Cassandra, DynamoDB allow per-operation consistency level selection"
       ]
     },
     {
-      "title": "Causal and session models",
+      "title": "Linearizability: The Gold Standard",
       "paragraphs": [
-        "Causal consistency preserves cause-before-effect. Session guarantees (read-your-writes, monotonic reads) are often what users actually need for a single device/login."
+        "Linearizability (also called atomic consistency or external consistency) requires that every operation on the system appears to execute atomically at some point between its invocation and its response, and in a manner consistent with real-time ordering. If operation A completes before operation B begins, B must see A's effects (or effects of later operations). This is the strongest consistency model and the one most closely aligned with how programmers reason about code.",
+        "Achieving linearizability requires that every read goes through the current leader (or contacts a quorum of replicas). There is no way to serve reads from a local replica without risking stale data. This is why linearizable systems (etcd, ZooKeeper, CockroachDB with strong isolation) have higher read latency than eventually consistent systems: every read requires network coordination. The read becomes only as fast as your network round-trip to a quorum.",
+        "Linearizability is incompatible with high availability during network partitions (this is exactly what CAP states for the C side). A system that is linearizable and encounters a network partition must refuse requests on the minority side—it cannot serve reads without risking returning stale data, and it cannot accept writes without risking conflicting with the majority. This is the correct behavior for correctness-critical applications (financial balances, stock inventory) but unacceptable for applications requiring high availability."
+      ],
+      "bullets": [
+        "Linearizability: every operation appears to execute atomically at some point in real time",
+        "Requires: reads contact leader or quorum; every read has network coordination overhead",
+        "CAP C: refuse requests during partition rather than serve stale data",
+        "Use for: financial balances, inventory, distributed locks, leader election"
       ]
     },
     {
-      "title": "Eventual consistency",
+      "title": "Sequential and Causal Consistency",
       "paragraphs": [
-        "If updates stop, replicas converge. During churn, stale reads and conflicts happen. Pair with conflict resolution (LWW, CRDT, app merge)."
+        "Sequential consistency (Lamport, 1979) requires that all processes agree on a total ordering of operations, and that each process's operations appear in that total order in the order the process issued them. Unlike linearizability, sequential consistency does not require that the order respects real-time—the total order can differ from wall-clock time. Two processes may each see operations in a different order as long as their own operations appear in submission order. This is weaker than linearizability but stronger than causal consistency.",
+        "Causal consistency captures the intuitive notion of cause-and-effect. If operation A causally precedes B (B was initiated after seeing A's result), then all processes must see A before B. Operations that are causally unrelated (concurrent) may be seen in any order by different processes. Causal consistency is achievable with higher availability than linearizability: a node can serve reads from its local state as long as it tracks the causal dependencies it has observed, without contacting a quorum.",
+        "Read-your-own-writes (session consistency) is a practical weak model: within a single session (typically a user's browser or API client session), a user always reads their own writes. If you post a comment, your next page load shows the comment. This can be violated in AP systems where your write goes to replica A but your subsequent read goes to replica B, which hasn't caught up yet. Solutions: session tokens that route reads from the same user to the same replica, or primary reads for the writing user for a short window after each write."
+      ],
+      "bullets": [
+        "Sequential: all processes agree on total ordering; each process's ops in submission order",
+        "Causal: causally related ops seen in causal order; concurrent ops may differ across replicas",
+        "Read-your-own-writes: within a session, reads always see the user's own prior writes",
+        "Causal is achievable with higher availability than linearizability; good balance for social features"
       ]
     },
     {
-      "title": "Choosing per API",
+      "title": "Eventual Consistency: Convergence and Conflicts",
       "paragraphs": [
-        "Payments capture may need strong guarantees; feed ranking may tolerate staleness. Document guarantees in API specs so clients do not invent them."
+        "Eventual consistency guarantees only that if no new writes occur, all replicas will eventually converge to the same value. In the interim, different replicas may return different values for the same key. This is the weakest mainstream consistency model and the basis for Dynamo-style databases (DynamoDB, Cassandra, Riak). The appeal: eventual consistency can be implemented without leader election, without quorum reads, and without coordination—each node operates independently, making it maximally available during partitions.",
+        "Eventual consistency requires conflict resolution when concurrent writes occur. Last-write-wins (LWW) uses timestamps: the write with the highest timestamp wins. As discussed in the clocks lesson, this is dangerous with clock skew. Application-specific merge functions (shopping cart: union of items; counter: sum of increments from each replica) are safer. CRDTs (Conflict-free Replicated Data Types) are data structures that are specially designed to merge concurrent writes correctly without coordination—covered in detail in the CRDTs lesson.",
+        "Bounded staleness is a useful intermediate model: reads may return values up to K seconds or K operations old, but no older. Azure Cosmos DB exposes bounded staleness as an explicit consistency level. This is useful when you need a bound on stale reads for SLA reasons ('users will never see data more than 10 seconds old') but don't need full linearizability. It's achieved by tracking replication lag and refusing reads that would exceed the staleness bound."
+      ],
+      "bullets": [
+        "Eventual: all replicas converge eventually if writes stop; no ordering guarantee in interim",
+        "LWW (Last Write Wins): dangerous with clock skew; use logical timestamps or vector clocks",
+        "Application merge: domain-specific conflict resolution (union, sum) for specific data types",
+        "Bounded staleness: stale data bounded by time or operations; Azure Cosmos DB consistency level"
+      ]
+    },
+    {
+      "title": "Consistency in Practice: Choosing the Right Model",
+      "paragraphs": [
+        "Financial data (bank balances, payment amounts, inventory counts): linearizability or serializable transactions. The cost of incorrect data (charging a user twice, overselling inventory) far exceeds the latency cost of strong consistency. Use PostgreSQL with synchronous replication, or CockroachDB for distributed scale. For read-heavy financial reporting that can tolerate slightly stale data (account balance on a dashboard updated every minute), use a read replica with known replication lag.",
+        "Social features (likes, followers, comments, activity feeds): causal consistency or eventually consistent with read-your-own-writes. Users tolerate seeing feeds that are a few seconds behind; they cannot tolerate not seeing their own posts in their own feed. Configure DynamoDB with strong reads only for reads that follow the user's own writes (detected via a session token); use eventually consistent reads for everyone else's content. This balances freshness against cost.",
+        "Configuration and feature flags: linearizability. If a feature flag is enabled globally, all services must see it simultaneously or you risk partial rollouts where some instances process a request with the new code path and others with the old, creating inconsistent state. Use etcd or Consul (linearizable reads) for feature flags and configuration. Even if the read latency is 5ms vs 1ms, configuration reads are rare (cached locally), making the overhead negligible."
+      ],
+      "bullets": [
+        "Financial data: linearizable or serializable; cost of wrong data far exceeds latency cost",
+        "Social feeds: causal + read-your-own-writes; tolerate seconds of staleness for others' content",
+        "Config/feature flags: linearizable (etcd/Consul); partial rollouts from inconsistent config are dangerous",
+        "Matching storage to access pattern: apply the weakest model that meets the application's correctness requirement"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Linearizability and sequential consistency",
+        "title": "Consistency Spectrum",
         "paragraphs": [
-          "Linearizability: operations appear instantaneously at a single point between invocation and response, globally. Sequential consistency allows reordering across clients but preserves each client's order."
+          "Spectrum from strongest (linearizability) to weakest (eventual consistency). Stronger = more predictable, more coordination, higher latency. Weaker = more available, less latency, potential stale reads.",
+          "Practical models: linearizable (etcd, Spanner), causal (COPS, some configs), eventual (Cassandra, DynamoDB default).",
+          "Choose the weakest model that meets your correctness requirement; don't use linearizability where eventual suffices."
         ]
       },
       {
-        "title": "Causal and session models",
+        "title": "Key Models",
         "paragraphs": [
-          "Causal consistency preserves cause-before-effect. Session guarantees (read-your-writes, monotonic reads) are often what users actually need for a single device/login."
+          "Linearizability: operations appear atomic in real-time order; every read contacts quorum/leader.",
+          "Causal consistency: causally related operations seen in causal order; concurrent may differ.",
+          "Eventual: replicas converge eventually; highest availability; requires conflict resolution strategy."
         ]
       },
       {
-        "title": "Eventual consistency",
+        "title": "Practical Application",
         "paragraphs": [
-          "If updates stop, replicas converge. During churn, stale reads and conflicts happen. Pair with conflict resolution (LWW, CRDT, app merge)."
-        ]
-      },
-      {
-        "title": "Choosing per API",
-        "paragraphs": [
-          "Payments capture may need strong guarantees; feed ranking may tolerate staleness. Document guarantees in API specs so clients do not invent them."
+          "Financial data: linearizable. Social feeds: causal + read-your-own-writes. Config: linearizable. Analytics: eventual.",
+          "Read-your-own-writes prevents the jarring UX of posting and not seeing your own post.",
+          "Bounded staleness: intermediate model; replicas always within K seconds of primary; Azure Cosmos DB."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Consistency Models — Operations",
+        "title": "MVCC and Snapshot Isolation",
         "paragraphs": [
-          "Operating Consistency Models in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
-          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
-        ],
-        "bullets": [
-          "Define capacity from the scarcest resource",
-          "Document blast radius per dependency",
-          "Keep rollback cheaper than forward repair when possible"
+          "MVCC (Multi-Version Concurrency Control) is the implementation mechanism for many consistency models. Each write creates a new version of the data with a timestamp; reads use a snapshot timestamp to see a consistent view of the database as of that moment. PostgreSQL's MVCC allows reads and writes to proceed concurrently without blocking each other, while each transaction sees a consistent snapshot.",
+          "Snapshot Isolation (SI) guarantees that each transaction reads from a consistent snapshot taken at the transaction's start. It prevents dirty reads (reading uncommitted data) and non-repeatable reads (reading different values in the same transaction) but does NOT prevent write skew: two concurrent transactions both read the same data, make different decisions based on it, and both commit conflicting writes (e.g., two on-call doctors both see the other is on call, both submit 'go off call,' leaving nobody on call).",
+          "Serializable Snapshot Isolation (SSI) extends SI to prevent write skew by detecting read-write conflicts between concurrent transactions and aborting one when a conflict is detected. PostgreSQL 9.1+ implements SSI. The overhead is typically 20–50% higher than SI for write-heavy workloads. For most OLTP workloads, the correctness guarantee justifies the overhead. Use REPEATABLE READ (SI) for read-heavy workloads where write skew is not a concern, and SERIALIZABLE (SSI) for write-heavy workloads with cross-row invariants."
         ]
       },
       {
-        "title": "Consistency Models — Failure modes",
+        "title": "Consistency in Geo-Distributed Systems",
         "paragraphs": [
-          "Common failures around Consistency Models include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
-          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+          "Geo-distributed systems face a fundamental latency-consistency trade-off amplified by geography. Cross-region round-trip is 50–200ms; linearizable reads in a 3-region configuration require 2 of 3 regions to agree, adding 50–200ms to every read. This is acceptable for configurations and locks but catastrophic for user-facing reads in e-commerce. The solution: for data that is not geographically sensitive (global config), use linearizable strong-leader reads. For data that is regional (user sessions, regional inventory), place the leader in the user's region for single-round-trip linearizable reads.",
+          "Spanner achieves global consistency via TrueTime but at significant cost: Spanner's read latency is 10–100ms even for reads to the nearest replica, because every transaction requires a round-trip to the Paxos leader. For applications that need globally consistent financial data at billions of transactions per day, this is acceptable. For applications that need sub-10ms read latency at global scale, regional isolation (each region has its own consistent database) with async cross-region replication is the practical alternative."
         ]
       }
     ],
     "expert": [
       {
-        "title": "Consistency Models — Expert notes",
+        "title": "Expert: Consistency Levels as a Product Feature",
         "paragraphs": [
-          "At the expert level, Consistency Models intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
-          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+          "Azure Cosmos DB exposes five consistency levels as a first-class product choice: Strong (linearizability), Bounded Staleness, Session, Consistent Prefix, and Eventual. Each level has a documented latency, throughput, and availability SLA. This explicit trade-off exposure allows developers to choose per-container: global user authentication (Strong), user activity feeds (Session), analytics counters (Eventual). The documentation even includes cost implications in RU/s (Request Units).",
+          "This design philosophy—expose consistency as a tunable parameter rather than hiding it—is architecturally mature. Many systems make implicit consistency choices (e.g., DynamoDB's default is eventually consistent reads) that are only discovered when applications behave unexpectedly. Explicit consistency selection forces developers to reason about their data's consistency requirements, resulting in better-designed applications with fewer latent consistency bugs."
         ]
       }
     ]
   },
   "concepts": [
-    "Linearizability",
-    "Sequential consistency",
-    "Causal consistency",
-    "Session guarantees",
-    "Eventual consistency"
+    "Linearizability: operations appear atomic in real-time order; strongest model; requires quorum reads",
+    "Sequential consistency: all processes agree on total order; respects per-process submission order",
+    "Causal consistency: causally related operations seen in causal order; concurrent ops may differ",
+    "Read-your-own-writes: session guarantee; your reads always see your prior writes",
+    "Eventual consistency: replicas converge eventually; highest availability; requires conflict resolution",
+    "Bounded staleness: reads always within K time/operations of primary; intermediate model",
+    "MVCC: multi-version storage; reads see consistent snapshot; writes don't block reads",
+    "Snapshot Isolation: each transaction reads a consistent snapshot; prevents dirty reads but allows write skew",
+    "Serializable Snapshot Isolation (SSI): extends SI to prevent write skew via conflict detection",
+    "Last-Write-Wins (LWW): conflict resolution by timestamp; dangerous with clock skew"
   ],
   "practices": [
-    "Declare per-endpoint guarantees",
-    "Test under delay/partition",
-    "Avoid accidental stronger-than-needed costs"
+    "Choose the weakest consistency model that meets your correctness requirement; don't over-specify",
+    "Use linearizability for financial data, inventory, distributed locks, and feature flags",
+    "Implement read-your-own-writes for user-facing features to prevent jarring UX",
+    "Avoid LWW conflict resolution in systems with potential clock skew; use logical timestamps or CRDTs",
+    "Use SERIALIZABLE isolation in PostgreSQL when cross-row invariants must hold under concurrent writes",
+    "Document the consistency guarantee of every storage access in your service; ambiguity causes bugs",
+    "Test consistency guarantees explicitly: inject artificial replication lag and verify application behavior"
   ],
   "pitfalls": [
-    "One global model for all data",
-    "Client retries assuming linearizability",
-    "Hiding conflict resolution"
+    "Assuming all reads are strongly consistent when using an eventually consistent database by default",
+    "LWW with clock skew: newer writes overwritten by older writes from clocks running ahead",
+    "Write skew under Snapshot Isolation: two transactions read the same data, both commit conflicting writes",
+    "Stale reads after primary failover: new primary may not have last few seconds of writes",
+    "Mixing consistency levels without documentation: impossible to reason about system correctness",
+    "Using eventually consistent reads for financial calculations: balance may be incorrect"
   ],
   "examples": [
     {
-      "title": "Spanner",
-      "description": "External consistency with TrueTime."
+      "title": "DynamoDB Consistency Levels in a Banking App",
+      "description": "A banking app uses DynamoDB with strongly consistent reads for balance checks during transfers (cannot risk reading stale balance when making a debit decision) and eventually consistent reads for read-only account history pages (slight staleness is acceptable for historical display). By choosing the right consistency level per operation, they achieve both correctness for critical operations and high throughput for read-heavy historical queries."
     },
     {
-      "title": "Dynamo",
-      "description": "Eventual with quorums and repair."
+      "title": "Cassandra Quorum Tuning for E-Commerce",
+      "description": "An e-commerce platform uses Cassandra for product catalog data with QUORUM reads and writes (N=3, R=W=2: R+W=4>N=3, ensures at least one replica overlap). This guarantees that any write seen by a quorum write will be seen by a quorum read. For flash sale inventory (critical), they use LOCAL_QUORUM within a single region for lower latency. For user activity history (non-critical), they use ONE (single-replica read) for maximum throughput."
     }
   ],
   "keyTakeaways": [
-    "Models are product contracts",
-    "Stronger ≠ always better",
-    "Session guarantees cover many UX needs"
+    "Consistency models are contracts between storage and application; choose deliberately for each data type",
+    "Linearizability requires coordination overhead; use only where real-time ordering is essential",
+    "Causal consistency provides intuitive guarantees (cause before effect) with better availability than linearizability",
+    "Eventual consistency requires explicit conflict resolution; LWW is dangerous; prefer CRDTs or domain merge functions",
+    "Read-your-own-writes is a minimum requirement for good UX in social and content applications",
+    "SSI prevents write skew; use SERIALIZABLE isolation when cross-row invariants must hold"
   ],
-  "whyItMatters": "Misstated consistency is how you get heisenbugs and angry users after failover.",
+  "whyItMatters": "Consistency models determine what an application can correctly assume about the state of distributed data. Getting this wrong causes data corruption (financial losses, inventory overselling), confusing UX (seeing stale data), or unnecessary performance sacrifice (using linearizability where eventual suffices). Every system design interview that involves distributed storage requires explicit consistency reasoning.",
   "reflectionQuestions": [
-    "Which of your APIs accidentally promise linearizability?"
+    "An e-commerce site uses Cassandra with eventual consistency for inventory. A product has 1 unit in stock; two users simultaneously try to purchase it. What happens and how do you fix it?",
+    "Explain write skew and design a PostgreSQL-backed application that is vulnerable to it. How do you fix it?",
+    "Design the consistency levels for each operation in a hotel booking system: check availability, hold reservation, confirm booking.",
+    "When would you choose causal consistency over linearizability for a social media notification system?"
   ],
   "numbersToKnow": [
-    "Know your p99 latency budget before adding hops",
-    "Peak load ≠ average load — plan headroom (often 2–3×)",
-    "Cross-region RTT is often ~50–150ms one way"
+    "DynamoDB strongly consistent read: 2x cost of eventually consistent; uses read unit instead of half-unit",
+    "Cassandra QUORUM write: (N+1)/2 replicas must acknowledge; for N=3, need 2",
+    "PostgreSQL SERIALIZABLE overhead: 20–50% vs REPEATABLE READ for write-heavy workloads",
+    "Cosmos DB consistency levels: 5 levels from Strong to Eventual; each has documented latency/RU/availability SLA",
+    "Replication lag: typically 10–100ms within a datacenter; 100–500ms cross-region async replication"
   ],
   "diagrams": [
     {
-      "id": "fund-consistency-models-overview",
-      "title": "Consistency Models overview",
-      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+      "id": "fund-consistency-models-spectrum",
+      "title": "Consistency Model Spectrum",
+      "mermaid": "graph LR\n  LIN[Linearizability\nStrongest] --> SEQ[Sequential\nConsistency]\n  SEQ --> CAU[Causal\nConsistency]\n  CAU --> ROYW[Read-Your-\nOwn-Writes]\n  ROYW --> MON[Monotonic\nReads]\n  MON --> EVT[Eventual\nConsistency\nWeakest]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Consistency Models and the main trade-offs in three minutes."
+    "What is the difference between linearizability and eventual consistency? Give a real-world scenario where each is appropriate.",
+    "Explain write skew. What isolation level prevents it, and what is the overhead?",
+    "Design the consistency strategy for a distributed inventory system that must prevent overselling.",
+    "What is bounded staleness and when is it a good consistency model choice?",
+    "How does Cassandra's tunable consistency work? Explain QUORUM reads and writes."
   ],
   "exercises": [
-    "Sketch a design that depends on Consistency Models; list three trade-offs and one failure mode."
+    "Design the consistency level for each operation in a ride-sharing app: request ride, match driver, update location, complete trip, calculate fare.",
+    "Identify a write skew scenario in an appointment booking system (two users booking the last slot). Write the SQL that prevents it.",
+    "Design the conflict resolution strategy for a collaborative document editing system using eventual consistency."
   ],
-  "sources": [],
+  "sources": [
+    { "title": "Designing Data-Intensive Applications — Martin Kleppmann, Chapters 7–9" },
+    { "title": "Consistency Models — Jepsen.io consistency model definitions and testing" },
+    { "title": "Highly Available Transactions: Virtues and Limitations — Peter Bailis et al., VLDB 2014" },
+    { "title": "Azure Cosmos DB consistency levels documentation — docs.microsoft.com/azure/cosmos-db" }
+  ],
   "relatedLessons": [
-    "dist-cap-consensus",
+    "fund-distributed",
     "fund-clocks",
-    "fund-crdts"
+    "fund-crdts",
+    "fund-distributed-tx"
   ]
 }

@@ -1,166 +1,232 @@
 {
   "id": "fund-crdts",
-  "title": "CRDTs",
+  "title": "CRDTs & Conflict-Free Data Structures",
   "moduleId": "distributed-systems",
   "phaseId": "fundamentals",
-  "durationMinutes": 45,
-  "summary": "Conflict-free Replicated Data Types merge concurrent updates without coordination. They enable local-first and multi-master designs when you can accept their semantics and metadata costs.",
+  "durationMinutes": 38,
+  "summary": "CRDTs (Conflict-free Replicated Data Types) are data structures mathematically designed to merge concurrent updates from multiple replicas without coordination, without conflicts, and without data loss. They are the secret ingredient enabling offline-capable apps, real-time collaboration (Google Docs, Figma), and eventually consistent distributed counters, sets, and registers that always converge to a correct result.",
   "kind": "evergreen",
   "difficulty": "advanced",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "fund-consistency-models"
-  ],
-  "tags": [
-    "distributed-systems",
-    "evergreen",
-    "fundamentals"
-  ],
+  "prerequisites": ["fund-consistency-models", "fund-clocks"],
+  "tags": ["distributed-systems", "crdts", "consistency", "evergreen", "fundamentals"],
   "sections": [
     {
-      "title": "Why CRDTs",
+      "title": "The Problem CRDTs Solve",
       "paragraphs": [
-        "When replicas accept writes offline, conflicts happen. CRDTs mathematically guarantee convergence with defined merge functions — G-Counter, OR-Set, LWW-Register, and richer text types."
+        "In eventual consistency, concurrent writes to the same data on different replicas create conflicts. Standard conflict resolution (last-write-wins, discard one write) loses data. CRDTs take a different approach: design the data structure such that any two states can always be merged into a correct result, regardless of the order of operations or which replicas have seen which updates. 'Conflict-free' means the merge operation is mathematically guaranteed to produce the same result regardless of merge order.",
+        "The fundamental insight: not all data types are equal under concurrency. A counter that only allows increments (never decrements) has no conflicts—just sum all increments. A set that only allows adds (never removes) has no conflicts—union all adds. The problem arises when data can go in both directions (increment AND decrement; add AND remove). CRDTs solve this by either restricting operations to avoid conflicts or by designing merge functions that correctly handle all combinations.",
+        "CRDTs have become production infrastructure components. Redis uses CRDT-based structures in Redis Cluster for concurrent updates. Riak's data types (counters, sets, maps) are CRDTs. Apple's iCloud uses CRDTs for collaborative iWork documents. Figma's real-time vector editor uses CRDTs for multi-user editing. Automerge and Yjs are open-source CRDT libraries for collaborative web applications. Understanding CRDTs is increasingly a practical engineering skill, not just academic theory."
+      ],
+      "bullets": [
+        "CRDTs: data structures that merge concurrent updates without conflicts and without coordination",
+        "Mathematical guarantee: same result regardless of merge order (commutativity + associativity)",
+        "Production users: Redis, Riak, Figma, Apple iCloud, Linear, Notion offline mode",
+        "Key insight: restrict or design operations so any two states can always be merged correctly"
       ]
     },
     {
-      "title": "State vs operation based",
+      "title": "State-Based CRDTs: Merge via Lattice",
       "paragraphs": [
-        "State-based (CvRDT) gossip full state merges; op-based (CmRDT) reliably deliver operations. Trade bandwidth vs delivery assumptions."
+        "State-based CRDTs (also called CvRDTs, Convergent Replicated Data Types) replicate the full state of an object. Each replica periodically sends its full state to other replicas; they merge using a join operation (least upper bound in a semilattice). The merge function must be commutative (merge(A,B) = merge(B,A)), associative (merge(A, merge(B,C)) = merge(merge(A,B), C)), and idempotent (merge(A,A) = A). These three properties guarantee convergence regardless of message order or duplication.",
+        "The G-Counter (Grow-only Counter) is the canonical state-based CRDT. Each replica maintains a vector of N counters (one per replica). To increment: increment your own component. To query the total: sum all components. To merge two states: take the component-wise maximum. This always converges: the max operation is commutative, associative, and idempotent. The limitation: G-Counters only support incrementing. The PN-Counter (Positive-Negative Counter) uses two G-Counters (one for increments, one for decrements); the value is P.total - N.total. Concurrent increments and decrements always merge correctly.",
+        "G-Set (Grow-only Set) only allows adds: merge is set union. 2P-Set (Two-Phase Set) uses two G-Sets: one for added elements and one for removed elements. An element is in the set if it has been added and not removed (and you can never re-add an element once removed). OR-Set (Observed-Remove Set) tags each add with a unique identifier; a remove only removes elements it has observed (via their unique IDs), allowing an element to be re-added after removal with a new ID. OR-Set is the most practical set CRDT used in Riak and Cassandra collections."
+      ],
+      "bullets": [
+        "CvRDT (state-based): send full state; merge = commutative + associative + idempotent join",
+        "G-Counter: vector of per-replica counters; merge = component-wise max; total = sum",
+        "PN-Counter: two G-Counters (P and N); value = P.total - N.total; supports increment/decrement",
+        "OR-Set: tagged adds; remove only removes observed tags; supports re-add after remove"
       ]
     },
     {
-      "title": "Costs and limits",
+      "title": "Operation-Based CRDTs: Replicate Operations",
       "paragraphs": [
-        "Metadata growth (tombstones, version vectors) needs compaction. Not every business invariant is mergeable — money transfer is the classic counterexample without extra constraints."
+        "Operation-based CRDTs (CmRDTs, Commutative Replicated Data Types) replicate operations (not full state). Each update is an operation message; replicas apply operations as they arrive. The requirement: concurrent operations must be commutative (apply in any order, same result). Sequential operations may require causal ordering. The advantage over state-based CRDTs: smaller messages (operation deltas vs full state); the disadvantage: requires reliable causal delivery (operations must arrive in causal order if causally dependent).",
+        "The 2P2P-Graph CRDT allows concurrent additions and removals of vertices and edges in a directed graph. Add and remove operations for vertices and edges must be commutative. The constraint: an edge can only be added if both its endpoints exist (not removed). This dependency means add-edge must causally follow add-vertex—not all operations are freely concurrent. Operation-based CRDTs often require causal delivery channels (not just best-effort), which adds infrastructure complexity.",
+        "RGA (Replicated Growable Array) and LSEQ are operation-based CRDTs for collaborative text editing—the problem Operational Transformation (OT) algorithms also solve. RGA assigns each character a unique identifier (timestamp + process ID); insertions use these IDs to establish position; concurrent inserts are deterministically ordered by ID. This ensures two users typing in a document simultaneously always see the same merged result, without locking or coordination—the foundation of Google Docs-style real-time editing (though Google Docs uses OT; Figma uses a CRDT-based approach)."
+      ],
+      "bullets": [
+        "CmRDT (op-based): replicate operations; concurrent ops must be commutative",
+        "Smaller messages than state-based: operations are deltas; state-based sends full current state",
+        "Requires causal delivery: causally dependent ops must arrive in causal order",
+        "RGA: collaborative text editing CRDT; characters have unique IDs; concurrent inserts deterministically ordered"
       ]
     },
     {
-      "title": "Fit",
+      "title": "Practical CRDTs: Counters, Maps, and Text",
       "paragraphs": [
-        "Collaborative editing, presence, feature flags, shopping carts — good fits. Banking ledgers — usually not without additional protocol."
+        "Distributed counters are the most common CRDT application. 'Likes' on a post, 'views' on a video, 'active users' in a cohort—all are counters that need to be incremented by multiple nodes simultaneously. With a plain integer in a database, concurrent increments require read-modify-write with serialization (or atomic increments). With a PN-Counter CRDT, every replica can independently increment without coordination; the global total is computed at read time by merging replicas. Redis's INCR command is atomic but requires network round-trip; a PN-Counter allows fully local increments with eventual propagation.",
+        "CRDT maps (LWW-Map, OR-Map) allow multiple replicas to independently add, remove, and update key-value pairs. OR-Map uses an OR-Set to track keys and maps each key to a register (last-write-wins register or another CRDT). Riak Map is the production implementation: a map where each key can hold a counter, set, flag, register, or nested map—all CRDTs. Mutations to different keys are always conflict-free; mutations to the same key use the inner CRDT's merge semantics.",
+        "Figma uses a custom CRDT for its vector design tool. Each design element (rectangle, text, component) is a node in a document tree. Concurrent property updates (color, position) use LWW registers with logical timestamps. Concurrent tree restructuring (move element from group A to group B) uses a special CRDT that handles the 'concurrent move' case—where two users simultaneously move an element to different locations—by picking a deterministic winner based on timestamp and user ID. This CRDT design enables real-time collaboration for thousands of simultaneous editors without central coordination."
+      ],
+      "bullets": [
+        "Distributed counters: PN-Counter; local increments, merge at read time; no coordination needed",
+        "CRDT maps: OR-Map with per-key inner CRDTs; Riak Map is the production implementation",
+        "Collaborative editing: RGA for text; custom tree CRDTs for structured documents (Figma)",
+        "LWW register: last-write-wins; use logical timestamps to avoid clock skew"
+      ]
+    },
+    {
+      "title": "When NOT to Use CRDTs",
+      "paragraphs": [
+        "CRDTs are not a silver bullet. They solve eventual consistency for specific data types with well-defined merge semantics. They cannot handle arbitrary business logic constraints that require coordination. Inventory: 'stock cannot go below 0' requires checking the current value before decrementing—a constraint that CRDTs cannot enforce without coordination. If you use a PN-Counter for inventory and two replicas simultaneously decrement when value=1, the counter goes negative, which violates the constraint. For bounded quantities (inventory, seat reservations), use strong consistency.",
+        "CRDTs have state overhead. A G-Counter grows with the number of replicas (one counter per replica). An OR-Set grows with the number of add operations (each add has a unique tag that must be tracked until a remove purges it). Systems with many replicas or high add rates accumulate significant CRDT metadata. Garbage collection is complex: metadata for removed elements can only be purged when all replicas have seen the removal. For large-scale deployments, CRDT storage overhead is a real operational concern.",
+        "The semantics of CRDTs may surprise application developers. An OR-Set that has had the same element added and removed in concurrent operations shows the element as present (the add wins over the concurrent remove). An LWW register always uses the highest timestamp—with clock skew, this may not reflect user intent. These 'correct but surprising' behaviors require that application developers understand CRDT semantics, not just use them as black boxes."
+      ],
+      "bullets": [
+        "CRDTs cannot enforce bounded constraints (inventory >= 0); use strong consistency for bounded quantities",
+        "State overhead: counters grow with replicas; sets grow with add operations; GC is complex",
+        "Surprising semantics: OR-Set add wins over concurrent remove; LWW uses timestamp (skew risk)",
+        "CRDTs are for convergence, not transactions; don't replace ACID for multi-key operations"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Why CRDTs",
+        "title": "CRDT Fundamentals",
         "paragraphs": [
-          "When replicas accept writes offline, conflicts happen. CRDTs mathematically guarantee convergence with defined merge functions — G-Counter, OR-Set, LWW-Register, and richer text types."
+          "CRDTs are data structures where any two states can be merged using a join function that is commutative, associative, and idempotent. This mathematically guarantees convergence regardless of message delivery order.",
+          "State-based: replicate full state, merge = join operation. Op-based: replicate operations, concurrent ops must commute.",
+          "G-Counter: vector of per-replica counters; merge = component-wise max. PN-Counter adds decrements via second G-Counter."
         ]
       },
       {
-        "title": "State vs operation based",
+        "title": "Practical Applications",
         "paragraphs": [
-          "State-based (CvRDT) gossip full state merges; op-based (CmRDT) reliably deliver operations. Trade bandwidth vs delivery assumptions."
+          "Distributed counters (likes, views): PN-Counter; local increments without coordination.",
+          "Collaborative editing: RGA CRDT for text; custom tree CRDTs for documents (Figma).",
+          "OR-Set for distributed sets: add wins over concurrent remove; supports re-add after remove."
         ]
       },
       {
-        "title": "Costs and limits",
+        "title": "When NOT to Use CRDTs",
         "paragraphs": [
-          "Metadata growth (tombstones, version vectors) needs compaction. Not every business invariant is mergeable — money transfer is the classic counterexample without extra constraints."
-        ]
-      },
-      {
-        "title": "Fit",
-        "paragraphs": [
-          "Collaborative editing, presence, feature flags, shopping carts — good fits. Banking ledgers — usually not without additional protocol."
+          "Cannot enforce bounded constraints (inventory >= 0). Cannot replace ACID transactions.",
+          "State overhead grows with replicas/operations; GC is complex.",
+          "Surprising semantics: add wins over concurrent remove in OR-Set; understand before deploying."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "CRDTs — Operations",
+        "title": "Delta-State CRDTs",
         "paragraphs": [
-          "Operating CRDTs in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
-          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
-        ],
-        "bullets": [
-          "Define capacity from the scarcest resource",
-          "Document blast radius per dependency",
-          "Keep rollback cheaper than forward repair when possible"
+          "State-based CRDTs send the full state on every sync, which is expensive for large objects. Delta-state CRDTs (Almeida et al., 2016) send only the delta (the changes since last sync) rather than the full state. The delta is itself a valid CRDT state that can be merged with any other state. This reduces message size from O(state_size) to O(delta_size), making state-based CRDTs practical for large objects.",
+          "Delta-state works by tracking which portion of the state has changed since the last sent delta. Each replica maintains a sequence number; deltas include the sequence range they cover. Recipients merge arriving deltas and ack the sequence number; senders can then discard acknowledged deltas. This is essentially an append-only log of deltas with on-demand state reconstruction, similar to Kafka for CRDT synchronization.",
+          "In practice, delta-state CRDTs are used in geo-distributed databases where full-state synchronization would be prohibitively expensive. Riak's DT sync uses delta-state internally. The tradeoff: more complex implementation than pure state-based, but significantly lower bandwidth and storage for large frequently-updated CRDTs."
         ]
       },
       {
-        "title": "CRDTs — Failure modes",
+        "title": "Operational Transformation vs CRDTs",
         "paragraphs": [
-          "Common failures around CRDTs include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
-          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+          "Operational Transformation (OT) is the alternative to CRDTs for collaborative editing. OT transforms operations to account for concurrently applied operations: if user A inserts at position 5 and user B deletes at position 3 concurrently, A's insert must be transformed to account for B's delete before being applied. OT algorithms (Jupiter, Google Wave OT) are complex to implement correctly—Google's OT implementation in Wave had significant bugs that took years to identify.",
+          "CRDTs avoid the transformation problem by assigning stable unique identifiers to positions (RGA, LSEQ) rather than using mutable indices. Concurrent operations always apply to the same element (by ID), not to index positions that shift with other operations. This makes CRDT-based collaborative editing simpler to implement correctly, at the cost of slightly more storage per character (the unique IDs). Modern collaborative editors (Automerge, Yjs, Diamond Types) all use CRDTs rather than OT."
         ]
       }
     ],
     "expert": [
       {
-        "title": "CRDTs — Expert notes",
+        "title": "Expert: CRDT Composability and Mixed Semantics",
         "paragraphs": [
-          "At the expert level, CRDTs intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
-          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+          "CRDTs compose: an OR-Map where each value is a PN-Counter gives you a distributed map of counters that handles concurrent updates to the same counter, concurrent additions of new keys, and concurrent removals—all conflict-free. Riak's nested data types implement this composition: a map can contain sets, counters, flags, registers, and other maps, all with correct concurrent merge semantics.",
+          "However, composition can produce surprising interactions. If you have a map where keys are users and values are their shopping carts (OR-Sets), and two replicas concurrently remove a user and add an item to that user's cart, the semantics are ambiguous: should the add win (user is restored with the new item) or should the remove win (user and all their data are gone)? CRDTs have formal semantics, but the semantics of composed data structures must be explicitly designed, not assumed."
         ]
       }
     ]
   },
   "concepts": [
-    "Strong eventual consistency",
-    "OR-Set",
-    "LWW",
-    "Tombstones",
-    "Local-first"
+    "CRDT: Conflict-free Replicated Data Type; merges concurrent updates without coordination",
+    "Join (merge) operation: commutative + associative + idempotent; guarantees convergence",
+    "G-Counter: grow-only counter; vector of per-replica counts; merge = component-wise max",
+    "PN-Counter: positive/negative counter pair; supports increment and decrement; always converges",
+    "G-Set: grow-only set; merge = union; no remove operation",
+    "OR-Set: observed-remove set; tagged adds; supports remove and re-add; most practical set CRDT",
+    "RGA: Replicated Growable Array; CRDT for text; unique IDs per character; for collaborative editing",
+    "State-based CRDT (CvRDT): replicates full state; merge = join; simpler but bandwidth-heavy",
+    "Op-based CRDT (CmRDT): replicates operations; requires causal delivery; more efficient",
+    "Delta-state CRDT: replicates only state changes; reduces bandwidth vs full state-based"
   ],
   "practices": [
-    "Pick CRDT type matching invariants",
-    "Plan compaction",
-    "Test concurrent merges"
+    "Use PN-Counters for distributed counters (likes, views) where local increments without coordination are needed",
+    "Use OR-Set for distributed sets; understand that add wins over concurrent remove in OR-Set semantics",
+    "Use CRDTs for offline-capable data that must merge when connectivity returns",
+    "Avoid CRDTs for bounded quantities (inventory, reservations); use strong consistency instead",
+    "Track CRDT storage overhead; design GC strategy for OR-Sets and other tombstone-using CRDTs",
+    "Use Automerge or Yjs for collaborative document editing; don't implement RGA from scratch",
+    "Test CRDT merge behavior explicitly with concurrent update scenarios before deploying"
   ],
   "pitfalls": [
-    "Using LWW for everything",
-    "Unbounded tombstones",
-    "Assuming CRDTs replace all consensus"
+    "Using CRDT counters for inventory—cannot enforce non-negative constraint without coordination",
+    "Ignoring CRDT storage overhead—OR-Set tombstones accumulate without GC; can bloat indefinitely",
+    "Assuming CRDT semantics match user expectations—OR-Set add-wins may surprise application users",
+    "Using state-based CRDTs for large objects without delta optimization—full state sync is expensive",
+    "Composing CRDTs without understanding emergent semantics—interactions between inner CRDTs can be surprising",
+    "Treating CRDTs as a replacement for ACID transactions—they provide convergence, not isolation"
   ],
   "examples": [
     {
-      "title": "Automerge/Yjs",
-      "description": "Collaborative document CRDTs."
+      "title": "Figma's Real-Time Collaboration",
+      "description": "Figma enables hundreds of simultaneous editors on a single design file without server-side locking. Each design element is a node with properties (position, color, text) stored as LWW registers with logical timestamps. Tree structure mutations (grouping, layering) use a custom tree CRDT. When two designers simultaneously move the same element, the CRDT deterministically picks one position based on timestamp+user_id, with the other designer's move showing the conflict resolution in real time. This architecture handles millions of collaborative sessions daily."
     },
     {
-      "title": "Redis CRDTs / Riak",
-      "description": "Data-store embedded types."
+      "title": "Riak's Distributed Data Types",
+      "description": "Basho's Riak database exposes CRDTs as first-class data types: Riak Counter (PN-Counter), Riak Set (OR-Set), Riak Map (OR-Map with nested CRDTs), Riak Flag (enable/disable counter). Each type has provably correct concurrent semantics. A shopping cart built with a Riak Set never loses items added concurrently on different replicas—set union always preserves all adds. A view counter built with a Riak Counter accurately accumulates increments from any number of web servers without coordination."
     }
   ],
   "keyTakeaways": [
-    "CRDTs converge without locks",
-    "Semantics and metadata cost matter",
-    "Not universal"
+    "CRDTs are data structures mathematically guaranteed to merge concurrent updates without conflicts",
+    "G-Counter (increment-only) and PN-Counter (increment/decrement) are the canonical CRDT examples",
+    "OR-Set supports add, remove, and re-add; add wins over concurrent remove; most practical set CRDT",
+    "CRDTs cannot enforce bounded constraints; use strong consistency for inventory and reservations",
+    "Automerge, Yjs, and RGA enable CRDT-based collaborative text editing without Operational Transformation",
+    "CRDTs have storage overhead; plan for GC of tombstones in OR-Sets and similar structures"
   ],
-  "whyItMatters": "Offline-first and multi-region active-active designs need conflict strategies — CRDTs are a primary tool.",
+  "whyItMatters": "CRDTs are the mathematical foundation of offline-capable applications, real-time collaborative editing, and high-availability distributed counters. As more systems require offline-first behavior and multi-master geo-distribution, CRDTs move from academic curiosity to production requirement. Understanding what CRDTs can and cannot do—and when strong consistency is still required—is essential for designing correct distributed data models.",
   "reflectionQuestions": [
-    "Which of your data types are naturally mergeable?"
+    "Design a distributed likes counter for a social media post using CRDTs. How does it handle the case where two users simultaneously like the same post on different replicas?",
+    "An OR-Set always makes the add operation win over concurrent removes. When does this behavior match user expectations, and when does it not?",
+    "Why can't a PN-Counter enforce 'inventory >= 0'? What does it produce instead, and how do you fix it?",
+    "Compare Operational Transformation and CRDTs for collaborative text editing. Which would you choose for a new project and why?"
   ],
   "numbersToKnow": [
-    "Know your p99 latency budget before adding hops",
-    "Peak load ≠ average load — plan headroom (often 2–3×)",
-    "Cross-region RTT is often ~50–150ms one way"
+    "G-Counter storage: O(N) per counter where N is number of replicas",
+    "OR-Set storage: O(adds) for tombstones until GC; plan GC for high-add-rate sets",
+    "RGA text CRDT: approximately 2–4x storage vs plain text due to unique IDs per character",
+    "Riak Map: supports nested CRDTs to 32 levels of depth; operations are always O(depth)"
   ],
   "diagrams": [
     {
-      "id": "fund-crdts-overview",
-      "title": "CRDTs overview",
-      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+      "id": "fund-crdts-pn-counter",
+      "title": "PN-Counter Merge Example",
+      "mermaid": "flowchart LR\n  subgraph Replica_A\n    PA[P: A=3, B=1] \n    NA[N: A=1, B=0]\n  end\n  subgraph Replica_B\n    PB[P: A=2, B=4]\n    NB[N: A=0, B=2]\n  end\n  subgraph Merged\n    PM[P: A=max3-2=3, B=max1-4=4]\n    NM[N: A=max1-0=1, B=max0-2=2]\n    Val[Value = sum-P minus sum-N = 7-3 = 4]\n  end"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain CRDTs and the main trade-offs in three minutes."
+    "What is a CRDT and what problem does it solve?",
+    "Explain the G-Counter CRDT: how does increment work, how does merge work?",
+    "What is the difference between state-based and operation-based CRDTs?",
+    "Design a distributed document collaboration system using CRDTs: what data structures do you use for text, images, and document metadata?",
+    "When would you NOT use a CRDT, and what alternative do you use?"
   ],
   "exercises": [
-    "Sketch a design that depends on CRDTs; list three trade-offs and one failure mode."
+    "Implement a PN-Counter class with increment, decrement, merge, and value methods. Test merge with two concurrently updated states.",
+    "Design the CRDT data model for a collaborative whiteboard: shapes (position, color), connections, and labels.",
+    "Analyze the storage overhead of an OR-Set in a system with 1M users each adding 10 items to a playlist per day without GC."
   ],
-  "sources": [],
+  "sources": [
+    { "title": "A comprehensive study of Convergent and Commutative Replicated Data Types — Shapiro et al., INRIA 2011" },
+    { "title": "Automerge — github.com/automerge/automerge; CRDT library for collaborative applications" },
+    { "title": "Yjs — yjs.dev; CRDT framework for real-time collaborative editing" },
+    { "title": "Riak Data Types documentation — docs.riak.com/riak/kv/latest/developing/data-types" }
+  ],
   "relatedLessons": [
-    "dist-cap-consensus",
+    "fund-consistency-models",
     "fund-clocks",
-    "fund-consistency-models"
+    "fund-distributed-tx"
   ]
 }

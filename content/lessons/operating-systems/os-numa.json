@@ -3,162 +3,264 @@
   "title": "NUMA & Memory Hierarchy",
   "moduleId": "operating-systems",
   "phaseId": "foundations",
-  "durationMinutes": 40,
-  "summary": "On multi-socket machines, memory access cost depends on which CPU owns the DIMM. NUMA-aware placement of threads and buffers can dominate low-latency and high-throughput performance.",
+  "durationMinutes": 38,
+  "summary": "Modern multi-socket servers use Non-Uniform Memory Access (NUMA) architectures where each CPU socket has its own local DRAM, and accessing another socket's RAM incurs a 2–3× latency penalty over the interconnect. The memory hierarchy—L1/L2/L3 cache, local DRAM, remote DRAM, persistent memory, NVMe SSD—spans six orders of magnitude in latency. NUMA effects cause mysterious throughput degradation that is invisible to profilers unless memory access patterns are analyzed at the NUMA-node level. Understanding this hierarchy and designing data locality into thread placement, memory allocation, and I/O scheduling is essential for high-performance servers.",
   "kind": "evergreen",
-  "difficulty": "intermediate",
+  "difficulty": "advanced",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "os-memory"
-  ],
-  "tags": [
-    "operating-systems",
-    "evergreen",
-    "foundations"
-  ],
+  "prerequisites": ["os-memory"],
+  "tags": ["operating-systems", "numa", "memory-hierarchy", "cpu-cache", "performance", "evergreen"],
   "sections": [
     {
-      "title": "What NUMA changes",
+      "title": "The Memory Hierarchy: Latency Numbers You Must Know",
       "paragraphs": [
-        "Uniform memory assumptions fail on multi-socket servers. Remote memory access adds latency and reduces bandwidth. Allocators and thread schedulers that ignore locality leave performance on the table.",
-        "For trading engines, packet processing, and in-memory databases, NUMA can mean double-digit percent latency differences."
+        "Computer memory is not flat. The CPU accesses data through a hierarchy of progressively slower, larger storage tiers: L1 cache (32–64 KB, 1–4 cycles, ~0.5 ns), L2 cache (256 KB–1 MB, 10–12 cycles, ~3 ns), L3 cache (8–64 MB, 40–50 cycles, ~10 ns), local DRAM (16–512 GB, 100–200 cycles, ~60–100 ns), remote NUMA DRAM (~150–300 ns via interconnect), NVMe SSD (~100 μs random read), HDD (~10 ms). These numbers differ by 4–6 orders of magnitude between L1 and disk. Every algorithm that claims 'constant time' has a hidden latency that depends on which tier its data lives in.",
+        "Cache lines are the unit of data movement between tiers. Modern CPUs move data in 64-byte cache lines, not individual bytes. When you read a single byte, 64 bytes are loaded into cache. When you write a byte, the entire 64-byte cache line is loaded into the cache (read-modify-write), modified, and eventually written back. This has profound implications for data layout: if two frequently accessed variables share a cache line, they benefit from spatial locality. If two variables accessed by different threads share a cache line—false sharing—each write by one thread invalidates the other thread's cache copy, causing unnecessary cache-to-cache transfers.",
+        "Cache coherency ensures all CPU cores see a consistent view of memory. The MESI protocol (Modified, Exclusive, Shared, Invalid) coordinates cache line state across cores. When core A wants to write a cache line owned by core B, core B must transition its copy to Invalid—this requires an inter-core message (via the coherency fabric) that takes ~5–10 ns. At millions of writes per second, coherency traffic becomes a bottleneck—the 'coherency bus' between cores is a shared resource with finite bandwidth.",
+        "Prefetching hides memory latency by loading cache lines before they're needed. Hardware prefetchers detect sequential or strided access patterns and load ahead automatically. For random access patterns (hash table lookups, pointer chasing), hardware prefetching is ineffective—each access is a cache miss with full DRAM latency. Software prefetching (__builtin_prefetch in GCC, _mm_prefetch in Intel intrinsics) can hint the CPU to prefetch a cache line several hundred cycles before it will be needed, overlapping memory access with computation."
+      ],
+      "bullets": [
+        "L1 hit: ~0.5 ns; L2: ~3 ns; L3: ~10 ns; DRAM: ~60–100 ns; NVMe random: ~100 μs; HDD: ~10 ms",
+        "Cache line: 64 bytes; unit of transfer between memory tiers; false sharing occurs when different data shares a cache line",
+        "MESI protocol: Modified/Exclusive/Shared/Invalid; write to Shared line triggers invalidation on other cores"
       ]
     },
     {
-      "title": "Placement strategies",
+      "title": "NUMA Architecture and Topology",
       "paragraphs": [
-        "Pin threads to nodes; allocate memory first-touch on the same node; avoid false sharing across cache lines. Tools: numactl, hwloc, perf.",
-        "Shared structures either replicate per node or accept remote access with careful design."
+        "NUMA emerges when a server has multiple CPU sockets. Each socket has its own DRAM channels directly attached—this is the 'local' NUMA node. To access memory attached to another socket, the CPU must send a request across the inter-socket interconnect (Intel UPI, AMD Infinity Fabric). This remote access takes 150–300 ns vs 60–100 ns for local access—a 2–3× penalty. For memory-bandwidth-limited workloads, remote NUMA access reduces effective bandwidth by 2–3×.",
+        "Linux represents NUMA topology in /sys/devices/system/node/. Each NUMA node has a list of CPUs (numactl --hardware shows the mapping). The numa_maps file (/proc/<pid>/numa_maps) shows the NUMA node of each memory region in a process. The numastat tool shows per-node allocation hits and misses. On a 2-socket server with 32 cores each, processes pinned to socket 0's CPUs but allocating from socket 1's DRAM consistently miss NUMA local access—visible as high numastat 'miss' counts.",
+        "NUMA distances are expressed as relative latencies in /sys/devices/system/node/node0/distance. A typical 2-socket system shows: local (10), remote (21)—meaning remote access is 2.1× slower. 4-socket and 8-socket systems have more complex topologies where some sockets are 2 hops away (latency 31+). NUMA effects become more severe as socket count increases—on 8-socket systems, the worst-case remote access is 3× slower than local.",
+        "AMD's Infinity Fabric topology in EPYC processors creates NUMA within a single socket. A single 64-core EPYC 7xx2 has 8 chiplets (CCDs), each with its own L3 cache. Memory channels are split across chiplets; accessing memory on a different chiplet's memory controller within the same socket ('intra-socket NUMA') incurs ~50–80 ns latency vs ~40 ns for the same chiplet. Cloud instances using EPYC processors (AWS c5a, Azure Ddsv4) expose this as NUMA nodes within a single physical socket—important for latency-sensitive workloads."
+      ],
+      "bullets": [
+        "numactl --hardware: shows NUMA topology, distances, and memory per node",
+        "numastat: shows allocation hits/misses per NUMA node; high miss rate → cross-NUMA access",
+        "AMD EPYC intra-socket NUMA: chiplet memory controller distance adds ~50 ns; relevant for dense memory access patterns"
       ]
     },
     {
-      "title": "Interaction with NICs and GPUs",
+      "title": "NUMA-Aware Memory Allocation",
       "paragraphs": [
-        "NIC IRQ affinity and GPU affinity should match the consuming CPU node. Cross-node PCIe traffic is a silent tax."
+        "Linux's default memory allocation policy is first-touch: pages are allocated from the NUMA node where the thread first accesses them. This is usually correct—if you initialize data on the CPU that will process it, the data lives on that CPU's local NUMA node. But common programming patterns break first-touch: a main thread initializes all data structures before spawning workers, causing all data to be allocated on node 0 regardless of which workers will access it. Result: all workers except those on node 0 access remote NUMA.",
+        "NUMA-aware allocation strategies: (1) numactl --membind=N forces all allocations to node N; correct for a process pinned to that node. (2) numactl --interleave=all round-robin allocates pages across all NUMA nodes; best for uniform multi-threaded access where all threads access all data equally. (3) Per-thread allocation: allocate data on the thread that will process it (first-touch works if data is initialized by the processing thread). (4) NUMA-aware allocators: jemalloc and tcmalloc have NUMA-aware arenas that allocate from the calling thread's local NUMA node.",
+        "Memory binding in containers: Kubernetes does not expose NUMA topology in standard resource specs. CPU Manager policy (static) pins pods to CPUs but does not pin memory to corresponding NUMA nodes. The TopologyManager (Kubernetes 1.17+) with 'single-numa-node' policy ensures CPU and memory allocations are on the same NUMA node—essential for latency-sensitive workloads. Without TopologyManager, a pod may get CPU on NUMA node 0 and memory from NUMA node 1 depending on scheduler decisions.",
+        "libnuma provides programmatic NUMA control. numa_alloc_onnode(size, node) allocates on a specific node; numa_run_on_node(node) restricts thread execution to a node; numa_set_membind(nodemask) sets the allocation policy. Database systems (MySQL, PostgreSQL with NUMA patch, Percona Server) use libnuma to allocate buffer pools on the NUMA node where the query processing threads run, avoiding cross-socket memory traffic for cache hits."
+      ],
+      "bullets": [
+        "numactl --interleave=all: best for multi-threaded workloads accessing data across all threads uniformly",
+        "Kubernetes TopologyManager: 'single-numa-node' policy; ensures CPU and memory on same NUMA node",
+        "numa_alloc_onnode(): programmatic NUMA allocation; used by databases and HPC frameworks"
       ]
     },
     {
-      "title": "When to care",
+      "title": "Cache Optimization Patterns",
       "paragraphs": [
-        "Single-socket cloud VMs may hide NUMA. Bare metal and large instances expose it. Benchmark with production-like pinning."
+        "Data structure layout has a large impact on cache efficiency. Array of Structures (AoS) stores all fields of each object contiguously: [{id, x, y, z}, {id, x, y, z}, ...]. If you iterate over all objects but only use 'x', you load 'id', 'y', and 'z' into cache unnecessarily. Structure of Arrays (SoA) stores each field as its own array: {ids[], xs[], ys[], zs[]}. Iterating over xs[] loads only x values into cache—8× more data per cache line for a 32-byte struct where only the 4-byte x field is used. SoA is the foundation of SIMD optimizations and is used in game engines, physics simulations, and columnar database storage.",
+        "False sharing is a silent performance killer in multi-threaded code. If two threads each own a counter and those counters share a 64-byte cache line, every increment by either thread invalidates the other thread's cached copy—even though the threads never access each other's counter. The fix: pad counters to cache line size (alignas(64) in C++) or use separate cache lines per thread. Linux's __cacheline_aligned_in_smp macro does this for kernel data structures. False sharing is diagnosed with perf c2c (cache-to-cache transfer profiling).",
+        "Lock-free data structures minimize coherency traffic by reducing shared mutable state. Instead of a global counter protected by a mutex (which causes cache-line bouncing between cores on every lock/unlock), use per-CPU counters (one counter per core, no sharing) aggregated periodically. Linux's percpu variables implement this pattern. Redis's single-threaded model eliminates all inter-thread coherency traffic—each Redis instance uses one core with no shared state between threads, trading multi-core parallelism for cache efficiency.",
+        "NUMA-aware data placement for databases: partition data by NUMA node and assign worker threads per partition. If NUMA node 0 owns shards 1–4 and NUMA node 1 owns shards 5–8, queries to shards 1–4 are handled by threads on node 0's CPUs accessing node 0's memory—fully NUMA local. This is the basis of ScyllaDB's shared-nothing per-shard architecture and Cassandra's NUMA-aware threading patches."
+      ],
+      "bullets": [
+        "SoA vs AoS: SoA enables 8–16× better cache utilization for field-selective iteration",
+        "False sharing fix: pad shared variables to 64-byte alignment (alignas(64) in C++)",
+        "perf c2c: cache-to-cache transfer profiler; identifies false sharing hot lines"
+      ]
+    },
+    {
+      "title": "Persistent Memory (PMem) and CXL Memory Expansion",
+      "paragraphs": [
+        "Intel Optane DCPMM (Persistent Memory, 3D XPoint) introduced a tier between DRAM and NVMe SSD: persistent, byte-addressable, non-volatile memory with ~300 ns access latency and 50+ GB/s bandwidth per module. Applications can access PMem via AppDirect mode (direct mmap() access, persisting writes survives power loss) or MemoryMode (volatile use as DRAM extension). PMem enables database workloads where the working set exceeds DRAM capacity but SSD latency is unacceptable—Redis on PMem stores the entire dataset persistently in AppDirect mode.",
+        "CXL (Compute Express Link) is an emerging standard for attaching high-capacity DRAM or accelerator memory over PCIe 5.0. CXL 2.0 enables memory tiering: a server can have 512 GB of local DRAM at ~80 ns latency and 2 TB of CXL-attached DRAM at ~200–300 ns latency. The OS presents CXL memory as a separate NUMA node. Applications can explicitly place hot data on DRAM and warm/cold data on CXL, or rely on the kernel's tiered memory NUMA balancing (AutoNUMA). CXL is targeted for 2024–2026 production deployment at hyperscale.",
+        "DRAM-NVMe tiering is already common. Linux's ZSWAP compresses swapped pages in RAM before evicting to NVMe swap, reducing NVMe I/O at the cost of CPU for compression. Amazon's production systems use io1 EBS volumes as swap devices for in-memory databases that occasionally exceed instance RAM—the goal is not to actually swap but to handle occasional bursts without OOM. Persistent memory (mmap to NVMe via DAX on ext4/xfs) provides a third tier at ~100 μs latency for data that is not hot enough for DRAM but too latency-sensitive for block I/O."
+      ],
+      "bullets": [
+        "Intel Optane DCPMM: ~300 ns latency, 50 GB/s bandwidth; AppDirect mode for persistent byte-addressable storage",
+        "CXL 2.0: PCIe 5.0-attached DRAM at ~200–300 ns; presented as NUMA node; enables DRAM capacity expansion",
+        "ZSWAP: compresses swap pages in RAM; reduces NVMe swap I/O at cost of CPU for LZ4/zstd compression"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "What NUMA changes",
+        "title": "Memory Hierarchy Latency Numbers",
         "paragraphs": [
-          "Uniform memory assumptions fail on multi-socket servers. Remote memory access adds latency and reduces bandwidth. Allocators and thread schedulers that ignore locality leave performance on the table.",
-          "For trading engines, packet processing, and in-memory databases, NUMA can mean double-digit percent latency differences."
+          "L1: ~0.5 ns; L2: ~3 ns; L3: ~10 ns; local DRAM: ~60–100 ns; remote NUMA DRAM: ~150–300 ns; NVMe: ~100 μs. These differ by 6 orders of magnitude.",
+          "Cache lines are 64 bytes. False sharing occurs when different threads access data on the same cache line; every write by one thread invalidates the other's cached copy.",
+          "Hardware prefetchers handle sequential/strided access automatically; random access requires software prefetch hints or data structure redesign."
+        ],
+        "bullets": [
+          "perf stat -e cache-misses,cache-references: measure L3 miss rate",
+          "cachegrind (Valgrind): cache simulation for cache miss profiling in development",
+          "Hardware prefetcher: effective for stride-1 and stride-N patterns; useless for pointer chasing"
         ]
       },
       {
-        "title": "Placement strategies",
+        "title": "NUMA Topology and Effects",
         "paragraphs": [
-          "Pin threads to nodes; allocate memory first-touch on the same node; avoid false sharing across cache lines. Tools: numactl, hwloc, perf.",
-          "Shared structures either replicate per node or accept remote access with careful design."
+          "Multi-socket servers have NUMA nodes. Remote NUMA access is 2–3× slower than local. Linux first-touch policy allocates pages on the node where they're first accessed.",
+          "Common mistake: main thread initializes all data, then workers on other NUMA nodes access it remotely. Fix: initialize data on the processing thread, or use numactl --interleave.",
+          "AMD EPYC has intra-socket NUMA from chiplet topology; expose sub-NUMA topologies matter even on single-socket servers."
+        ],
+        "bullets": [
+          "numactl --hardware: displays NUMA topology and distances",
+          "/proc/PID/numa_maps: shows NUMA node of each memory region",
+          "NUMA distance 10=local, 21=1-hop remote, 31=2-hop remote"
         ]
       },
       {
-        "title": "Interaction with NICs and GPUs",
+        "title": "Cache Optimization",
         "paragraphs": [
-          "NIC IRQ affinity and GPU affinity should match the consuming CPU node. Cross-node PCIe traffic is a silent tax."
-        ]
-      },
-      {
-        "title": "When to care",
-        "paragraphs": [
-          "Single-socket cloud VMs may hide NUMA. Bare metal and large instances expose it. Benchmark with production-like pinning."
+          "SoA (Structure of Arrays) achieves better cache utilization than AoS for field-selective iteration; used in columnar databases and game engines.",
+          "False sharing: pad shared mutable variables to cache line boundaries (alignas(64)); diagnose with perf c2c.",
+          "Per-CPU data structures eliminate shared-state coherency traffic; pattern used by Linux kernel (percpu variables) and Redis (single-threaded model)."
+        ],
+        "bullets": [
+          "SoA: access one field → one cache line holds N values; AoS: access one field → one cache line holds 1 value with N-1 fields wasted",
+          "alignas(64): C++ attribute to align variable to 64-byte cache line boundary",
+          "perf c2c: 'cache-to-cache' performance profiling; identifies false sharing"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "NUMA & Memory Hierarchy — Operations",
+        "title": "NUMA Profiling and Optimization Workflow",
         "paragraphs": [
-          "Operating NUMA & Memory Hierarchy in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
-          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+          "Start with numastat to identify NUMA miss rates. A high numa_foreign / numa_hit ratio indicates the workload is accessing remote NUMA memory. Next, use perf stat --numa-balancing or perf mem to identify which code paths generate the most remote accesses. Linux AutoNUMA (vm.numa_balancing=1) migrates pages toward the accessing CPU automatically, but migrations cause TLB shootdowns and may trade present latency for future latency.",
+          "Isolating NUMA effects: run the workload twice with numactl --membind=0 --cpunodebind=0 and compare to numactl --interleave=all. If membind gives significantly better throughput than interleave for a uniform multi-threaded workload, the data locality is good and workers access their local memory correctly. If membind is worse (workers on node 1 starved of memory), the workload is not partitioned by NUMA node. The fix: partition data by NUMA node and assign worker threads accordingly.",
+          "NUMA effects in JVMs: the Java garbage collector allocates objects in a shared heap without NUMA awareness by default. The JVM -XX:+UseNUMA flag enables NUMA-aware heap allocation in Parallel GC and G1GC—each GC region is allocated on a NUMA node and young generation collection prefers the same node. This reduces remote NUMA accesses for short-lived object allocations. Benchmarks show 20–40% throughput improvement on 2-socket servers for GC-intensive workloads with UseNUMA enabled."
         ],
         "bullets": [
-          "Define capacity from the scarcest resource",
-          "Document blast radius per dependency",
-          "Keep rollback cheaper than forward repair when possible"
+          "vm.numa_balancing=1: AutoNUMA migrates pages to accessing node; trades migration cost for future locality",
+          "-XX:+UseNUMA: JVM NUMA-aware heap allocation in Parallel GC and G1GC",
+          "perf mem record + perf mem report: shows NUMA hit/miss per memory instruction"
         ]
       },
       {
-        "title": "NUMA & Memory Hierarchy — Failure modes",
+        "title": "Memory Bandwidth and Saturation",
         "paragraphs": [
-          "Common failures around NUMA & Memory Hierarchy include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
-          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+          "Memory bandwidth limits throughput for memory-bound workloads. A 2-socket server with DDR4-3200 has 4 channels × 2 sockets × 25.6 GB/s = 204 GB/s total. A sequential memory scan saturating all channels achieves this. Random 64-byte reads (pointer chasing) achieve only 50–80 GB/s due to DRAM row activation overhead. Intel's STREAM benchmark measures sustainable memory bandwidth for different access patterns; run it to establish your server's baseline before optimizing memory-bound code.",
+          "Columnar databases (ClickHouse, DuckDB, Redshift) are explicitly designed around memory bandwidth. Each column is stored contiguously; queries that touch 5 columns load only 5 × row_count × field_size bytes rather than all columns. Compression (LZ4, Zstd) further reduces effective bytes read per query at the cost of CPU for decompression. For memory-bandwidth-limited analytics, 3–10× compression ratios translate to 3–10× throughput improvement on sequential scans.",
+          "Roofline model analysis: a performance model that predicts whether a workload is compute-bound (FLOPS/s limited) or memory-bandwidth-bound (bytes/s limited). Plot operational intensity (FLOPS per byte accessed) vs achieved GFLOPS. If a workload falls below the memory bandwidth roof, adding compute won't help—optimize data access patterns, increase compression, or add DRAM bandwidth. GPU workloads are often memory-bandwidth bound; this is why HBM (High Bandwidth Memory) on A100/H100 (2 TB/s) matters for transformer inference."
+        ],
+        "bullets": [
+          "STREAM benchmark: measures sustained memory bandwidth for copy, scale, add, triad operations",
+          "Operational intensity: FLOPS per byte accessed; <1 FLOP/byte → memory-bound; >50 FLOPS/byte → compute-bound",
+          "HBM2e (A100): 2 TB/s; vs DDR4 (server): 200 GB/s; 10× bandwidth advantage for memory-bound ML workloads"
         ]
       }
     ],
     "expert": [
       {
-        "title": "NUMA & Memory Hierarchy — Expert notes",
+        "title": "NUMA at Cloud Scale and Emerging Memory Technologies",
         "paragraphs": [
-          "At the expert level, NUMA & Memory Hierarchy intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
-          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+          "Cloud providers expose NUMA as an optional scheduling constraint. AWS Nitro instances with ENA networking assign NIC interrupt affinity to specific NUMA nodes; latency-sensitive workloads should pin both NIC IRQs and application threads to the same NUMA node. Without affinity, NIC interrupts on NUMA node 0 wake processing threads on NUMA node 1—the kernel copies packet data across NUMA nodes, adding 150 ns to every network packet's processing path. Amazon's high-performance instances (c7gn, x2idn) document NUMA topology in their user guides.",
+          "Processor-in-memory (PIM) and near-memory computing are research-stage approaches to eliminating the memory bandwidth bottleneck. Rather than fetching data to the CPU, computation moves to the memory. Samsung's Aquabolt-XL and SK Hynix's AiM embed simple processing elements in HBM stacks. For bandwidth-bound operations (vector addition, sparse matrix-vector multiply), near-memory processing achieves 10–20× bandwidth improvement by avoiding data movement. This is not yet production-mainstream but affects architecture discussions for extreme-scale ML and analytics.",
+          "Memory security: Spectre and Meltdown exploited CPU speculative execution to leak data across process boundaries via timing side channels in the cache. The mitigations (KPTI, retpoline, microcode patches) added 5–30% overhead to system call and context switch paths. KPTI flushes page table caches on kernel entry/exit, adding TLB misses. For syscall-heavy workloads (Postgres, Redis), the overhead is measurable. io_uring's reduction in syscall count (via ring buffer) is partly motivated by KPTI overhead reduction."
         ]
       }
     ]
   },
   "concepts": [
-    "Local vs remote memory",
-    "First-touch allocation",
-    "CPU pinning",
-    "Cache line false sharing"
+    "Memory hierarchy: L1 (0.5 ns) → L2 (3 ns) → L3 (10 ns) → local DRAM (60–100 ns) → remote NUMA DRAM (150–300 ns) → NVMe (100 μs)",
+    "Cache line: 64-byte unit of data transfer between memory tiers; false sharing occurs when different threads share a cache line",
+    "MESI protocol: cache coherency protocol; write to Shared line triggers remote invalidation across cores",
+    "NUMA: Non-Uniform Memory Access; remote socket DRAM is 2–3× slower than local; topology in /sys/devices/system/node",
+    "First-touch allocation: Linux allocates pages on the NUMA node where they're first accessed; initialized-on-wrong-node is a common pitfall",
+    "numactl: bind process to NUMA nodes and memory; --membind (memory), --cpunodebind (CPUs), --interleave (round-robin)",
+    "False sharing: performance penalty from multiple threads modifying logically independent data on the same cache line",
+    "SoA (Structure of Arrays): data layout that separates fields into arrays; enables cache-efficient field-selective iteration",
+    "Memory bandwidth saturation: memory-bound workloads are limited by DRAM bandwidth, not FLOPS; measured with STREAM benchmark",
+    "Intel Optane / CXL: persistent and expandable memory tiers between DRAM and NVMe; emerging production relevance"
   ],
   "practices": [
-    "Measure before pinning blindly",
-    "Colocate IRQ, thread, and memory",
-    "Watch for cross-node bandwidth saturation"
+    "Profile NUMA hit/miss rates with numastat before optimizing memory layout; confirm remote access is the bottleneck",
+    "Initialize data on the thread that will process it (first-touch policy) to ensure NUMA local allocation",
+    "Use numactl --interleave=all for multi-threaded workloads accessing all data uniformly; prevents single-node overload",
+    "Align shared mutable per-thread data to 64-byte cache lines (alignas(64)) to prevent false sharing",
+    "Enable -XX:+UseNUMA for JVM applications on multi-socket servers; 20–40% throughput improvement on GC-intensive workloads",
+    "Use Kubernetes TopologyManager with 'single-numa-node' policy for latency-sensitive pods on bare-metal"
   ],
   "pitfalls": [
-    "Assuming all RAM is equal",
-    "Over-pinning without measuring",
-    "Ignoring NIC/GPU locality"
+    "Initializing all data in the main thread before spawning workers; causes all data to be on node 0, accessed remotely by workers on node 1+",
+    "Ignoring NUMA effects on AMD EPYC instances; intra-socket chiplet NUMA creates performance differences even on 'single-socket' instances",
+    "Assuming JVM heap is NUMA-aware by default; -XX:+UseNUMA must be explicitly enabled",
+    "Not diagnosing false sharing with tools (perf c2c); fixing false sharing can recover 2–10× throughput on shared counter workloads",
+    "Using numactl --membind on a machine where the specified NUMA node has less RAM than the working set; causes OOM instead of NUMA local access",
+    "Measuring memory bandwidth without accounting for the STREAM benchmark pattern; random access achieves 25–40% of sequential bandwidth"
   ],
   "examples": [
     {
-      "title": "DPDK apps",
-      "description": "Per-NUMA queues and memory pools."
+      "title": "Postgres NUMA-Aware Configuration",
+      "description": "A Postgres 14 instance on a 2-socket server showed unexpected throughput variation: some query batches ran 2× faster than others. numastat showed high numa_foreign counts. The root cause: Postgres's shared buffer pool was allocated by the postmaster process (node 0), but backend worker processes were scheduled on both nodes. Node 1 workers accessed the buffer pool via remote NUMA. Fix: numactl --membind=0 --cpunodebind=0 to pin Postgres to node 0, or numactl --interleave=all to distribute the buffer pool across both nodes. Interleave gave 30% higher throughput for the uniform multi-process workload."
+    },
+    {
+      "title": "ScyllaDB Per-Shard NUMA Architecture",
+      "description": "ScyllaDB partitions its data across 'shards'—one shard per CPU core. Each shard owns a portion of the keyspace and all associated memory. Each shard's data, thread, and memory are co-located on the same NUMA node. Requests are routed to the owning shard. All memory accesses are NUMA-local by design. Benchmarks show ScyllaDB achieving 3–5× higher throughput than Cassandra on the same hardware, partly attributable to cache and NUMA efficiency."
+    },
+    {
+      "title": "False Sharing in a Multi-Threaded Counter",
+      "description": "A web server maintained request counters for 32 worker threads in a contiguous array: uint64_t counters[32]. With 8-byte counters and 64-byte cache lines, 8 counters share one cache line. All 32 threads incrementing their own counter caused massive cache-to-cache coherency traffic—each increment invalidated 7 other threads' caches. Throughput was 10× lower than theoretical. Fix: pad counters to 64 bytes (struct { uint64_t count; char pad[56]; } counters[32]). Throughput reached theoretical maximum."
     }
   ],
   "keyTakeaways": [
-    "Memory locality is a first-class design input on multi-socket hosts",
-    "Pinning + first-touch are the basic tools"
+    "Memory hierarchy spans 6 orders of magnitude in latency; algorithm performance depends critically on which tier data lives in",
+    "Remote NUMA access is 2–3× slower than local; multi-socket servers require NUMA-aware thread and data placement",
+    "First-touch allocation means data must be initialized on the thread that processes it, not on a central main thread",
+    "False sharing is a hidden multi-threaded performance killer; pad per-thread data to 64-byte cache lines",
+    "SoA data layout achieves 8–16× better cache line utilization for field-selective iteration over AoS",
+    "Memory bandwidth—not FLOPS—limits most data-intensive workloads; profile with STREAM benchmark before optimizing compute"
   ],
-  "whyItMatters": "Low-latency and high-throughput systems often lose more to NUMA than to algorithm choice.",
+  "whyItMatters": "NUMA effects are responsible for mysterious 2–3× throughput variations between seemingly identical servers, unexplained latency spikes after resource rebalancing, and performance regression on 'more powerful' multi-socket hardware. Database systems, caches, message brokers, and ML inference engines all benefit from explicit NUMA-aware design. The engineers who understand memory hierarchy can tune systems to squeeze maximum performance from existing hardware—often achieving better results than adding more nodes.",
   "reflectionQuestions": [
-    "Is your deployment single-socket or multi-socket in production?"
+    "Your team moves a database from a 1-socket 32-core server to a 2-socket 64-core server and observes lower throughput per core. Walk through the investigation and likely causes.",
+    "Design the data layout and thread affinity strategy for a high-frequency trading system that must minimize DRAM latency for a 1 TB market data snapshot accessed by 32 threads.",
+    "Explain why ScyllaDB's per-shard architecture achieves higher throughput than Cassandra's shared-state threading model from a cache and NUMA perspective."
   ],
   "numbersToKnow": [
-    "Know your p99 latency budget before adding hops",
-    "Peak load ≠ average load — plan headroom (often 2–3×)",
-    "Cross-region RTT is often ~50–150ms one way"
+    "L1 cache: ~0.5 ns; L2: ~3 ns; L3: ~10 ns; local DRAM: ~60–100 ns; remote NUMA DRAM: ~150–300 ns",
+    "2–3×: typical remote NUMA access penalty vs local NUMA access",
+    "64 bytes: CPU cache line size on x86-64 and ARM64; unit of transfer between memory tiers",
+    "20–40%: JVM throughput improvement with -XX:+UseNUMA on 2-socket servers",
+    "10×: false sharing throughput degradation on a 32-thread shared counter workload without padding"
   ],
   "diagrams": [
     {
-      "id": "os-numa-overview",
-      "title": "NUMA & Memory Hierarchy overview",
-      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+      "id": "os-numa-topology",
+      "title": "NUMA Topology: 2-Socket Server Memory Hierarchy",
+      "mermaid": "flowchart TD\n  subgraph Socket0 - NUMA Node 0\n    C0[Core 0-15]\n    L3_0[L3 Cache 32MB]\n    DRAM0[DRAM 128GB - local 60ns]\n    C0 -->|L1/L2 hit| C0\n    C0 --> L3_0\n    L3_0 --> DRAM0\n  end\n  subgraph Socket1 - NUMA Node 1\n    C1[Core 16-31]\n    L3_1[L3 Cache 32MB]\n    DRAM1[DRAM 128GB - local 60ns]\n    C1 --> L3_1\n    L3_1 --> DRAM1\n  end\n  Socket0 -->|UPI interconnect 150-300ns| Socket1\n  DRAM0 -->|remote access via UPI| C1\n  DRAM1 -->|remote access via UPI| C0"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain NUMA & Memory Hierarchy and the main trade-offs in three minutes."
+    "Explain what NUMA is and how it affects a multi-threaded database server. What symptoms would you observe and how would you diagnose and fix the problem?",
+    "What is false sharing? Give a concrete code example, explain why it degrades performance, and show the fix.",
+    "A Java application running on a 2-socket server has 50% lower throughput per core than on an equivalent single-socket server. What is likely happening and how would you investigate?"
   ],
   "exercises": [
-    "Sketch a design that depends on NUMA & Memory Hierarchy; list three trade-offs and one failure mode."
+    "Write a C program with two threads incrementing neighboring uint64_t counters 100 million times each. Measure total throughput. Then pad each counter to 64 bytes. Re-measure. Document the speedup and use perf c2c to confirm false sharing was the cause.",
+    "Use STREAM benchmark on a multi-socket server. Run with numactl --membind=0 and compare to numactl --interleave=all. Graph the sustained bandwidth for each access pattern (copy, add, triad) and identify the NUMA effect on achievable bandwidth."
   ],
-  "sources": [],
-  "relatedLessons": [
-    "os-cgroups",
-    "os-io-sync",
-    "os-memory"
-  ]
+  "sources": [
+    {
+      "title": "What Every Programmer Should Know About Memory — Ulrich Drepper (2007)",
+      "url": "https://people.freebsd.org/~lstewart/articles/cpumemory.pdf"
+    },
+    {
+      "title": "NUMA Deep Dive — Linux kernel documentation",
+      "url": "https://www.kernel.org/doc/html/latest/vm/numa.html"
+    },
+    {
+      "title": "Systems Performance: Enterprise and the Cloud — Brendan Gregg (Chapter 7)",
+      "url": "https://www.brendangregg.com/systems-performance-2nd-edition-book.html"
+    },
+    {
+      "title": "ScyllaDB Architecture: Shared-Nothing Design",
+      "url": "https://www.scylladb.com/learn/architecture/"
+    }
+  ],
+  "relatedLessons": ["os-memory", "os-storage-hw", "os-processes-threads", "os-io-sync"]
 }

@@ -3,202 +3,221 @@
   "title": "etcd Internals",
   "moduleId": "system-internals",
   "phaseId": "internal-designs",
-  "durationMinutes": 35,
-  "summary": "etcd Internals is a core topic in modern system design. This lesson builds a first-principles model around how production systems are built inside, then connects that model to capacity, failure modes, and operational practice so you can use it in real architectures.",
-  "kind": "living",
-  "difficulty": "intermediate",
+  "durationMinutes": 40,
+  "summary": "etcd is a strongly consistent, distributed key-value store built on the Raft consensus algorithm. It serves as the brain of Kubernetes (storing all cluster state), and is widely used for service discovery, distributed configuration, leader election, and distributed locks. Understanding Raft, etcd's data model, watch API, and operational characteristics is essential for anyone running Kubernetes or building distributed systems that require strong consistency.",
+  "kind": "evergreen",
+  "difficulty": "advanced",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "int-clickhouse"
-  ],
-  "tags": [
-    "system-internals",
-    "living",
-    "internal-designs"
-  ],
+  "prerequisites": ["dist-cap-consistency", "fund-distributed-consensus"],
+  "tags": ["system-internals", "etcd", "raft", "consensus", "kubernetes"],
   "sections": [
     {
-      "title": "What etcd Internals is solving",
+      "title": "Raft Consensus: How etcd Achieves Strong Consistency",
       "paragraphs": [
-        "etcd Internals exists because naive designs around how production systems are built inside break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-        "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map etcd Internals onto those constraints.",
-        "A useful mental model separates the control plane (how you configure and observe etcd Internals) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-      ]
-    },
-    {
-      "title": "Core mechanics",
-      "paragraphs": [
-        "Mechanically, etcd Internals involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-        "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-        "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand etcd Internals."
+        "etcd uses the Raft consensus algorithm to maintain a replicated log across a cluster of nodes (typically 3 or 5). Every write goes through the Raft leader: the leader appends the write to its log, replicates it to a majority of followers, waits for the majority to acknowledge, commits the entry, applies it to the state machine, and responds to the client. A write is only acknowledged after a majority (quorum) has persisted it, guaranteeing linearizability: clients always see the most recent committed value, even after leader failure.",
+        "Leader election occurs when a follower hasn't heard from the leader within the election timeout (default 500ms in etcd, configurable). The follower transitions to candidate, increments its term, and sends RequestVote RPCs to peers. The first candidate to receive a majority of votes becomes the new leader. Raft's design ensures at most one leader per term. The key invariant: a candidate only wins election if it has a log at least as up-to-date as the majority, ensuring the new leader has all committed entries.",
+        "quorum size determines availability-durability trade-offs. A 3-node cluster tolerates 1 failure (quorum=2). A 5-node cluster tolerates 2 failures (quorum=3). etcd clusters should always have an odd number of nodes to maximize failure tolerance per node added—a 4-node cluster has the same failure tolerance as a 3-node cluster (quorum=3, tolerates 1 failure) but adds write overhead. For Kubernetes control plane, 3-node etcd is standard for cost; 5-node for higher availability.",
+        "Split-brain prevention: Raft ensures only one leader can commit writes at any time. If the network partitions into two groups, the minority partition's leader steps down (it can't get quorum) and the majority partition elects a new leader. The minority partition's clients receive errors during the partition. This is the CP (Consistency + Partition Tolerance) choice in CAP: etcd refuses writes on the minority partition rather than allowing inconsistent writes."
       ],
       "bullets": [
-        "Inputs → state/protocol → outputs/side effects",
-        "Name consistency and delivery guarantees",
-        "Identify the bottleneck resource early"
+        "Raft leader: all writes go through leader; majority (quorum) must acknowledge before commit",
+        "Election timeout: default 500ms in etcd; follower becomes candidate if no heartbeat received",
+        "Quorum: (n/2)+1 nodes must acknowledge; 3-node tolerates 1 failure, 5-node tolerates 2",
+        "Linearizability: clients always see the latest committed value, never stale"
       ]
     },
     {
-      "title": "Designing with it",
+      "title": "etcd Data Model: Versioned Key-Value Store",
       "paragraphs": [
-        "When incorporating etcd Internals into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-        "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to etcd Internals.",
-        "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of etcd Internals should be observable on day one."
+        "etcd stores data as a flat key-value namespace with versioned history. Every write to a key increments the global revision counter (a monotonically increasing integer). Each key has a ModRevision (revision of last modification) and a CreateRevision (revision when the key was created). The global revision enables point-in-time reads (read the state as of revision N), watch from a specific revision (replay events since revision N), and version-based optimistic concurrency (update only if key's ModRevision equals expected value).",
+        "Leases are the mechanism for TTL-based keys: create a lease with a TTL, attach keys to the lease. When the lease expires, all attached keys are deleted atomically. Applications heartbeat the lease periodically to keep it alive (KeepAlive). Leases are used for: service registration (service registers its address under a key with a 10-second lease, keeps alive while running; on crash, the registration expires), session tokens, and distributed lock ownership (the lock key expires if the holder crashes).",
+        "Transactions in etcd provide compare-and-swap operations: IF key.ModRevision == expectedRevision THEN put key=value ELSE return current_value. This atomic operation is the primitive for distributed locks (lock acquire = IF lock_key doesn't exist THEN create it ELSE fail), leader election (IF leader_key doesn't exist THEN create with my ID ELSE I'm not leader), and configuration updates (IF config version == N THEN update ELSE reject). The transaction API (Txn) can batch multiple comparisons and operations."
+      ],
+      "bullets": [
+        "Global revision: monotonically increasing; incremented on every write",
+        "Lease: TTL-based key expiration; heartbeat to keep alive; used for service registration",
+        "Txn: atomic compare-and-swap; primitive for distributed locks and leader election",
+        "Watch: stream key change events from a specific revision; core mechanism for Kubernetes controllers"
       ]
     },
     {
-      "title": "Operations and failure modes",
+      "title": "Watch API and Kubernetes Integration",
       "paragraphs": [
-        "Operate etcd Internals with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-        "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-        "Chaos and game days should include slow dependencies and network delay, not only hard kills. etcd Internals often fails in the gray area."
+        "The Watch API is etcd's most important feature for Kubernetes. Watch streams change events for a key or key prefix from a specific revision. Kubernetes controllers use Watch to maintain a local cache of cluster state: on startup, a controller does a List (get all resources at current revision), then a Watch (receive incremental changes since that revision). The local cache is always eventually consistent with etcd; controllers reconcile desired state against actual state using this cache.",
+        "Kubernetes stores all cluster state in etcd: pods, services, deployments, configmaps, secrets, and custom resources. Every API server request that modifies state writes to etcd. With 5,000 nodes and thousands of pods, etcd can handle tens of thousands of objects and thousands of writes per second—but etcd's design is optimized for consistency, not throughput. Kubernetes shards secrets and high-churn objects to separate etcd clusters in very large deployments (>1,000 nodes) to reduce load on the main etcd cluster.",
+        "etcd's performance is bounded by disk latency (each committed Raft entry requires a disk fsync on the leader) and network RTT (entries must replicate to majority before commit). On a modern SSD, etcd achieves 1,000-10,000 writes/second. This is sufficient for Kubernetes control plane operations but not for data-intensive workloads. etcd is not a general-purpose database—it's sized for configuration, coordination, and metadata, not for storing application data."
+      ],
+      "bullets": [
+        "Watch from revision: stream incremental changes; avoids full resync on restart",
+        "List + Watch: standard Kubernetes controller pattern for maintaining consistent local cache",
+        "etcd throughput: 1K-10K writes/sec; limited by fsync latency + replication RTT",
+        "etcd data size limit: recommended <8GB; large value objects should live elsewhere"
+      ]
+    },
+    {
+      "title": "Distributed Locking and Leader Election with etcd",
+      "paragraphs": [
+        "etcd provides first-class distributed locking via the concurrency package (Go client library). A distributed lock: create a lease, attempt to put a key (the lock) with the lease, using a Txn that only succeeds if the key doesn't exist. If the Txn succeeds, the caller holds the lock until the lease expires or is explicitly released. If the caller crashes, the lease expires (TTL) and the lock is released. Clients waiting for the lock watch the key for deletion and retry acquisition when it disappears.",
+        "Leader election follows the same pattern: each candidate creates an ephemeral key (attached to a lease) with a prefix. The candidate with the lowest creation revision is the leader. All candidates watch the key with the next-lower revision; when that key is deleted (the leader crashed or resigned), the next candidate becomes leader. This creates an ordered failover queue—leadership transfers in a deterministic order without racing. etcd's official /concurrency/v3 package implements this algorithm.",
+        "Fencing tokens are essential for distributed locks. When a lock is acquired, the holder receives a fencing token (the lease ID or a monotonically increasing number). The holder includes this token in every write to the protected resource. The resource server rejects writes with stale tokens (from a previous lock holder that was presumed dead). This prevents the 'zombie write' problem: a lock holder that was paused (long GC, network partition) and resumed after the lock expired from corrupting state despite believing it still holds the lock."
+      ],
+      "bullets": [
+        "Distributed lock: Txn(IF key not exist THEN put key with lease); expire on holder crash",
+        "Leader election: lowest-revision key holder wins; watch next-lower for failover queue",
+        "Fencing token: monotonically increasing token included in writes; resource server rejects stale tokens",
+        "Session: lease + keepalive = session; session revocation = lock release"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "What etcd Internals is solving",
+        "title": "Raft and Consistency",
         "paragraphs": [
-          "etcd Internals exists because naive designs around how production systems are built inside break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-          "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map etcd Internals onto those constraints.",
-          "A useful mental model separates the control plane (how you configure and observe etcd Internals) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-        ]
-      },
-      {
-        "title": "Core mechanics",
-        "paragraphs": [
-          "Mechanically, etcd Internals involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-          "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-          "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand etcd Internals."
+          "Raft: leader receives all writes, replicates to majority, commits on quorum acknowledgment. Linearizable reads always see the latest committed value.",
+          "3-node tolerates 1 failure; 5-node tolerates 2. Always odd-numbered clusters. CP in CAP: minority partition refuses writes.",
+          "Leader election: candidate with up-to-date log wins majority vote in a new term."
         ],
         "bullets": [
-          "Inputs → state/protocol → outputs/side effects",
-          "Name consistency and delivery guarantees",
-          "Identify the bottleneck resource early"
+          "Quorum = (n/2)+1; majority must commit every write",
+          "Election timeout: default 500ms; tune heartbeat-interval and election-timeout for latency vs. stability",
+          "Leader step-down: leader steps down if it can't reach quorum (network partition)"
         ]
       },
       {
-        "title": "Designing with it",
+        "title": "Data Model and Operations",
         "paragraphs": [
-          "When incorporating etcd Internals into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-          "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to etcd Internals.",
-          "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of etcd Internals should be observable on day one."
-        ]
-      },
-      {
-        "title": "Operations and failure modes",
-        "paragraphs": [
-          "Operate etcd Internals with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-          "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-          "Chaos and game days should include slow dependencies and network delay, not only hard kills. etcd Internals often fails in the gray area."
+          "Global revision: every write increments. Leases: TTL-based key ownership; heartbeat to keep alive. Txn: atomic compare-and-swap for distributed coordination.",
+          "Watch: stream key change events from a revision; core of Kubernetes controller pattern.",
+          "etcd is not a general database: 1K-10K writes/sec; store coordination metadata, not application data."
+        ],
+        "bullets": [
+          "Lease: service registration, distributed lock ownership, session management",
+          "Txn: IF/THEN/ELSE operations; atomic; the distributed lock primitive",
+          "Watch from revision: incremental updates; avoids full resync"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "etcd Internals — deeper internals",
+        "title": "etcd Performance and Defragmentation",
         "paragraphs": [
-          "Under the hood, etcd Internals typically exposes knobs for batching, buffering, concurrency, retention, and timeouts. Each knob trades latency, throughput, and cost. Change one at a time and measure.",
-          "Instrumentation should include high-signal histograms and exemplars that jump to traces. For data systems, watch amplification and compaction/GC; for RPC systems, watch queue time and saturation; for ML systems, watch memory and tokens/s."
+          "etcd persists data in a bbolt B-tree database backed by a memory-mapped file. All writes are appended; old versions are retained until compaction. The etcd process runs periodic compaction (--auto-compaction-mode=periodic, --auto-compaction-retention=1h) to remove old revisions and reclaim space in the bbolt database. Without compaction, the database grows unboundedly with old key revisions. After compaction, the bbolt file size doesn't decrease—run defragmentation (etcdctl defrag) to compact the file on disk.",
+          "Defragmentation is a blocking operation on the etcd member—no reads or writes are served during defragmentation. For a large etcd database (10GB), defragmentation takes 1-5 minutes. Schedule it during maintenance windows or use the --batch-size flag to defragment in smaller increments. Run defragmentation on one member at a time (not all simultaneously) to maintain cluster availability during the operation.",
+          "WAL (Write-Ahead Log) in etcd: Raft log entries are persisted to a WAL before being applied to the state machine. The WAL is a series of segment files; old segments are deleted after a snapshot is taken. Snapshots capture the full state machine state at a specific revision, allowing WAL compaction. The snapshot + WAL design means etcd recovers quickly from crashes (restore from snapshot + replay recent WAL) without replaying the entire history."
         ],
         "bullets": [
-          "One knob at a time with a hypothesis",
-          "Histograms > averages",
-          "Tie dashboards to runbooks"
-        ]
-      },
-      {
-        "title": "etcd Internals — integration patterns",
-        "paragraphs": [
-          "Integrate via stable contracts: schemas, idempotency keys, and versioned APIs. Dual-write carefully or prefer CDC/outbox patterns when crossing storage and messaging.",
-          "Boundary tests should prove behavior under duplicate delivery, reordering, and clock skew where relevant to etcd Internals."
+          "bbolt: embedded B-tree; memory-mapped; compaction removes old revisions but doesn't shrink file",
+          "defrag: reclaims disk space; blocking per-member; run during low-traffic windows one at a time",
+          "auto-compaction: required; prevents unbounded growth; compact every 1 hour",
+          "Snapshot: periodic state capture; enables WAL truncation; compresses history"
         ]
       }
     ],
     "expert": [
       {
-        "title": "etcd Internals — multi-region and cost",
+        "title": "etcd in Large-Scale Kubernetes",
         "paragraphs": [
-          "Across regions, RTT and quorum placement dominate. Keep user-critical paths region-local when invariants allow; replicate asynchronously otherwise. Spell out the conflict/staleness model.",
-          "Track unit economics for etcd Internals: cost per million requests, per GB stored, or per million tokens. Many scalability projects are cost projects — make the objective explicit."
+          "At Kubernetes scale (10,000 nodes, 500,000 pods), etcd faces several challenges. Write amplification: every pod scheduling decision, pod status update, and service endpoint change writes to etcd. The Kubernetes API server uses optimistic concurrency (resource version = etcd revision) for all updates, causing high write rates under node churn. etcd can become the bottleneck for the Kubernetes control plane at large scale. Mitigation: separate etcd clusters for high-churn data (pod IPs, endpoint slices), tune etcd heartbeat and election timeouts, and use etcd's quota (default 2GB; increase with --quota-backend-bytes) for large clusters.",
+          "etcd backup and restore: etcdctl snapshot save takes a consistent snapshot of the entire etcd data. Restore to a new cluster: etcdctl snapshot restore, then start the new etcd cluster with the restored data directory. For Kubernetes, snapshot every 15-30 minutes; store in object storage (S3). Test restore procedures regularly—an untested backup is not a backup. Velero automates etcd backup as part of full Kubernetes cluster backup.",
+          "etcd Learner nodes (Raft Learners) receive log entries but don't vote in elections. They're used for adding new members safely: a new node joins as a Learner, catches up with the leader's log, and is promoted to a voting member once caught up. This prevents a half-synced new member from disrupting quorum during catch-up. Learner nodes are also used as read-only replicas that serve linearizable reads (at the cost of one additional round-trip to verify leadership)."
         ]
       }
     ]
   },
   "concepts": [
-    "etcd Internals: problem framing and constraints",
-    "Control plane vs data plane",
-    "Amplification, locality, contention",
-    "Failure observations for clients",
-    "SLIs and capacity headroom",
-    "Versioned contracts / idempotency"
+    "Raft consensus: leader-based log replication; quorum commit; linearizable reads",
+    "Leader election: candidate with up-to-date log wins majority vote in new term",
+    "Global revision: monotonically increasing counter; every write increments",
+    "Lease: TTL-based key ownership with periodic keepalive; expires on holder crash",
+    "Watch: stream key change events from a specific revision",
+    "Txn: atomic compare-and-swap; distributed lock and leader election primitive",
+    "Fencing token: monotonically increasing token for safe distributed locking",
+    "Compaction: remove old revisions from bbolt database; prevent unbounded growth",
+    "Defragmentation: compact bbolt file on disk; blocking per-member operation",
+    "bbolt: embedded B-tree database backing etcd state machine",
+    "KRaft: Kafka's Raft-based metadata (separate from etcd; mentioned for contrast)",
+    "Quorum: (n/2)+1 nodes required for write commit; determines fault tolerance"
   ],
   "practices": [
-    "Start from constraints before selecting a etcd Internals approach",
-    "Define SLIs and dashboards with the feature",
-    "Make retries idempotent and budgeted",
-    "Roll out reversibly with measurement"
+    "Use 3-node etcd for most Kubernetes deployments; 5-node for critical/high-availability environments",
+    "Enable auto-compaction (--auto-compaction-mode=periodic --auto-compaction-retention=1h)",
+    "Run defragmentation monthly or when etcd database size exceeds 2GB; run on one member at a time",
+    "Snapshot etcd every 15-30 minutes to S3; test restore procedure quarterly",
+    "Use leases with KeepAlive for all ephemeral registrations; never use keys without TTL for service registration",
+    "Include fencing tokens in distributed lock use cases where zombie write is a correctness risk",
+    "Monitor etcd metrics: proposal_committed_total, proposal_failed_total, db_total_size_in_bytes, leader_changes_seen_total"
   ],
   "pitfalls": [
-    "Tool-first design without invariants",
-    "Ignoring brownout/slow dependency behavior",
-    "Unbounded retries and queues",
-    "Missing ownership for ops/runbooks"
+    "Using etcd as a general-purpose database—it's optimized for small key-value metadata, not large objects",
+    "No auto-compaction—etcd database grows unboundedly; eventually OOM or quota exceeded",
+    "Storing values > 1.5MB in etcd—degrades Raft replication performance; store large data elsewhere",
+    "Even-numbered etcd cluster—no additional fault tolerance vs. n-1 node cluster; wastes resources",
+    "No lease keepalive on distributed locks—lock expires while holder is busy, causing silent takeover",
+    "Defragmenting all members simultaneously—loses cluster availability during maintenance",
+    "No etcd backups—Kubernetes cluster state is lost on etcd corruption with no restore path"
   ],
   "examples": [
     {
-      "title": "Production pattern",
-      "description": "Teams that succeed with etcd Internals treat measurement, failure drills, and contracts as part of the design — not afterthoughts."
+      "title": "Kubernetes Control Plane",
+      "description": "A production Kubernetes cluster with 500 nodes uses a 3-node etcd cluster on dedicated m5.xlarge instances with NVMe SSDs (critical for fsync latency). The API server writes pod status updates, service endpoint changes, and scheduling decisions to etcd at ~500 writes/second. Auto-compaction runs hourly; defragmentation runs weekly during maintenance. etcd is monitored for leader changes (more than 3/hour indicates instability), proposal failures (indicates quorum issues), and database size (alert at 4GB of an 8GB quota)."
     },
     {
-      "title": "Common review question",
-      "description": "In design reviews, expect to explain what breaks first when load spikes 10× and how etcd Internals sheds or scales."
+      "title": "Distributed Lock for Job Scheduling",
+      "description": "A batch job scheduler uses etcd distributed locks to prevent concurrent execution of the same job across multiple scheduler instances. Each scheduler acquires a lease (30-second TTL), then attempts a Txn to create a lock key with the lease. The winning scheduler executes the job. If the scheduler crashes, the lease expires in 30 seconds and another scheduler can acquire the lock. A fencing token (the lease ID) is passed to the job execution API, which rejects stale tokens from crashed schedulers that may resume after lock expiry."
     }
   ],
   "keyTakeaways": [
-    "etcd Internals should be chosen from constraints, not fashion",
-    "Mechanics + failure model + capacity math are the core",
-    "Operations and contracts decide long-term success"
+    "etcd's Raft consensus guarantees linearizability—clients always see the latest committed value",
+    "Quorum size determines fault tolerance: 3-node tolerates 1 failure, 5-node tolerates 2",
+    "Leases and Txn are the primitives for distributed locks and leader election with correct semantics",
+    "Watch API is the foundation of Kubernetes' controller pattern—efficient incremental state sync",
+    "Auto-compaction is mandatory; defragmentation reclaims physical disk space",
+    "etcd is for coordination metadata (1K-10K writes/sec)—not application data",
+    "Fencing tokens prevent zombie writes from crashed lock holders"
   ],
-  "whyItMatters": "Without a solid model of etcd Internals, designs either overbuild or fail in production in ways that are hard to debug. This lesson gives a working framework you can reuse across systems involving how production systems are built inside.",
+  "whyItMatters": "etcd is the foundation of every Kubernetes cluster and the go-to building block for distributed system coordination. Understanding Raft consensus, the Watch API, and distributed locking patterns is essential for Kubernetes operators, distributed systems architects, and anyone building systems that require strong consistency guarantees. It also exemplifies the trade-offs of CP systems: strong consistency and partition safety at the cost of availability during quorum loss.",
   "reflectionQuestions": [
-    "What invariant does etcd Internals protect in your system?",
-    "What is the scarcest resource when you apply etcd Internals?",
-    "How would you rehearse the top failure mode for etcd Internals?"
+    "Your Kubernetes cluster's etcd is experiencing high leader change rates (20/hour). What are the possible causes and how do you diagnose each?",
+    "Compare etcd's distributed locking to Redis Redlock. What are the correctness guarantees of each, and when would you choose one over the other?",
+    "Explain why etcd tolerates only 1 failure with 3 nodes rather than 2. How does quorum calculation work?",
+    "Design a service registration and discovery system using etcd leases and Watch. How does a client discover live services and handle service failures?"
   ],
   "numbersToKnow": [
-    "Plan 2–3× headroom above peak for incidents and rebalancing",
-    "Cross-region RTT often ~50–150ms one way",
-    "p99 matters more than average for user-facing paths"
+    "etcd recommended cluster size: 3 or 5 nodes; 7 for maximum fault tolerance (tolerates 3 failures)",
+    "etcd write throughput: 1K-10K writes/sec; bounded by fsync latency (NVMe: 0.1ms, spinning: 5ms)",
+    "etcd value size limit: 1.5MB per request (soft recommendation); 10MB max (hard limit)",
+    "Default election timeout: 1 second; heartbeat interval: 100ms (10x ratio recommended)",
+    "Database quota default: 2GB; increase to 8GB for large Kubernetes clusters",
+    "Defragmentation blocking time: 1-5 minutes for a 10GB database"
   ],
   "diagrams": [
     {
-      "id": "int-etcd-overview",
-      "title": "etcd Internals context",
-      "mermaid": "flowchart LR\n  Client --> Boundary\n  Boundary --> etcd_Internals\n  etcd_Internals --> Dependency"
+      "id": "int-etcd-raft",
+      "title": "etcd Raft Consensus Flow",
+      "mermaid": "sequenceDiagram\n  participant C as Client\n  participant L as Leader (etcd1)\n  participant F1 as Follower (etcd2)\n  participant F2 as Follower (etcd3)\n  C->>L: PUT /locks/job1 value=holder1\n  L->>L: Append to WAL\n  L->>F1: AppendEntries RPC\n  L->>F2: AppendEntries RPC\n  F1->>L: ACK\n  F2->>L: ACK\n  L->>L: Commit (quorum reached)\n  L->>C: Success (revision=42)"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain etcd Internals and the main trade-offs.",
-    "How does etcd Internals behave under overload or partition?",
-    "What would you measure after changing a etcd Internals-related knob?"
+    "Explain the Raft consensus algorithm at a high level. How does etcd use it for strong consistency?",
+    "What is a fencing token and why is it necessary even when using etcd's distributed lock?",
+    "How does Kubernetes use etcd's Watch API to implement controllers?",
+    "What happens to an etcd cluster when one node fails out of a 3-node cluster? Can clients still read and write?"
   ],
   "exercises": [
-    "Sketch an architecture that depends on etcd Internals; estimate capacity and list three failure modes.",
-    "Write a one-page runbook for the most likely etcd Internals outage."
+    "Design a distributed job scheduler using etcd that ensures a cron job runs exactly once across 10 scheduler replicas. Address: lock acquisition, fencing tokens, lease TTL selection, and failure recovery.",
+    "Given an etcd cluster experiencing high latency (p99 > 500ms), walk through the diagnostic steps: what metrics you'd check, what hardware issues you'd investigate, and what configuration changes might help.",
+    "Implement (in pseudocode) the leader election algorithm using etcd leases and Txn operations. How does the second candidate learn it's not the leader? How does failover work when the leader crashes?"
   ],
   "sources": [
-    {
-      "title": "Designing Data-Intensive Applications (concepts)"
-    }
+    {"title": "etcd Documentation (etcd.io/docs)"},
+    {"title": "Diego Ongaro — In Search of an Understandable Consensus Algorithm (Raft paper, 2014)"},
+    {"title": "Martin Kleppmann — Designing Data-Intensive Applications, Chapter 9 (Raft and consensus)"},
+    {"title": "Kubernetes etcd Operations Guide (kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd)"},
+    {"title": "CoreOS Blog — etcd: distributed coordination (original design notes)"}
   ],
-  "relatedLessons": [
-    "int-cassandra",
-    "int-clickhouse",
-    "int-kafka"
-  ]
+  "relatedLessons": ["dist-cap-consistency", "fund-gossip", "int-redis", "infra-containers-k8s"]
 }

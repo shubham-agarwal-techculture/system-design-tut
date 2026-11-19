@@ -1,204 +1,224 @@
 {
   "id": "int-nginx-envoy",
-  "title": "Nginx & Envoy Internals",
+  "title": "Nginx and Envoy Proxy Internals",
   "moduleId": "system-internals",
   "phaseId": "internal-designs",
-  "durationMinutes": 35,
-  "summary": "Nginx & Envoy Internals is a core topic in modern system design. This lesson builds a first-principles model around how production systems are built inside, then connects that model to capacity, failure modes, and operational practice so you can use it in real architectures.",
-  "kind": "living",
+  "durationMinutes": 45,
+  "summary": "Nginx and Envoy are the two dominant open-source proxies in modern infrastructure. Nginx uses a master/worker event-loop architecture to serve millions of concurrent connections with minimal memory. Envoy is a programmable, L7-aware proxy built for service meshes, with dynamic configuration, observability, and protocol support beyond HTTP. Understanding both is essential for load balancing, TLS termination, traffic management, and service mesh design.",
+  "kind": "evergreen",
   "difficulty": "intermediate",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "int-kafka"
-  ],
-  "tags": [
-    "system-internals",
-    "living",
-    "internal-designs"
-  ],
+  "prerequisites": ["net-load-balancing", "net-tls-dns"],
+  "tags": ["system-internals", "nginx", "envoy", "proxy", "load-balancing"],
   "sections": [
     {
-      "title": "What Nginx & Envoy Internals is solving",
+      "title": "Nginx Architecture: Master, Workers, and Event Loop",
       "paragraphs": [
-        "Nginx & Envoy Internals exists because naive designs around how production systems are built inside break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-        "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map Nginx & Envoy Internals onto those constraints.",
-        "A useful mental model separates the control plane (how you configure and observe Nginx & Envoy Internals) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-      ]
-    },
-    {
-      "title": "Core mechanics",
-      "paragraphs": [
-        "Mechanically, Nginx & Envoy Internals involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-        "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-        "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand Nginx & Envoy Internals."
+        "Nginx uses a master process + worker processes architecture. The master reads configuration, binds to ports, and manages worker lifecycle. Each worker handles thousands of concurrent connections in a single-threaded event loop using the OS's most efficient I/O multiplexing primitive (epoll on Linux). With worker_processes = auto (one per CPU core), Nginx efficiently distributes load across all cores. This model uses far less memory than traditional thread-per-connection servers: a Nginx worker with 10,000 concurrent connections consumes ~10MB, vs. 10GB for 10,000 OS threads.",
+        "Nginx's connection handling is fundamentally different from application servers. It never blocks on I/O: when a client connection arrives, the event loop registers interest in the socket. When data arrives, Nginx processes it, potentially proxying to an upstream. If the upstream is slow, Nginx buffers the response in memory (or on disk with client_body_buffer_size overflow to temp files) and continues serving other clients. No thread is blocked waiting—the event loop serves all connections from one thread.",
+        "The upstream module handles proxying to backend servers. proxy_pass defines the upstream; upstream block defines a pool of backends with load balancing strategy (round-robin default, least_conn, ip_hash for session affinity, hash for consistent hashing). Nginx supports both HTTP/1.1 keepalive to upstreams (pool of persistent connections) and direct per-request connections. proxy_cache implements content caching: responses stored on disk, served without hitting the upstream on cache hit—transforming Nginx from pure proxy to a caching proxy.",
+        "Nginx's configuration DSL uses directives in contexts (http, server, location). The location block matches request paths and directs them to upstream groups or static files. Regular expression locations, prefix locations, and exact matches provide fine-grained routing. rewrite rules, return directives, and map module enable complex request transformation without application code changes. The embedded Nginx Lua module (OpenResty) enables arbitrary Lua scripting for authentication, rate limiting, and request transformation, making Nginx a programmable application platform."
       ],
       "bullets": [
-        "Inputs → state/protocol → outputs/side effects",
-        "Name consistency and delivery guarantees",
-        "Identify the bottleneck resource early"
+        "Master/worker: master manages; workers handle connections in single-threaded event loops",
+        "worker_processes auto: one worker per CPU core; each handles thousands of connections",
+        "upstream block: define backend pool with load balancing strategy; keepalive for persistent connections",
+        "proxy_cache: disk-based caching; serves responses without upstream hits on cache hit"
       ]
     },
     {
-      "title": "Designing with it",
+      "title": "Envoy Architecture: Dynamic Configuration and Observability",
       "paragraphs": [
-        "When incorporating Nginx & Envoy Internals into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-        "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to Nginx & Envoy Internals.",
-        "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of Nginx & Envoy Internals should be observable on day one."
+        "Envoy is a modern L7 proxy designed from the ground up for service mesh deployment as a sidecar. Unlike Nginx (static config file, reload required), Envoy uses an xDS (discovery service) API for dynamic configuration: Listener Discovery Service (LDS), Cluster Discovery Service (CDS), Route Discovery Service (RDS), and Endpoint Discovery Service (EDS). A control plane (Istio Pilot, Consul, custom gRPC server) pushes configuration changes to Envoy instances in real time—no restart required. This enables zero-downtime traffic shifts, A/B testing, and circuit breaker configuration changes.",
+        "Envoy's observability is first-class and automatic. It instruments every request with metrics (request count, latency histogram, error rate, upstream response codes) per cluster (backend service). Distributed traces are generated for every request using W3C TraceContext, Zipkin, or Jaeger propagation. Access logs include detailed per-request information. This observability is applied uniformly across all services using Envoy as a sidecar—a property impossible to achieve when each service uses a different HTTP client library.",
+        "Protocol support is Envoy's major differentiator. Beyond HTTP/1.1 and HTTP/2, Envoy supports HTTP/3 (QUIC), gRPC (with transcoding HTTP/JSON → gRPC), Thrift, MongoDB wire protocol, Kafka protocol, Redis protocol, MySQL/PostgreSQL protocols, and others via filters. L4 TCP proxy, L7 HTTP routing, and protocol-specific filters all compose via the filter chain. A gRPC-to-JSON transcoder filter allows REST clients to call gRPC services without code changes—the proxy handles the transcoding.",
+        "Load balancing in Envoy is significantly more sophisticated than Nginx. Algorithms: round-robin, weighted round-robin, least-request, random, ring hash (consistent hashing), Maglev (consistent hashing with better distribution and minimal disruption on backend changes). Outlier detection (Envoy's circuit breaker): automatically ejects hosts from the load balancing pool that have high consecutive errors, slow responses, or high success rate compared to peers. Health checking is built-in: active (synthetic requests), passive (track success/failure of real traffic)."
+      ],
+      "bullets": [
+        "xDS API: dynamic configuration from control plane; no restart for config changes",
+        "Automatic observability: metrics, traces, access logs for every request; no application code changes",
+        "Rich protocol support: HTTP/1.1, HTTP/2, HTTP/3, gRPC, Thrift, Redis, MySQL—all in one proxy",
+        "Outlier detection: automatically ejects unhealthy hosts from load balancing pool"
       ]
     },
     {
-      "title": "Operations and failure modes",
+      "title": "TLS Termination and mTLS",
       "paragraphs": [
-        "Operate Nginx & Envoy Internals with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-        "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-        "Chaos and game days should include slow dependencies and network delay, not only hard kills. Nginx & Envoy Internals often fails in the gray area."
+        "Both Nginx and Envoy perform TLS termination: accepting TLS connections from clients, decrypting them, and proxying plain HTTP to backends. TLS offloading centralizes certificate management and reduces CPU overhead on application servers. Nginx's ssl module handles TLS 1.2/1.3 with configurable cipher suites and certificate chains. Envoy handles TLS with built-in SDS (Secret Discovery Service): the control plane distributes certificates and private keys to Envoy instances dynamically, without filesystem access or sidecar restarts.",
+        "mTLS (mutual TLS) is Envoy's secret weapon for service mesh security. mTLS requires both client and server to present certificates, providing strong service identity. Each service's Envoy sidecar has a unique certificate identifying the service (SPIFFE SVIDs from SPIRE/cert-manager). When Service A calls Service B, A's Envoy presents its certificate and verifies B's certificate—establishing cryptographic service identity. This eliminates the need for IP-based firewall rules (which don't scale in cloud environments) and provides encrypted, authenticated service-to-service communication by default.",
+        "Certificate rotation in Envoy via SDS is seamless: the control plane issues a new certificate and pushes it via SDS. Envoy uses the new certificate for new connections while existing connections drain with the old certificate. Zero-downtime certificate rotation without proxy restart is a significant operational advantage over traditional TLS termination. Nginx requires a reload (graceful—existing connections finish, new connections use new cert) which is fast but not entirely seamless."
+      ],
+      "bullets": [
+        "TLS offloading: centralize certificate management; reduce CPU on application servers",
+        "SDS (Secret Discovery Service): dynamic certificate distribution without restart; enables zero-downtime rotation",
+        "mTLS: mutual certificate authentication; cryptographic service identity; replaces IP-based access control",
+        "SPIFFE/SPIRE: standard for workload identity; issues X.509 SVIDs used by Envoy for mTLS"
+      ]
+    },
+    {
+      "title": "Nginx vs. Envoy: When to Use Each",
+      "paragraphs": [
+        "Nginx excels as an edge proxy, reverse proxy, and static file server. Its ultra-low memory footprint (a Nginx instance serving 10,000 connections uses ~10MB) and excellent HTTP/1.1 and HTTP/2 performance make it ideal for internet-facing load balancers, CDN edge nodes, and API gateways with mostly static traffic patterns. Nginx's static configuration model (config files, reload on change) is simple to operate and reason about—a property valuable for teams without dedicated platform engineering.",
+        "Envoy excels as a service mesh sidecar and as a programmable proxy for dynamic environments. Its dynamic configuration (no reload), rich observability, and mTLS support make it the right choice for microservices architectures where services change frequently, security requires per-service identity, and visibility into service-to-service traffic is critical. Envoy's Kubernetes integration (via Istio or Linkerd-proxy) provides automatic sidecar injection, automatic mTLS, and policy enforcement without application code changes.",
+        "Many organizations use both: Nginx at the edge (ingress controller for Kubernetes, CDN proxy, API gateway with caching) and Envoy for east-west service mesh traffic. The Kubernetes Ingress Nginx controller and the NGINX Ingress Controller are widely deployed; Envoy-based Ingress (via Contour, Ambassador/Emissary) is gaining adoption for teams already using Envoy in a service mesh. HAProxy is a third option—simpler than Envoy, faster than Nginx for TCP proxying, but less extensible."
+      ],
+      "bullets": [
+        "Nginx: edge proxy, static serving, CDN edge, simple reverse proxy; config files; low memory",
+        "Envoy: service mesh sidecar, dynamic config, mTLS, rich observability; control plane required",
+        "HAProxy: TCP proxy performance champion; simple L4/L7 load balancing without control plane",
+        "Ingress controllers: Nginx Ingress (simpler), Contour/Ambassador (Envoy-based, feature-rich)"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "What Nginx & Envoy Internals is solving",
+        "title": "Nginx Event Loop",
         "paragraphs": [
-          "Nginx & Envoy Internals exists because naive designs around how production systems are built inside break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-          "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map Nginx & Envoy Internals onto those constraints.",
-          "A useful mental model separates the control plane (how you configure and observe Nginx & Envoy Internals) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-        ]
-      },
-      {
-        "title": "Core mechanics",
-        "paragraphs": [
-          "Mechanically, Nginx & Envoy Internals involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-          "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-          "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand Nginx & Envoy Internals."
+          "Master + N worker processes. Each worker handles thousands of connections in a single epoll-based event loop. No thread blocking—all I/O is non-blocking. Memory: ~10MB per 10K concurrent connections.",
+          "upstream block: backend pool with round-robin, least_conn, or ip_hash. proxy_cache: disk-based response caching.",
+          "Config via directives in contexts. Reload (nginx -s reload) gracefully applies config changes without dropping connections."
         ],
         "bullets": [
-          "Inputs → state/protocol → outputs/side effects",
-          "Name consistency and delivery guarantees",
-          "Identify the bottleneck resource early"
+          "worker_processes auto: one worker per CPU core",
+          "proxy_pass: forward requests to upstream pool",
+          "proxy_cache_path: configure disk cache for upstream responses"
         ]
       },
       {
-        "title": "Designing with it",
+        "title": "Envoy xDS and Observability",
         "paragraphs": [
-          "When incorporating Nginx & Envoy Internals into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-          "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to Nginx & Envoy Internals.",
-          "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of Nginx & Envoy Internals should be observable on day one."
-        ]
-      },
-      {
-        "title": "Operations and failure modes",
-        "paragraphs": [
-          "Operate Nginx & Envoy Internals with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-          "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-          "Chaos and game days should include slow dependencies and network delay, not only hard kills. Nginx & Envoy Internals often fails in the gray area."
+          "xDS API: LDS/CDS/RDS/EDS for dynamic listener, cluster, route, and endpoint configuration from control plane.",
+          "Automatic L7 metrics (request count, latency, errors), distributed traces, and access logs—uniform across all services using Envoy.",
+          "Outlier detection: eject hosts with high error rate from load balancing pool automatically."
+        ],
+        "bullets": [
+          "No restart for config changes: control plane pushes updates via xDS",
+          "mTLS: cryptographic service identity; encrypts all east-west traffic",
+          "Protocol filters: HTTP→gRPC transcoding, Thrift, Redis, MySQL, Kafka"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Nginx & Envoy Internals — deeper internals",
+        "title": "Envoy Filter Chain and Extensions",
         "paragraphs": [
-          "Under the hood, Nginx & Envoy Internals typically exposes knobs for batching, buffering, concurrency, retention, and timeouts. Each knob trades latency, throughput, and cost. Change one at a time and measure.",
-          "Instrumentation should include high-signal histograms and exemplars that jump to traces. For data systems, watch amplification and compaction/GC; for RPC systems, watch queue time and saturation; for ML systems, watch memory and tokens/s."
+          "Envoy's power comes from its filter chain: each request passes through a configurable sequence of filters before reaching the upstream. Network filters (L4): TCP proxy, rate limit, Mongo proxy, MySQL proxy. HTTP filters (L7): router, rate limit, JWT auth, gRPC-JSON transcoder, compressor, CORS, Lua, WebAssembly. Filters compose: JWT auth filter validates the token, router filter selects the upstream cluster, rate limit filter checks the request against a rate limit service—all in a single Envoy instance.",
+          "WebAssembly (Wasm) filter extensions allow custom filter logic compiled to Wasm and loaded dynamically into Envoy without recompilation or restart. The Envoy Wasm ABI provides access to request/response headers, body, and metadata. Teams write custom authentication, logging, or header manipulation logic in Go, C++, or Rust, compile to Wasm, and deploy via xDS without modifying Envoy. This extensibility model enables platform teams to enforce custom policies without forking Envoy.",
+          "The admin API exposes a wealth of operational information: cluster health statistics, circuit breaker state, active connection counts, listen socket state, request histograms, and hot restart status. Calling GET /stats/prometheus returns all metrics in Prometheus format. GET /clusters shows all upstream clusters with their health status and load balancing statistics. The admin API can also modify runtime configuration dynamically—disable circuit breakers, change cluster weights—for emergency operational interventions."
         ],
         "bullets": [
-          "One knob at a time with a hypothesis",
-          "Histograms > averages",
-          "Tie dashboards to runbooks"
-        ]
-      },
-      {
-        "title": "Nginx & Envoy Internals — integration patterns",
-        "paragraphs": [
-          "Integrate via stable contracts: schemas, idempotency keys, and versioned APIs. Dual-write carefully or prefer CDC/outbox patterns when crossing storage and messaging.",
-          "Boundary tests should prove behavior under duplicate delivery, reordering, and clock skew where relevant to Nginx & Envoy Internals."
+          "Filter chain: ordered L4 and L7 filters; each request traverses the chain",
+          "Wasm filters: custom logic without Envoy recompilation; deploy via xDS",
+          "Admin API (:15000): operational stats, circuit breaker state, cluster health in Prometheus format",
+          "gRPC-JSON transcoder: REST clients → gRPC services; transparent protocol conversion"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Nginx & Envoy Internals — multi-region and cost",
+        "title": "Service Mesh Data Plane at Scale",
         "paragraphs": [
-          "Across regions, RTT and quorum placement dominate. Keep user-critical paths region-local when invariants allow; replicate asynchronously otherwise. Spell out the conflict/staleness model.",
-          "Track unit economics for Nginx & Envoy Internals: cost per million requests, per GB stored, or per million tokens. Many scalability projects are cost projects — make the objective explicit."
+          "At 10,000 Envoy sidecars in a large Kubernetes deployment, the control plane becomes a scalability bottleneck. Istio's Pilot must push configuration updates to 10,000 Envoys; a single service endpoint change triggers an EDS update to every Envoy that could potentially route to that service. Optimization: scope xDS push to only the Envoys that have that service in their route configuration (Sidecar resource in Istio limits which services each sidecar sees). Without scoping, every Envoy gets every update—quadratic scaling.",
+          "Envoy's memory footprint scales with configuration complexity: each cluster, route, and endpoint in the configuration consumes memory. A service mesh with 500 services and 10,000 endpoints per service can require 500MB+ per Envoy instance just for the routing configuration. Use Sidecar resources aggressively: each service should only see the upstream services it actually calls, not the full mesh configuration. This reduces Envoy memory by 10-100x in large meshes.",
+          "Hot restart: Envoy supports hot restart—a new Envoy process takes over sockets from the old process without dropping in-flight connections. This enables zero-downtime version upgrades. The old process drains its connections while the new process serves new connections. Kubernetes rolling deployments of Envoy sidecar upgrades use this mechanism. Combined with traffic draining (the old process stops accepting new connections but finishes existing ones), hot restart achieves truly zero connection drops during upgrades."
         ]
       }
     ]
   },
   "concepts": [
-    "Nginx & Envoy Internals: problem framing and constraints",
-    "Control plane vs data plane",
-    "Amplification, locality, contention",
-    "Failure observations for clients",
-    "SLIs and capacity headroom",
-    "Versioned contracts / idempotency"
+    "Event loop: single-threaded, epoll-based; handles thousands of connections without blocking",
+    "worker_processes: Nginx worker count; one per CPU core for optimal utilization",
+    "xDS API: Envoy's dynamic configuration protocol; LDS, CDS, RDS, EDS discovery services",
+    "Outlier detection: Envoy's passive circuit breaker; ejects hosts with high error rates",
+    "mTLS: mutual TLS; cryptographic service identity for service-to-service authentication",
+    "SDS (Secret Discovery Service): dynamic certificate distribution; zero-downtime rotation",
+    "Filter chain: Envoy's ordered processing pipeline; composable L4 and L7 filters",
+    "proxy_cache: Nginx on-disk response cache; cache-hit serves response without upstream",
+    "SPIFFE/SPIRE: workload identity standard; issues X.509 SVIDs for mTLS",
+    "Hot restart: Envoy zero-downtime restart with socket handoff to new process",
+    "HAProxy: TCP/HTTP proxy; simpler than Envoy; excellent raw L4 performance",
+    "Wasm filter: custom Envoy logic compiled to WebAssembly; deployed without recompilation"
   ],
   "practices": [
-    "Start from constraints before selecting a Nginx & Envoy Internals approach",
-    "Define SLIs and dashboards with the feature",
-    "Make retries idempotent and budgeted",
-    "Roll out reversibly with measurement"
+    "Use worker_processes auto in Nginx for optimal CPU utilization",
+    "Enable upstream keepalive in Nginx proxy configuration to reuse TCP connections to backends",
+    "Configure Envoy outlier detection thresholds appropriate to backend error rates under load",
+    "Use SDS for certificate management in Envoy—never mount secrets as files in service mesh",
+    "Scope Istio Sidecar resources to limit xDS push scope in large meshes",
+    "Monitor Envoy admin API metrics for per-cluster error rates, latency, and circuit breaker state",
+    "Use proxy_cache with appropriate TTLs for public, non-personalized API responses in Nginx"
   ],
   "pitfalls": [
-    "Tool-first design without invariants",
-    "Ignoring brownout/slow dependency behavior",
-    "Unbounded retries and queues",
-    "Missing ownership for ops/runbooks"
+    "Using ip_hash load balancing with an auto-scaling backend—new backend additions cause session disruption",
+    "Missing keepalive timeout in Nginx—upstream connections close after each request; overhead for high-RPS endpoints",
+    "Envoy xDS push to all sidecars without Sidecar resource scoping—quadratic scaling in large meshes",
+    "No TLS between Envoy sidecar and application pod—mTLS only protects the network path, not the localhost path",
+    "proxy_buffering off in Nginx for large responses—slower clients hold upstream connections open",
+    "Missing health check endpoints in Envoy cluster config—traffic sent to unhealthy backends",
+    "Envoy admin API exposed publicly—it allows runtime configuration changes and exposes sensitive stats"
   ],
   "examples": [
     {
-      "title": "Production pattern",
-      "description": "Teams that succeed with Nginx & Envoy Internals treat measurement, failure drills, and contracts as part of the design — not afterthoughts."
+      "title": "Nginx as Kubernetes Ingress",
+      "description": "A production Kubernetes cluster uses Nginx Ingress Controller with 3 replicas for HA. Nginx terminates TLS (certs from cert-manager/Let's Encrypt), rate limits by IP (using ngx_http_limit_req_module), and proxies to backend services. proxy_cache caches GET /api/catalog responses for 60 seconds, reducing database load by 80% during traffic spikes. The Nginx workers use 2 cores per replica at peak traffic, serving 50,000 req/sec total."
     },
     {
-      "title": "Common review question",
-      "description": "In design reviews, expect to explain what breaks first when load spikes 10× and how Nginx & Envoy Internals sheds or scales."
+      "title": "Envoy Service Mesh with Istio",
+      "description": "A microservices platform deploys Envoy as a sidecar alongside each service via Istio. mTLS is enforced between all services—no service can call another without a valid SPIFFE certificate. Circuit breaking prevents a slow payment service from blocking checkout workers: outlier detection ejects the payment service endpoint after 5 consecutive 503 errors, with 30-second ejection duration. Istio routes 10% of traffic to a canary deployment of the recommendations service via weighted routing rules pushed via xDS."
     }
   ],
   "keyTakeaways": [
-    "Nginx & Envoy Internals should be chosen from constraints, not fashion",
-    "Mechanics + failure model + capacity math are the core",
-    "Operations and contracts decide long-term success"
+    "Nginx's event loop serves millions of connections with minimal memory—the right choice for edge proxying",
+    "Envoy's dynamic xDS configuration, automatic observability, and mTLS make it the foundation of modern service meshes",
+    "mTLS via Envoy provides cryptographic service identity, eliminating IP-based access control in dynamic cloud environments",
+    "Envoy's filter chain enables composable L7 logic (auth, rate limiting, protocol translation) without application changes",
+    "Choose Nginx for edge/CDN/static proxying; Envoy for service mesh and dynamic traffic management",
+    "SDS for certificate management and outlier detection for circuit breaking are Envoy's operational superpowers",
+    "Scope Istio Sidecar resources to prevent quadratic xDS push scaling in large meshes"
   ],
-  "whyItMatters": "Without a solid model of Nginx & Envoy Internals, designs either overbuild or fail in production in ways that are hard to debug. This lesson gives a working framework you can reuse across systems involving how production systems are built inside.",
+  "whyItMatters": "Nginx and Envoy appear in virtually every modern infrastructure stack—Nginx as the internet-facing proxy, Envoy as the service mesh backbone. Understanding their architecture is essential for diagnosing proxy-layer performance issues, designing service mesh policies, and making informed choices between static and dynamic proxy configurations. These are the systems that sit in front of every service, handling TLS, routing, load balancing, and observability.",
   "reflectionQuestions": [
-    "What invariant does Nginx & Envoy Internals protect in your system?",
-    "What is the scarcest resource when you apply Nginx & Envoy Internals?",
-    "How would you rehearse the top failure mode for Nginx & Envoy Internals?"
+    "Your Nginx is handling 100,000 req/sec but p99 latency is 2 seconds. How would you diagnose whether the bottleneck is Nginx itself, the upstream connection pool, or the backend services?",
+    "Explain how Envoy enables zero-downtime deployment of a service mesh-wide certificate rotation without restarting any proxies.",
+    "Compare using Nginx rate limiting vs. Envoy rate limiting vs. application-level rate limiting. What are the trade-offs of each approach?",
+    "In a Kubernetes cluster with 1,000 services and 50,000 pods using Istio, how would you identify if xDS push is causing Envoy memory or CPU issues, and what would you do about it?"
   ],
   "numbersToKnow": [
-    "Plan 2–3× headroom above peak for incidents and rebalancing",
-    "Cross-region RTT often ~50–150ms one way",
-    "p99 matters more than average for user-facing paths"
+    "Nginx memory per 10K connections: ~10MB (vs 10GB for thread-per-connection servers)",
+    "Envoy memory per sidecar: 20-100MB without scoping; can exceed 500MB in large meshes without Sidecar resource",
+    "Nginx max_conns default: unlimited; tune worker_connections (default 512; set 10,000-65,535)",
+    "Envoy xDS push latency: <100ms for endpoint changes with Istio; tune push debounce for stability",
+    "mTLS certificate rotation with SDS: zero-downtime; <1 second for new cert to take effect on new connections",
+    "Nginx reload time: <1 second; graceful—existing connections complete before worker restarts"
   ],
   "diagrams": [
     {
-      "id": "int-nginx-envoy-overview",
-      "title": "Nginx & Envoy Internals context",
-      "mermaid": "flowchart LR\n  Client --> Boundary\n  Boundary --> Nginx___Envoy_Internals\n  Nginx___Envoy_Internals --> Dependency"
+      "id": "int-nginx-envoy-sidecar",
+      "title": "Envoy Sidecar in Kubernetes Pod",
+      "mermaid": "flowchart LR\n  CLIENT[Client Service\\nEnvoy Sidecar] -->|mTLS| SERVER[Server Service\\nEnvoy Sidecar]\n  subgraph Server Pod\n    SERVER_ENV[Envoy Sidecar\\n:15001] -->|plain HTTP| APP[Application\\n:8080]\n  end\n  CP[Istio Control Plane] -->|xDS: routes, clusters, certs| CLIENT\n  CP -->|xDS| SERVER_ENV\n  SERVER_ENV -->|metrics/traces| OBS[Prometheus / Jaeger]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Nginx & Envoy Internals and the main trade-offs.",
-    "How does Nginx & Envoy Internals behave under overload or partition?",
-    "What would you measure after changing a Nginx & Envoy Internals-related knob?"
+    "How does Nginx handle 10,000 concurrent connections with a single thread?",
+    "What is Envoy's xDS API and how does it enable zero-downtime configuration changes?",
+    "Explain mTLS in a service mesh. What problem does it solve that IP-based firewall rules cannot?",
+    "Compare Nginx and Envoy for use as an ingress controller in Kubernetes. What are the trade-offs?"
   ],
   "exercises": [
-    "Sketch an architecture that depends on Nginx & Envoy Internals; estimate capacity and list three failure modes.",
-    "Write a one-page runbook for the most likely Nginx & Envoy Internals outage."
+    "Design an Nginx configuration for a microservices API gateway that: routes /api/users/* to user-service, routes /api/orders/* to order-service, caches GET /api/catalog/* for 60 seconds, rate limits by IP to 100 req/min, and terminates TLS.",
+    "Design an Envoy outlier detection policy for a downstream service that processes payments. The service normally has <0.1% error rate. What ejection threshold and interval would you configure to protect against a degraded backend while minimizing false positives?",
+    "Explain what happens when an Istio sidecar receives an xDS update that changes the routing weight from 90%/10% to 0%/100% for a canary deployment. Walk through the propagation from Istio Pilot through xDS to Envoy to traffic."
   ],
   "sources": [
-    {
-      "title": "Designing Data-Intensive Applications (concepts)"
-    }
+    {"title": "Nginx documentation — nginx.org/en/docs"},
+    {"title": "Envoy Proxy documentation — envoyproxy.io/docs"},
+    {"title": "Istio documentation — Service mesh architecture (istio.io/latest/docs)"},
+    {"title": "Matt Klein — Envoy threading model (medium.com/envoy-proxy)"},
+    {"title": "SPIFFE/SPIRE project — workload identity standard (spiffe.io)"}
   ],
-  "relatedLessons": [
-    "int-cassandra",
-    "int-clickhouse",
-    "int-etcd"
-  ]
+  "relatedLessons": ["net-load-balancing", "net-tls-dns", "infra-service-mesh", "infra-containers-k8s"]
 }
