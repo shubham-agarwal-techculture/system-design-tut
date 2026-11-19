@@ -3,202 +3,222 @@
   "title": "ClickHouse Internals",
   "moduleId": "system-internals",
   "phaseId": "internal-designs",
-  "durationMinutes": 35,
-  "summary": "ClickHouse Internals is a core topic in modern system design. This lesson builds a first-principles model around how production systems are built inside, then connects that model to capacity, failure modes, and operational practice so you can use it in real architectures.",
+  "durationMinutes": 45,
+  "summary": "ClickHouse is a column-oriented OLAP database designed for real-time analytics at petabyte scale. Its MergeTree storage engine, vectorized query execution, sparse indexing, and aggressive compression deliver sub-second queries over billions of rows on commodity hardware. Understanding its storage model, table engines, and query processing pipeline is essential for designing analytics platforms, event stores, and time-series systems.",
   "kind": "living",
-  "difficulty": "intermediate",
+  "difficulty": "advanced",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "int-cassandra"
-  ],
-  "tags": [
-    "system-internals",
-    "living",
-    "internal-designs"
-  ],
+  "prerequisites": ["db-storage-engines", "fund-olap"],
+  "tags": ["system-internals", "clickhouse", "olap", "analytics", "columnar"],
   "sections": [
     {
-      "title": "What ClickHouse Internals is solving",
+      "title": "Columnar Storage and MergeTree Engine",
       "paragraphs": [
-        "ClickHouse Internals exists because naive designs around how production systems are built inside break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-        "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map ClickHouse Internals onto those constraints.",
-        "A useful mental model separates the control plane (how you configure and observe ClickHouse Internals) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-      ]
-    },
-    {
-      "title": "Core mechanics",
-      "paragraphs": [
-        "Mechanically, ClickHouse Internals involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-        "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-        "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand ClickHouse Internals."
+        "ClickHouse stores data in a columnar format: rather than storing rows together, each column is stored in a separate file. When a query asks for two columns out of fifty (SELECT user_id, revenue FROM events WHERE date = today()), ClickHouse reads only those two column files—skipping 48 columns entirely. This I/O reduction is the primary reason columnar storage dominates OLAP workloads, where queries typically access few columns over many rows.",
+        "MergeTree is ClickHouse's primary storage engine and the foundation of all its variants (ReplacingMergeTree, AggregatingMergeTree, SummingMergeTree, CollapsingMergeTree). Data is inserted in batches that form 'parts'—sorted, compressed directories on disk. Parts are merged asynchronously in the background, similar to LSM-tree compaction. Each part contains column data files, a primary.idx (sparse primary key index), and a checksums.txt for integrity. INSERT performance is high because parts are written sequentially; reads are efficient because parts are sorted and indexed.",
+        "The sparse primary index is a key ClickHouse differentiator from RDBMS indexes. Rather than a dense index (one entry per row), ClickHouse creates one index entry per 8,192 rows (the index_granularity). For a table with 1 billion rows, the primary.idx has only 122,000 entries—fits entirely in memory. When a query filters on the primary key, ClickHouse binary searches the sparse index to find the range of granules that may contain matching rows, then reads only those granules. For high-cardinality primary keys, this reduces I/O dramatically.",
+        "Compression is applied column-by-column using the CODEC system. Default codec is LZ4 (fast compression). Columns with specific patterns benefit from specialized codecs: Delta (for monotonically increasing values like timestamps), DoubleDelta (for slowly changing values), Gorilla (for float metrics), T64 (for time series). Combining codecs: CODEC(Delta, LZ4) first applies Delta (reducing range), then LZ4 (general compression). Timestamps in a 1-billion-row table with Delta+ZSTD compress to ~1 byte/row—orders of magnitude smaller than raw 8-byte integers."
       ],
       "bullets": [
-        "Inputs → state/protocol → outputs/side effects",
-        "Name consistency and delivery guarantees",
-        "Identify the bottleneck resource early"
+        "Columnar storage: reads only requested columns; massive I/O reduction for wide tables",
+        "MergeTree: insert as sorted parts; merge asynchronously; similar to LSM-tree",
+        "Sparse index: one entry per 8,192 rows (granule); fits in memory for billion-row tables",
+        "CODEC: per-column compression (Delta, Gorilla, LZ4, ZSTD); timestamps: ~1 byte/row with Delta"
       ]
     },
     {
-      "title": "Designing with it",
+      "title": "MergeTree Variants and Table Engines",
       "paragraphs": [
-        "When incorporating ClickHouse Internals into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-        "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to ClickHouse Internals.",
-        "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of ClickHouse Internals should be observable on day one."
+        "ReplacingMergeTree deduplicates rows with the same primary key during merges, keeping the latest version. This provides eventual-consistency upsert semantics: insert new and old versions of a row, and the latest (by version column or insertion order) wins after merging. The deduplication is not immediate (happens during merge) so queries must use FINAL modifier (or final=1 setting) or use the last-write-wins query pattern. Useful for user profile updates and dimension table maintenance.",
+        "AggregatingMergeTree stores aggregate states rather than raw values. Used with Materialized Views, it pre-aggregates incoming data and stores intermediate aggregate states (SUM, COUNT, MAX, uniqState for HyperLogLog approximation). The query uses -Merge aggregate functions (sumMerge, countMerge, uniqMerge) to combine the stored states into final results. This enables O(1) queries for pre-defined aggregations over billions of rows—a dashboard showing total daily revenue reads from an AggregatingMergeTree with millions of pre-aggregated rows, not billions of raw events.",
+        "Distributed table engine and sharding: in a multi-node cluster, the Distributed engine routes queries to shards and merges results. Tables are sharded by a key (consistent hash of user_id, random for load balancing). The Distributed engine proxies INSERT statements to the appropriate shards and fan-outs SELECT statements to all shards. For replicated clusters, ReplicatedMergeTree (and its variants) uses ClickHouse Keeper (or ZooKeeper) to coordinate replication across replicas of each shard.",
+        "Materialized Views in ClickHouse are triggers: when data is inserted into a source table, a Materialized View fires and inserts transformed/aggregated data into a target table. Unlike RDBMS materialized views (batch refresh), ClickHouse Materialized Views update incrementally on every INSERT. This enables real-time pre-aggregation: raw events insert into a source table; a Materialized View aggregates by (date, user_id) into an AggregatingMergeTree target table; dashboard queries hit the target table instead of the source—1,000x fewer rows to scan."
+      ],
+      "bullets": [
+        "ReplacingMergeTree: eventual-consistency upsert; deduplicates during merge; use FINAL for consistent reads",
+        "AggregatingMergeTree + Materialized View: real-time pre-aggregation; O(1) dashboard queries",
+        "Distributed: sharded query fan-out and merge; ReplicatedMergeTree for HA per shard",
+        "Materialized Views: incremental on INSERT; enables streaming pre-aggregation pipeline"
       ]
     },
     {
-      "title": "Operations and failure modes",
+      "title": "Vectorized Execution and Query Processing",
       "paragraphs": [
-        "Operate ClickHouse Internals with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-        "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-        "Chaos and game days should include slow dependencies and network delay, not only hard kills. ClickHouse Internals often fails in the gray area."
+        "ClickHouse processes queries using vectorized execution: rather than processing one row at a time (like a row-oriented RDBMS), it processes batches of values per column (column vectors of 8,192 values). Operations on column vectors use CPU SIMD instructions (SSE, AVX-512 on modern Intel/AMD) for parallel processing of 16-32 values per instruction. Filtering a billion-row column with a WHERE condition uses SIMD AND/OR on 256-bit vectors, processing 32 values per clock cycle—orders of magnitude faster than scalar row-at-a-time processing.",
+        "The query pipeline in ClickHouse: parse SQL → query plan → pipeline of operators (projection, filter, aggregate, sort, join) → execute with vectorized operators. Operators are connected as a DAG of streams: each stream pulls data from upstream, processes it, and pushes to downstream. The pipeline executes in parallel across all CPU cores—each core processes a different range of data. The number of parallel threads scales with the query complexity and hardware: `max_threads` (default = number of CPU cores).",
+        "JOIN performance is a known ClickHouse weakness compared to Spark or dedicated OLAP engines. ClickHouse supports all standard join types but requires the smaller table (right-hand side) to fit in memory—it builds a hash table from the right side and probes it with the left side. For large dimension tables, use AggregatingMergeTree pre-joins or the JOIN clause with asOf join (for time-series range lookups). ClickHouse excels at single-table scans with aggregations (GROUP BY, ORDER BY, LIMIT), which represent 90% of analytical workloads."
+      ],
+      "bullets": [
+        "Vectorized execution: process column batches (8192 rows); SIMD for 16-32 values per instruction",
+        "Parallel pipeline: all CPU cores; each core processes independent data ranges",
+        "max_threads: default = CPU cores; tune for single-query vs. concurrent-queries balance",
+        "JOIN limitation: right-side must fit in memory; design schemas to minimize large joins"
+      ]
+    },
+    {
+      "title": "Operational Considerations: Inserts, Schema Design, and Monitoring",
+      "paragraphs": [
+        "Insert patterns matter enormously in ClickHouse. Inserting one row at a time creates one part per insert—the worst possible pattern. Parts accumulate faster than merges can process them, and ClickHouse throws 'Too many parts' errors when the part count per partition exceeds 300. Best practice: batch inserts to at least 1,000 rows, ideally 100,000-1,000,000 rows per INSERT. Use a Kafka consumer (ClickHouse Kafka engine) or a buffer table (Buffer engine) to accumulate rows before inserting. ClickHouse can sustain 1+ million inserts/second with properly batched writes.",
+        "Schema design for ClickHouse: choose the primary key (ORDER BY) based on the most common filter columns in queries, in increasing cardinality order: (date, country, user_id) puts low-cardinality columns first (best granule pruning), and high-cardinality user_id last. The primary key should not contain high-cardinality columns that appear in every query filter—they provide no granule pruning benefit. Use PARTITION BY for time-based data retention: PARTITION BY toYYYYMM(timestamp) allows dropping whole month partitions with ALTER TABLE DROP PARTITION.",
+        "Monitoring ClickHouse: system.query_log captures all executed queries with execution time, memory usage, and rows read. system.merges shows ongoing part merges (monitor merge_time and rows_written). system.parts shows part count per table and partition (alert on >200 parts per partition). system.metrics shows real-time server health. Grafana dashboards built on the ClickHouse system tables provide comprehensive operational visibility. Watch for 'too many parts' (indicates insufficient batching), memory errors (increase max_memory_usage), and slow merges (tune merge_tree_min_rows_for_concurrent_read)."
+      ],
+      "bullets": [
+        "Batch inserts: minimum 1K rows, optimal 100K-1M; never row-by-row inserts",
+        "ORDER BY: low-cardinality columns first for best granule pruning; determines sort and index",
+        "PARTITION BY toYYYYMM: monthly partitions; DROP PARTITION for instant data retention",
+        "system.query_log: query history with execution time and resource usage for performance analysis"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "What ClickHouse Internals is solving",
+        "title": "Columnar Storage and MergeTree",
         "paragraphs": [
-          "ClickHouse Internals exists because naive designs around how production systems are built inside break under scale, partial failure, or changing requirements. Before choosing tools, name the problem: which resource is scarce, which invariant must hold, and which user-visible failures are unacceptable.",
-          "In interviews and production reviews, strong answers start with constraints (QPS, data size, latency budget, consistency needs) and only then map ClickHouse Internals onto those constraints.",
-          "A useful mental model separates the control plane (how you configure and observe ClickHouse Internals) from the data plane (the per-request/per-event path). Confusing the two leads to architectures that look neat and operate poorly."
-        ]
-      },
-      {
-        "title": "Core mechanics",
-        "paragraphs": [
-          "Mechanically, ClickHouse Internals involves a small set of moving parts: inputs, state, an algorithm or protocol, and outputs/side effects. Draw those parts explicitly. If state is replicated, write down the replication/consistency rule. If work is asynchronous, write down delivery semantics.",
-          "Performance characteristics usually come from amplification (how much internal work per external request), locality (whether work stays on one node), and contention (locks, hot keys, leader bottlenecks).",
-          "Correctness characteristics usually come from failure handling: retries, timeouts, idempotency, and what clients observe during failover. If you cannot explain the failure story, you do not yet understand ClickHouse Internals."
+          "Columnar format: each column stored separately; query only reads needed columns. MergeTree: sorted parts written on insert, merged asynchronously (LSM-tree pattern).",
+          "Sparse primary index: one entry per 8,192 rows; binary search to find data granule; small enough to fit in memory for billion-row tables.",
+          "Per-column codecs (Delta, LZ4, ZSTD) achieve high compression ratios; timestamps with Delta+ZSTD reach ~1 byte/row."
         ],
         "bullets": [
-          "Inputs → state/protocol → outputs/side effects",
-          "Name consistency and delivery guarantees",
-          "Identify the bottleneck resource early"
+          "Granule: 8,192 rows; unit of indexing and reading",
+          "Parts: sorted, compressed, immutable until merged",
+          "index_granularity: tune for query selectivity vs. index size"
         ]
       },
       {
-        "title": "Designing with it",
+        "title": "Query Processing and Schema Design",
         "paragraphs": [
-          "When incorporating ClickHouse Internals into a system, decide the API boundary first: what does a client call, what can fail, and what is retried. Keep the happy path boring and push complexity into well-tested libraries or platform components.",
-          "Capacity plan with numbers: estimate peak load, working set, and headroom. Convert that into shard counts, cache sizes, thread/connection pools, or GPU/memory budgets as relevant to ClickHouse Internals.",
-          "Prefer reversible rollout: feature flags, dual-running, shadow traffic, and clear dashboards. New uses of ClickHouse Internals should be observable on day one."
-        ]
-      },
-      {
-        "title": "Operations and failure modes",
-        "paragraphs": [
-          "Operate ClickHouse Internals with SLIs that match user pain (availability, latency, lag, error rate, cost). Alert on burn rates and queue/lag growth, not only host CPU.",
-          "Common failures include overload without admission control, retry amplification, silent staleness, schema mismatches, and dependency brownouts. Write a runbook for the top three.",
-          "Chaos and game days should include slow dependencies and network delay, not only hard kills. ClickHouse Internals often fails in the gray area."
+          "Vectorized execution: SIMD over column batches. Parallel pipeline across all CPU cores. Max throughput on single-table scan + aggregation queries.",
+          "ORDER BY determines primary sort key: low-cardinality columns first for maximum granule pruning. PARTITION BY for time-based retention.",
+          "Batch inserts: 100K-1M rows per INSERT; use Kafka engine or Buffer table to accumulate."
+        ],
+        "bullets": [
+          "AggregatingMergeTree + Materialized View: pre-aggregate for O(1) dashboard queries",
+          "ReplacingMergeTree: eventual-consistency upsert; use FINAL for consistent reads",
+          "system.query_log and system.parts: primary operational monitoring sources"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "ClickHouse Internals — deeper internals",
+        "title": "ClickHouse Projections and Skip Indexes",
         "paragraphs": [
-          "Under the hood, ClickHouse Internals typically exposes knobs for batching, buffering, concurrency, retention, and timeouts. Each knob trades latency, throughput, and cost. Change one at a time and measure.",
-          "Instrumentation should include high-signal histograms and exemplars that jump to traces. For data systems, watch amplification and compaction/GC; for RPC systems, watch queue time and saturation; for ML systems, watch memory and tokens/s."
+          "Projections are pre-computed alternative sort orders stored alongside the main table data. For a table ordered by (date, user_id), adding a projection ordered by (campaign_id, date) allows queries filtering by campaign_id to skip a full table scan and use the projection's sort order instead. Projections are materialized on INSERT and updated on mutation (ALTER TABLE ... UPDATE). They trade storage space (each projection stores a full copy of used columns) for query speed on alternative access patterns.",
+          "Data skipping indexes (secondary indexes) in ClickHouse provide approximate indexes for non-primary-key columns. Types: minmax (store min/max per granule; skip granules where column value can't match), set (store unique values per granule; useful for low-cardinality columns), bloom_filter (approximate set membership; useful for string contains queries), ngrambf_v1 (N-gram Bloom filter for substring search). Skipping indexes don't guarantee accurate filtering—they eliminate granules that definitely don't contain matching rows, but qualifying granules still need full evaluation.",
+          "ClickHouse's merge algorithm uses a priority queue to merge sorted runs from multiple parts efficiently. The merge process reads column files from each part, merges them in sorted order, applies any ReplacingMergeTree deduplication or SummingMergeTree aggregation, then writes new merged parts. Large merges are CPU and I/O intensive—schedule heavy data loads during low-traffic windows. Use insert_quorum=2 and insert_quorum_timeout for durability in replicated clusters: at least 2 replicas must acknowledge before the INSERT succeeds."
         ],
         "bullets": [
-          "One knob at a time with a hypothesis",
-          "Histograms > averages",
-          "Tie dashboards to runbooks"
-        ]
-      },
-      {
-        "title": "ClickHouse Internals — integration patterns",
-        "paragraphs": [
-          "Integrate via stable contracts: schemas, idempotency keys, and versioned APIs. Dual-write carefully or prefer CDC/outbox patterns when crossing storage and messaging.",
-          "Boundary tests should prove behavior under duplicate delivery, reordering, and clock skew where relevant to ClickHouse Internals."
+          "Projections: alternative sort orders materialized on INSERT; trade storage for query speed",
+          "Skip indexes: approximate bloom_filter, minmax, set; eliminate granules, not individual rows",
+          "Merge process: sort-merge of parts; applies REPLACING/SUMMING/AGGREGATING logic",
+          "insert_quorum: require N replicas to acknowledge INSERT; prevents data loss on replica failure"
         ]
       }
     ],
     "expert": [
       {
-        "title": "ClickHouse Internals — multi-region and cost",
+        "title": "ClickHouse at Petabyte Scale",
         "paragraphs": [
-          "Across regions, RTT and quorum placement dominate. Keep user-critical paths region-local when invariants allow; replicate asynchronously otherwise. Spell out the conflict/staleness model.",
-          "Track unit economics for ClickHouse Internals: cost per million requests, per GB stored, or per million tokens. Many scalability projects are cost projects — make the objective explicit."
+          "At petabyte scale, ClickHouse clusters typically use tiered storage: hot data on fast NVMe SSDs (recent 7-30 days), warm data on HDD or network storage (1-12 months), cold data in object storage (S3/GCS/Azure Blob via ClickHouse's tiered storage policy). Data moves between tiers automatically based on age or manual TTL expressions: TTL timestamp + INTERVAL 30 DAY TO VOLUME 'warm'. This reduces storage costs significantly while maintaining query performance on recent data.",
+          "ClickHouse's S3-backed storage (ClickHouse Keeper + object storage) decouples compute from storage. Rather than storing data on local disks, parts are written to S3 (or other object storage) with a local metadata cache. This enables serverless ClickHouse (ClickHouse Cloud's shared-nothing architecture): query nodes read from S3 on demand, and new nodes can join a cluster without data redistribution. The trade-off: S3 read latency (~50ms/request) vs. NVMe (<0.1ms/request)—mitigate with aggressive local caching and large reads.",
+          "ClickHouse is used by Cloudflare (tracking 300 trillion events/month), Contentsquare (20+ PB), Uber, and Yandex (the original authors, using ClickHouse for search and analytics). Common patterns in production: Kafka → ClickHouse (via Kafka table engine for real-time ingestion), Spark/dbt → ClickHouse (for pre-processed aggregations), ClickHouse HTTP API → Grafana (for operational dashboards). The combination of real-time write throughput and sub-second read latency at petabyte scale is unique to ClickHouse in the open-source ecosystem."
         ]
       }
     ]
   },
   "concepts": [
-    "ClickHouse Internals: problem framing and constraints",
-    "Control plane vs data plane",
-    "Amplification, locality, contention",
-    "Failure observations for clients",
-    "SLIs and capacity headroom",
-    "Versioned contracts / idempotency"
+    "Columnar storage: each column stored separately; queries read only requested columns",
+    "MergeTree: sorted parts written on insert, merged asynchronously; LSM-tree pattern",
+    "Sparse index: one index entry per 8,192 rows (granule); fits in memory for billion-row tables",
+    "Granule: 8,192 rows; unit of indexing, reading, and compression",
+    "ReplacingMergeTree: eventual-consistency upsert via deduplication during merges",
+    "AggregatingMergeTree: stores aggregate states; enables O(1) pre-aggregated queries",
+    "Materialized View: incremental pre-aggregation on INSERT; real-time streaming aggregation",
+    "Vectorized execution: SIMD-based batch processing of column vectors; exploits CPU capabilities",
+    "Data skipping index: approximate secondary index (minmax, bloom filter, set) for non-primary columns",
+    "Projection: pre-computed alternative sort order; enables efficient queries on non-primary sort keys",
+    "PARTITION BY: time-based partitioning; enables instant data deletion via DROP PARTITION",
+    "Per-column CODEC: Delta, Gorilla, LZ4, ZSTD; custom compression per column type"
   ],
   "practices": [
-    "Start from constraints before selecting a ClickHouse Internals approach",
-    "Define SLIs and dashboards with the feature",
-    "Make retries idempotent and budgeted",
-    "Roll out reversibly with measurement"
+    "Batch inserts to 100K-1M rows; use Kafka engine or Buffer table to accumulate rows before inserting",
+    "Design ORDER BY with low-cardinality columns first (date, country) and high-cardinality last (user_id)",
+    "Use PARTITION BY toYYYYMM() for time-series data; drop partitions for instant data retention enforcement",
+    "Use AggregatingMergeTree + Materialized Views for pre-aggregated dashboard tables",
+    "Monitor system.parts for part count per partition; alert at >200 parts (indicates insufficient batching)",
+    "Apply appropriate codecs per column type: Delta for timestamps, Gorilla for metrics, LZ4 for text",
+    "Use ReplicatedMergeTree with insert_quorum=2 for durability on write in replicated clusters"
   ],
   "pitfalls": [
-    "Tool-first design without invariants",
-    "Ignoring brownout/slow dependency behavior",
-    "Unbounded retries and queues",
-    "Missing ownership for ops/runbooks"
+    "Inserting row-by-row—creates one part per insert; 'Too many parts' error at >300 parts per partition",
+    "High-cardinality first column in ORDER BY—poor granule pruning; queries scan more data than necessary",
+    "JOINs with large right-side tables—right side must fit in memory; use pre-joins via AggregatingMergeTree",
+    "Forgetting FINAL on ReplacingMergeTree queries—reads duplicate rows before merge completes",
+    "No PARTITION BY—cannot efficiently drop old data; must use slow ALTER TABLE DELETE mutations",
+    "Mutations (UPDATE/DELETE) are expensive in ClickHouse—rewrites entire parts; use ReplacingMergeTree instead",
+    "Single-threaded inserts with sync_insert_timeout—blocks writes during merge pressure"
   ],
   "examples": [
     {
-      "title": "Production pattern",
-      "description": "Teams that succeed with ClickHouse Internals treat measurement, failure drills, and contracts as part of the design — not afterthoughts."
+      "title": "Real-Time Web Analytics Pipeline",
+      "description": "A web analytics platform uses ClickHouse to store 500 billion page view events per month. Events stream from Kafka to ClickHouse via the Kafka table engine (1M events/sec peak). The raw events table uses MergeTree ordered by (toDate(timestamp), website_id, user_id). A Materialized View pre-aggregates to an AggregatingMergeTree with daily page views per website and country. Dashboard queries run in <100ms on the aggregated table covering 10 billion rows, while ad-hoc queries on the raw 500 billion row table complete in <5 seconds with granule pruning."
     },
     {
-      "title": "Common review question",
-      "description": "In design reviews, expect to explain what breaks first when load spikes 10× and how ClickHouse Internals sheds or scales."
+      "title": "Security Log Analysis",
+      "description": "A SIEM platform stores 10TB/day of security logs in ClickHouse. Each log has a bloom_filter skip index on the source_ip and destination_ip columns, enabling 'find all logs involving this IP' queries to skip 90% of granules. The table uses PARTITION BY toDate(timestamp) for per-day partitions, allowing 90-day retention to be enforced by automatically dropping 91-day-old partitions. Analysts run complex regex searches over 30 days of logs (1.5 PB) in <30 seconds using ClickHouse's parallel query execution."
     }
   ],
   "keyTakeaways": [
-    "ClickHouse Internals should be chosen from constraints, not fashion",
-    "Mechanics + failure model + capacity math are the core",
-    "Operations and contracts decide long-term success"
+    "Columnar storage + sparse indexing + per-column compression delivers sub-second queries over billions of rows",
+    "MergeTree's LSM-tree design enables high insert throughput—but only with properly batched inserts",
+    "AggregatingMergeTree + Materialized Views pre-aggregate data for O(1) dashboard queries",
+    "ORDER BY design is the most critical schema decision—it determines query performance for all subsequent queries",
+    "Vectorized execution with SIMD makes ClickHouse CPU-efficient for aggregation over large column scans",
+    "PARTITION BY enables instant, lock-free data retention management via DROP PARTITION",
+    "ClickHouse is not a general-purpose RDBMS—it excels at analytical queries, not transactional updates"
   ],
-  "whyItMatters": "Without a solid model of ClickHouse Internals, designs either overbuild or fail in production in ways that are hard to debug. This lesson gives a working framework you can reuse across systems involving how production systems are built inside.",
+  "whyItMatters": "ClickHouse has become the go-to choice for real-time analytics at scale—used by Cloudflare, Contentsquare, Uber, and hundreds of other companies processing petabytes of events. Its columnar design and vectorized execution represent a fundamentally different approach from row-oriented databases, and understanding these internals is essential for designing cost-effective, performant analytics systems.",
   "reflectionQuestions": [
-    "What invariant does ClickHouse Internals protect in your system?",
-    "What is the scarcest resource when you apply ClickHouse Internals?",
-    "How would you rehearse the top failure mode for ClickHouse Internals?"
+    "You need to store 1 trillion web events and serve dashboard queries for time ranges, filtered by country and website. Design the ClickHouse schema: table engine, ORDER BY, PARTITION BY, and indexes.",
+    "A ClickHouse table is experiencing 'too many parts' errors during peak insert load. What is the root cause, and how do you fix it without downtime?",
+    "Compare ClickHouse Materialized Views with PostgreSQL Materialized Views. How do they differ in refresh strategy and use cases?",
+    "When would you choose ClickHouse over Elasticsearch for a log analytics system? What are the trade-offs?"
   ],
   "numbersToKnow": [
-    "Plan 2–3× headroom above peak for incidents and rebalancing",
-    "Cross-region RTT often ~50–150ms one way",
-    "p99 matters more than average for user-facing paths"
+    "ClickHouse single-table scan throughput: 10-100 GB/s on NVMe SSDs with columnar reads",
+    "MergeTree index_granularity: 8,192 rows per granule (default); one sparse index entry per granule",
+    "'Too many parts' threshold: >300 parts per partition triggers error; default",
+    "Optimal INSERT batch size: 100K-1M rows per statement for sustained throughput",
+    "ClickHouse compression ratio: 3-10x for typical event data (better than Parquet at same query speed)",
+    "Sparse index memory: ~100 bytes per granule; 1B rows = 122K granules = ~12MB in memory"
   ],
   "diagrams": [
     {
-      "id": "int-clickhouse-overview",
-      "title": "ClickHouse Internals context",
-      "mermaid": "flowchart LR\n  Client --> Boundary\n  Boundary --> ClickHouse_Internals\n  ClickHouse_Internals --> Dependency"
+      "id": "int-clickhouse-mergetree",
+      "title": "MergeTree Storage and Query Execution",
+      "mermaid": "flowchart TD\n  INS[Bulk INSERT\\n1M rows] -->|create| P1[Part: sorted columns]\n  P1 -->|background| MERGE[MergeTree Merge]\n  MERGE -->|produce| P2[Merged Part]\n  subgraph Query Execution\n    SQL[SELECT date, SUM(revenue)\\nWHERE date = today()] --> IDX[Sparse Index Lookup]\n    IDX -->|granule range| COL[Read: date + revenue columns only]\n    COL -->|SIMD filter| VEC[Vectorized WHERE filter]\n    VEC --> AGG[Parallel GROUP BY]\n    AGG --> RES[Result]\n  end"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain ClickHouse Internals and the main trade-offs.",
-    "How does ClickHouse Internals behave under overload or partition?",
-    "What would you measure after changing a ClickHouse Internals-related knob?"
+    "What is columnar storage and why does it outperform row-oriented storage for analytical queries?",
+    "Explain ClickHouse's MergeTree engine. How does it handle inserts, what is a 'part', and why must inserts be batched?",
+    "What is a Materialized View in ClickHouse and how does it differ from a Materialized View in PostgreSQL?",
+    "Design a ClickHouse schema for storing 1 billion daily web events with queries filtering by date and user segment. What is your ORDER BY, PARTITION BY, and table engine choice?"
   ],
   "exercises": [
-    "Sketch an architecture that depends on ClickHouse Internals; estimate capacity and list three failure modes.",
-    "Write a one-page runbook for the most likely ClickHouse Internals outage."
+    "Design the full ClickHouse schema for a real-time ad click tracking system: define the raw events table, a Materialized View for campaign-level pre-aggregation, and the AggregatingMergeTree target table. Include ORDER BY, PARTITION BY, and codecs.",
+    "Given a ClickHouse table with 500 billion rows experiencing slow queries (5+ minutes) for a date-range filter that should take seconds, diagnose the issue: what would you check in system.query_log and system.parts, and what schema changes would you make?",
+    "Compare ClickHouse and Apache Druid for a real-time analytics use case processing 1 million events/second. What are the architectural differences, operational trade-offs, and which would you choose for each of: (a) ad-hoc queries, (b) pre-defined dashboards, (c) multi-tenancy?"
   ],
   "sources": [
-    {
-      "title": "Designing Data-Intensive Applications (concepts)"
-    }
+    {"title": "ClickHouse Documentation (clickhouse.com/docs)"},
+    {"title": "Alexey Milovidov — ClickHouse architecture (ClickHouse design talks, YouTube)"},
+    {"title": "Cloudflare Blog — Scaling ClickHouse to 300 trillion events"},
+    {"title": "ClickHouse Playground (play.clickhouse.com) — test queries on sample datasets"},
+    {"title": "Altinity Blog — ClickHouse schema design and operations best practices"}
   ],
-  "relatedLessons": [
-    "int-cassandra",
-    "int-etcd",
-    "int-kafka"
-  ]
+  "relatedLessons": ["db-storage-engines", "fund-olap", "int-kafka", "int-postgres"]
 }
