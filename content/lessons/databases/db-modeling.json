@@ -3,164 +3,264 @@
   "title": "Data Modeling for Scale",
   "moduleId": "databases",
   "phaseId": "foundations",
-  "durationMinutes": 45,
-  "summary": "At scale, data models optimize for access patterns and partition keys, not only normalization purity. Good models make hot queries local and cheap; bad models force scatter-gather forever.",
+  "durationMinutes": 42,
+  "summary": "Data modeling decisions made at the start of a project constrain the system's performance, scalability, and flexibility for years. Relational normalization provides consistency and query flexibility at the cost of joins under load; denormalization trades consistency for read performance. NoSQL data modeling inverts the relational approach—model around access patterns, not entities. Choosing between document, wide-column, graph, and time-series models, and understanding when to embed vs reference, when to denormalize, and how schema evolution affects running systems, is core to backend engineering at scale.",
   "kind": "evergreen",
   "difficulty": "intermediate",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "db-isolation-deep"
-  ],
-  "tags": [
-    "databases",
-    "evergreen",
-    "foundations"
-  ],
+  "prerequisites": ["db-indexes-replication"],
+  "tags": ["databases", "data-modeling", "schema-design", "normalization", "nosql", "evergreen"],
   "sections": [
     {
-      "title": "Access patterns first",
+      "title": "Relational Modeling: Normalization and Its Limits",
       "paragraphs": [
-        "List reads/writes with QPS and latency. Model around those paths. In partitioned stores, the partition key is the most important decision."
+        "Normal forms define rules for reducing data redundancy and anomalies in relational schemas. First Normal Form (1NF): all columns are atomic (no sets or arrays). Second Normal Form (2NF): no partial dependencies on the primary key. Third Normal Form (3NF): no transitive dependencies (non-key columns don't depend on other non-key columns). Boyce-Codd Normal Form (BCNF): every determinant is a candidate key. In practice, 3NF is the target for OLTP schemas; BCNF for academic and strict compliance requirements. 3NF minimizes update anomalies—changing a customer's address requires updating one row in the customers table, not every order.",
+        "The relational model's power is query flexibility. A well-normalized schema supports any query without schema changes—even queries that weren't anticipated at design time. Need to find all orders by customers in California who haven't logged in for 30 days? A normalized schema handles this with a join. This flexibility comes at a cost: joins are expensive. A query joining orders, order_items, products, and customers at 100,000 rows/table requires the database to match rows across tables—indexes help, but join overhead grows with data volume and query complexity.",
+        "Normalization breaks down at scale in specific ways. Hotspot joins: a 'users' table joined in every query becomes a bottleneck as the user count grows. Denormalize frequently-joined columns (store username on orders to avoid joining users). Fan-out joins: a 'tags' table with millions of rows joined against a 'posts' table with billions requires careful indexing or materialized views. Write amplification: in a normalized schema, updating a customer's preferred name requires updating the customers table once; in a denormalized schema where customer_name is stored on every order, it requires updating millions of orders.",
+        "Materialized views pre-compute join results and store them as physical tables. PostgreSQL, Oracle, and SQL Server support materialized views that can be refreshed on a schedule or on-demand. For analytics queries that repeatedly perform the same expensive join, a materialized view converts a 10-second query into a millisecond lookup. The tradeoff: the view must be refreshed when base data changes; during the refresh window, the view may be stale. Incremental refresh (updating only changed rows) is more efficient but database-specific."
+      ],
+      "bullets": [
+        "3NF: no transitive dependencies; balance between update anomalies and query complexity",
+        "Materialized view: pre-computed join result stored physically; refreshed on schedule or trigger",
+        "Denormalization: store redundant data for read performance; acceptable if write path handles synchronization"
       ]
     },
     {
-      "title": "Normalization vs denormalization",
+      "title": "NoSQL Data Modeling: Access-Pattern-First Design",
       "paragraphs": [
-        "Normalize to protect write integrity; denormalize to protect read latency. Duplication requires clear update rules — CDC and application dual updates are options with different failure modes."
+        "NoSQL modeling inverts the relational approach. Rather than modeling entities and deriving queries, you start from the access patterns—what queries must be fast—and design the schema to support them directly, accepting redundancy. This is because NoSQL databases (DynamoDB, Cassandra, MongoDB) have limited join capabilities and constrained query models. If you don't pre-plan for a query in your schema, you may not be able to execute it efficiently later.",
+        "DynamoDB's single-table design co-locates different entity types in one table using composite primary keys and sort key patterns. Example: a table for an e-commerce app might store customers (PK=CUSTOMER#user_id, SK=PROFILE), orders (PK=CUSTOMER#user_id, SK=ORDER#order_id), and order items (PK=ORDER#order_id, SK=ITEM#item_id). Queries: 'get customer + all orders' → query PK=CUSTOMER#user_id, SK begins_with ORDER; 'get order items' → query PK=ORDER#order_id, SK begins_with ITEM. This requires careful planning but achieves all common queries with single-partition reads.",
+        "Cassandra's wide-column model stores data in partitions identified by a partition key; within a partition, rows are sorted by clustering columns. The data model must match the query patterns: for a time-series events table with query 'all events for user X in time range T1–T2', the partition key is user_id and clustering key is event_timestamp. Each Cassandra partition should not exceed 100 MB (a few hundred thousand rows)—larger partitions cause read/write hotspots and GC pressure on the coordinator node. If a user generates millions of events, partition by user_id + month (user_id:YYYY-MM).",
+        "Graph databases (Neo4j, Amazon Neptune) model data as nodes and edges. They excel at relationship-heavy queries: 'find all friends of friends within 3 hops who have purchased product X'. In a relational model, this requires self-joining the friendships table 3 times—expensive. In a graph, Cypher traversal is O(degrees) rather than O(table_rows). Graph databases are appropriate when: the query patterns are inherently relationship-traversal, the number of hops is variable, and the data model is naturally a graph (social networks, knowledge graphs, recommendation systems, fraud detection networks)."
+      ],
+      "bullets": [
+        "DynamoDB single-table: one table, composite keys encode entity type; avoids cross-table joins entirely",
+        "Cassandra partition size limit: ~100 MB; use time-bucketed partition keys for high-volume streams",
+        "Graph traversal advantage: friendship-of-friendship query in O(degrees) vs O(join) in relational"
       ]
     },
     {
-      "title": "Keys and hotspots",
+      "title": "Embedding vs Referencing",
       "paragraphs": [
-        "Monotonic keys create write hotspots. High cardinality + even access is ideal. Tenant+time composites need care to avoid skew."
+        "In document databases (MongoDB, CouchDB, Firestore), embedding means storing related data inside the same document; referencing means storing a reference (ID) to another document. Embedding is best when: the sub-document is always read with the parent (no value in separate reads), the sub-document is not too large (MongoDB document size limit: 16 MB), the sub-document is not updated frequently independently of the parent, and the relationship is 1:few (a blog post's comments might be embedded if there are <100 comments). Referencing is best when: the sub-document is frequently accessed independently, the relationship is 1:many at scale, or the same sub-document is shared across many parents.",
+        "The critical mistake: embedding unbounded arrays. Storing all comments as an array inside a blog post document works for 50 comments but fails at 50,000—the document grows to megabytes, every comment read requires loading the entire document, and writes (adding a comment) require loading and rewriting the entire document. MongoDB's $push on an embedded array is an atomic operation at document level but copies the entire document to the write-ahead log. For unbounded 1:many relationships, always use a separate collection with a foreign-key-style reference.",
+        "The two-document problem: for a 'User follows User' social graph, should follows be stored as an array in the user document, or as a separate follows collection? Array approach: easy to query 'does user A follow user B?' (array membership check), but followers array grows unboundedly for popular users (celebrity problem). Separate collection: scales to any number of follows; query 'does A follow B?' requires a separate read. Hybrid: store follower count in user document for display; store actual follow relationships in a separate collection for graph traversal.",
+        "Schema-on-read (NoSQL) vs schema-on-write (SQL): NoSQL stores data without enforcing a schema at write time; the application interprets the structure at read time. This enables flexible schema evolution—adding a new field to new documents without migrating existing ones. The tradeoff: different documents may have different structures, requiring defensive application code that handles missing fields. SQL schemas enforce structure at write time, ensuring data integrity but requiring schema migrations when the structure changes."
+      ],
+      "bullets": [
+        "MongoDB document size limit: 16 MB; embedding unlimited arrays violates this and causes performance issues",
+        "1:few → embed; 1:many (unbounded) → reference with separate collection",
+        "Schema-on-read: no migration needed for new fields; application must handle missing fields defensively"
       ]
     },
     {
-      "title": "Evolving schemas",
+      "title": "Schema Evolution and Migrations",
       "paragraphs": [
-        "Expand/contract migrations, dual writes, and backfills. Avoid locking migrations on huge tables without a plan."
+        "Schema migration is modifying a live database schema without downtime. For a table with 1 billion rows, adding a column in MySQL (before 8.0's instant ADD COLUMN) could lock the table for hours. Online schema change tools (pt-online-schema-change for MySQL, pg_repack for PostgreSQL) avoid table locks by creating a new table with the desired schema, copying data in background, and swapping at the end. GitHub and Shopify use Vitess's online schema change, which runs the migration across all shards in parallel.",
+        "Backward and forward compatibility in schema changes: backward compatible change—existing application can read data written by new schema (new column with default value is backward compatible; renaming a column is not). Forward compatible—new application can read data written by old schema (application handles missing new column gracefully; application ignores unknown columns in NoSQL). Design changes to be backward compatible first: add nullable columns, never remove columns in use, deprecate then remove after all versions are updated.",
+        "Protobuf and Avro schema evolution is designed for forward/backward compatibility. Protobuf: add new optional fields with new field numbers; old readers ignore unknown fields; new readers use defaults for missing fields. Rename fields by keeping the same field number. Remove fields by marking them 'reserved'. Avro: schema is attached to each record or file; reader schema and writer schema can differ; Avro resolver handles compatible differences. These wire format contracts make schema evolution manageable in event-driven systems where old and new consumers may coexist.",
+        "Event sourcing as a schema evolution strategy: store raw events (immutable fact records) rather than current state. The current state is derived by replaying events. When schema requirements change, create a new projection from the same events. Old projections remain valid; new projections co-exist. This decouples data model evolution from event format evolution. The tradeoff: initial query latency (must replay or maintain materialized projections), storage growth (all events retained), and complexity of event versioning when event schemas themselves must evolve."
+      ],
+      "bullets": [
+        "pt-online-schema-change (MySQL): copy → sync → swap; no table lock; runs on live production tables",
+        "pg_repack: rebuilds tables and indexes online; PostgreSQL equivalent; reclaims bloat while adding columns",
+        "Protobuf field number: never reuse a removed field number; Protobuf identifies fields by number, not name"
+      ]
+    },
+    {
+      "title": "Time-Series and Specialized Data Models",
+      "paragraphs": [
+        "Time-series data—metrics, events, IoT readings—has specific modeling requirements: writes are almost always appends, reads are range queries by time window, and data ages out. Columnar storage with time-ordered partitioning exploits this: ClickHouse, TimescaleDB, and InfluxDB store time-series data with the timestamp as the primary sort key, enabling sequential disk reads for time-range queries. Data is partitioned by time (chunks in TimescaleDB, shards in InfluxDB), enabling efficient chunk-level deletion for data retention policies.",
+        "High-cardinality time-series modeling: a metrics system storing CPU usage per process (millions of distinct process IDs) has high cardinality. Prometheus stores labels as a flat attribute map; each unique combination of labels is a time series. At millions of unique label combinations, Prometheus's in-memory index becomes the bottleneck—not the data volume. High-cardinality mitigation: drop high-cardinality labels before ingestion, use sampling, or use a database designed for high cardinality (Thanos, VictoriaMetrics, Grafana Mimir).",
+        "Sparse schemas for multi-tenant analytics: a SaaS with custom fields per tenant naturally creates a sparse schema—not every row has a value for every column. Options: JSON/JSONB column in PostgreSQL (store arbitrary attributes; query with jsonb operators; GIN index for contained-in queries), EAV (Entity-Attribute-Value—store each attribute as a row; flexible but inefficient for multi-attribute queries), or separate tables per tenant (schema-per-tenant; maximum isolation; operational overhead). PostgreSQL JSONB is the most practical for moderate cardinality and query needs; schema-per-tenant for strict isolation or large tenants."
+      ],
+      "bullets": [
+        "TimescaleDB hypertable: time-partitioned PostgreSQL table; chunk-level compression and retention policies",
+        "High cardinality in metrics: million unique label combinations → Prometheus memory exhaustion; use recording rules to aggregate",
+        "JSONB GIN index: indexes all keys and values in a JSONB document; enables containment queries on arbitrary attributes"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "Access patterns first",
+        "title": "Normalization vs Denormalization",
         "paragraphs": [
-          "List reads/writes with QPS and latency. Model around those paths. In partitioned stores, the partition key is the most important decision."
+          "3NF minimizes update anomalies and storage; enables flexible ad-hoc queries via joins. Use for OLTP schemas where data consistency is critical.",
+          "Denormalization improves read performance by pre-computing joins; increases write complexity (must update all copies). Use when join overhead is measured and unacceptable.",
+          "Materialized views pre-compute expensive joins for analytics; refresh on schedule or trigger. Balance staleness vs query performance."
+        ],
+        "bullets": [
+          "Partial denormalization: store frequently-joined columns on the main table; keep detail tables for full data",
+          "OLAP schemas: Star schema (fact table + dimension tables) or snowflake schema; analytics-optimized denormalized forms",
+          "Computed columns / generated columns: DB computes derived values automatically; reduces application logic"
         ]
       },
       {
-        "title": "Normalization vs denormalization",
+        "title": "NoSQL Access-Pattern Modeling",
         "paragraphs": [
-          "Normalize to protect write integrity; denormalize to protect read latency. Duplication requires clear update rules — CDC and application dual updates are options with different failure modes."
+          "DynamoDB single-table: encode entity type in PK/SK composite key; all related entities in one partition for single reads.",
+          "Cassandra: partition key determines data distribution; clustering key determines sort order within partition; query pattern determines both.",
+          "Graph databases: use when queries traverse relationships of variable depth; O(degrees) traversal vs O(join) for social and recommendation graphs."
+        ],
+        "bullets": [
+          "DynamoDB GSI (Global Secondary Index): alternate access pattern; PK and SK can be any attributes",
+          "Cassandra allow filtering: avoid ALLOW FILTERING; it causes full partition scans; model around your queries",
+          "Neo4j Cypher MATCH (a)-[:FOLLOWS*1..3]->(b): variable-depth traversal; natural graph query syntax"
         ]
       },
       {
-        "title": "Keys and hotspots",
+        "title": "Embedding vs Referencing",
         "paragraphs": [
-          "Monotonic keys create write hotspots. High cardinality + even access is ideal. Tenant+time composites need care to avoid skew."
-        ]
-      },
-      {
-        "title": "Evolving schemas",
-        "paragraphs": [
-          "Expand/contract migrations, dual writes, and backfills. Avoid locking migrations on huge tables without a plan."
+          "Embed when: always read together, bounded size, 1:few relationship. Reference when: independently accessed, unbounded, shared across many parents.",
+          "Never embed unbounded arrays; they grow documents to multi-MB, slow reads, and cause write amplification.",
+          "Schema-on-read allows flexible evolution; handle missing fields defensively; use JSON schema or application-level validation."
+        ],
+        "bullets": [
+          "MongoDB $lookup: left outer join in aggregation pipeline; avoids embedding for 1:many at cost of extra read",
+          "Firestore subcollections: reference pattern for NoSQL; queries can't span collections without collection group queries",
+          "16 MB: MongoDB document size hard limit; design to stay well below 1 MB per document"
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "Data Modeling for Scale — Operations",
+        "title": "Schema Migration Strategies in Production",
         "paragraphs": [
-          "Operating Data Modeling for Scale in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
-          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
+          "The expand-migrate-contract pattern minimizes migration risk. Expand: add the new column alongside the old; both old and new application versions write to both columns. Migrate: backfill old rows with new column values. Contract: remove the old column once all application versions use the new one. This avoids dual-write complexity by maintaining both columns during transition. It requires three separate deployments but each step is reversible.",
+          "Zero-downtime migrations in PostgreSQL: ALTER TABLE ADD COLUMN with a default value and NOT NULL requires rewriting the entire table in PG < 11. PG 11+ supports volatile defaults without rewrite; PG 12+ supports virtual generated columns. For pre-11 PostgreSQL, the pattern is: ADD COLUMN NULL, backfill in batches (UPDATE ... WHERE id BETWEEN X AND Y), set NOT NULL after backfill (using a constraint validated in background), then SET DEFAULT. Each step is fast and non-locking.",
+          "Index creation for large tables: CREATE INDEX CONCURRENTLY in PostgreSQL builds the index without locking writes; it runs in multiple passes, taking 2–10× longer than a regular CREATE INDEX. Monitoring: check pg_stat_progress_create_index for phase and progress. During CONCURRENTLY, queries can still use the table. After creation, verify with EXPLAIN that the index is used by target queries. In MySQL, CREATE INDEX uses online DDL (InnoDB) by default since 5.6; large tables still take minutes to hours."
         ],
         "bullets": [
-          "Define capacity from the scarcest resource",
-          "Document blast radius per dependency",
-          "Keep rollback cheaper than forward repair when possible"
+          "Expand-migrate-contract: safe 3-phase schema change; each phase independently deployable and reversible",
+          "CREATE INDEX CONCURRENTLY: non-blocking index creation; 2–10× slower but doesn't lock table writes",
+          "pg_stat_progress_create_index: tracks index build progress; phase, blocks_done, blocks_total"
         ]
       },
       {
-        "title": "Data Modeling for Scale — Failure modes",
+        "title": "Event Sourcing and CQRS at Scale",
         "paragraphs": [
-          "Common failures around Data Modeling for Scale include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
-          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+          "Command Query Responsibility Segregation (CQRS) separates the write model (command side: normalized, transactional) from the read model (query side: denormalized, optimized for specific views). Commands update the write model; events are published to update read models asynchronously. A product catalog service: write model is a normalized relational schema ensuring price and inventory consistency; read models are denormalized JSON documents in Elasticsearch (for search) and Redis (for display). Read models are eventually consistent but fast; the write model is strongly consistent.",
+          "Event sourcing stores domain events as the system of record. The current state is a projection of past events. Example: BankAccount has events [AccountOpened, MoneyDeposited, MoneyWithdrawn, InterestApplied]. Current balance = sum of deposits - sum of withdrawals + sum of interest. The events are immutable; projections can be rebuilt from scratch if the read model schema changes. This enables retroactive analytics (what would the balance have been if we applied this new interest policy?) and audit logs as a first-class citizen.",
+          "Event stream storage: Kafka retains events for configurable duration (days to years). After this, events must be archived to object storage (S3) or a cold store. Rebuilding a projection from 5 years of events requires efficient event replay. Snapshots—periodic saves of current state—reduce replay time: a snapshot every 1000 events means at most 1000 events to replay, not years' worth. EventStoreDB and Axon Framework implement snapshotting automatically."
+        ],
+        "bullets": [
+          "CQRS: separate write (normalized, consistent) and read (denormalized, fast) models; async sync via events",
+          "Event sourcing snapshot: periodic state save; reduces replay time from full history to snapshot + recent events",
+          "Idempotent event handler: same event applied twice must produce the same result; use event ID for dedup"
         ]
       }
     ],
     "expert": [
       {
-        "title": "Data Modeling for Scale — Expert notes",
+        "title": "Global Data Modeling: Multi-Region Consistency Tradeoffs",
         "paragraphs": [
-          "At the expert level, Data Modeling for Scale intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
-          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+          "Multi-region data models must decide where data lives and what consistency guarantees apply across regions. The options: single-region primary with global replicas (strong consistency for writes, eventual reads from other regions), active-active multi-region (all regions accept writes; conflict resolution required), or regional partitioning (each region owns its data; cross-region access is rare). Stripe's payment data is single-region-primary per currency (USD primary in US-East, EUR primary in EU-West) with cross-region reads for dashboards.",
+          "Locality-aware data placement in global databases: Spanner's row-level placement allows specifying which region stores the master copy for each row. A multi-national company can store EU users' data in EU nodes (GDPR compliance) and US users' in US nodes while using the same globally consistent Spanner cluster. CockroachDB supports similar regional table placement with REGIONAL BY ROW tables. This satisfies data residency requirements without maintaining separate database clusters per region.",
+          "Soft deletes and GDPR right to erasure: immutable event logs and audit tables conflict with GDPR's requirement to delete user data. Patterns: pseudonymization (replace PII with a token; delete the token's mapping to erase PII without deleting events), event compaction (replace specific events with 'data-erased' tombstones), or encrypted data with per-user keys (deleting the key makes the data unrecoverable without deletion). The right choice depends on compliance requirements and the system's audit and replay needs."
         ]
       }
     ]
   },
   "concepts": [
-    "Access-pattern modeling",
-    "Partition key",
-    "Denormalization",
-    "Hot partition",
-    "Expand/contract"
+    "Third Normal Form (3NF): no transitive dependencies; minimizes update anomalies; requires joins for queries",
+    "Denormalization: storing redundant data for read performance; acceptable with controlled write-path synchronization",
+    "Materialized view: pre-computed result of an expensive query stored physically; refreshed on schedule or trigger",
+    "NoSQL access-pattern modeling: design schema around access patterns first; entities and relationships follow",
+    "DynamoDB single-table design: encode entity types in composite PK/SK; avoids cross-table reads",
+    "Cassandra partition key: determines data placement and query routing; must match primary access pattern",
+    "Embedding vs referencing in documents: embed for bounded 1:few; reference for unbounded 1:many",
+    "Schema-on-read: NoSQL stores any structure; application interprets at read time; enables flexible evolution",
+    "Expand-migrate-contract: safe zero-downtime schema migration pattern; three separate deployments",
+    "Event sourcing: store immutable domain events; derive current state by projection; enables retroactive analytics"
   ],
   "practices": [
-    "Write access patterns before ER diagrams",
-    "Avoid monotonic hot keys",
-    "Plan migrations as first-class work"
+    "Design NoSQL schemas for the specific queries you need; changing query patterns later requires schema redesign",
+    "Avoid embedding unbounded arrays in document databases; use a separate collection with a reference",
+    "Use expand-migrate-contract for schema changes; never drop a column without first deprecating it across all app versions",
+    "Create indexes concurrently in PostgreSQL and MySQL to avoid blocking writes on large tables",
+    "Use JSONB (PostgreSQL) for sparse attribute schemas; GIN index enables containment queries on arbitrary fields",
+    "Model Cassandra partition keys to stay under 100 MB; bucket high-volume streams by time period"
   ],
   "pitfalls": [
-    "Pretty schemas that cannot be sharded",
-    "Unbounded fan-out reads",
-    "Blocking DDL in peak"
+    "Storing high-cardinality attributes (user_id, session_id) as Prometheus labels; causes label explosion and OOM",
+    "Embedding unbounded one-to-many relationships in MongoDB documents; document grows without bound, hits 16 MB limit",
+    "Designing a Cassandra schema without knowing access patterns; Cassandra's query model is too constrained to retrofit",
+    "Running ALTER TABLE on billion-row tables without online schema change tools; locks table for hours",
+    "Assuming NoSQL means no schema; unschematized documents cause downstream issues and prevent query optimization",
+    "Modeling event sourcing without snapshots; replay from inception becomes impractical as event history grows"
   ],
   "examples": [
     {
-      "title": "DynamoDB single-table",
-      "description": "Access-pattern oriented design."
+      "title": "DynamoDB Single-Table for E-commerce",
+      "description": "Amazon's recommended DynamoDB pattern for an order management system: one table where PK=entity type#ID, SK=entity subtype#sub-ID. Customer record: PK=CUST#123, SK=PROFILE. Orders for customer: PK=CUST#123, SK=ORD#456. Items in order: PK=ORD#456, SK=ITEM#789. This models a 3-level hierarchy in one table, enabling: get customer + all orders (single partition query), get order + all items (single partition query), get item (direct lookup). All common queries are single-partition, microsecond-latency operations."
     },
     {
-      "title": "Postgres + read models",
-      "description": "Normalized OLTP + denormalized projections."
+      "title": "Instagram's Denormalization for Feed Performance",
+      "description": "Instagram stores follower counts directly on the User record rather than counting the follows table on each request. With 500 million users, counting follows for a celebrity's profile would require aggregating hundreds of millions of rows. The denormalized count is incremented/decremented atomically when users follow/unfollow. The tradeoff: the count may drift from the actual follow count under race conditions; Instagram reconciles counts periodically with a background job."
+    },
+    {
+      "title": "Shopify's Schema Migration at Scale",
+      "description": "Shopify runs thousands of MySQL shards via Vitess. Schema migrations across all shards use Vitess's online schema change, which runs pt-online-schema-change on each shard in parallel with configurable concurrency. A migration adding a nullable column to a 2 billion row table takes ~2 hours across all shards. Shopify's deployment pipeline blocks new code releases until the migration is complete on all shards, ensuring application code and schema stay in sync."
     }
   ],
   "keyTakeaways": [
-    "Scale models start from access paths",
-    "Partition keys dominate",
-    "Migrations need strategy"
+    "Relational normalization ensures consistency and query flexibility; denormalize deliberately when join overhead is measured",
+    "NoSQL data modeling must start from access patterns; designing entities first leads to schemas that can't support required queries",
+    "Never embed unbounded arrays in document databases; always reference with a separate collection for 1:many relationships",
+    "Schema changes on large tables require online schema change tools (pt-osc, pg_repack); naive ALTER TABLE locks for hours",
+    "Event sourcing makes audit logs and schema evolution tractable; snapshots prevent impractical full-history replay",
+    "CQRS separates write consistency from read performance; each side is optimized for its specific requirements"
   ],
-  "whyItMatters": "You cannot fix a bad key choice with more hardware alone.",
+  "whyItMatters": "Data modeling decisions are among the hardest to reverse in software engineering. A poorly chosen sharding key requires a full data migration. An embedded-array MongoDB schema requires collection restructuring. A denormalized column that drifts from truth becomes a correctness bug. Getting these decisions right from the start—or making them reversible—is what separates engineers who build systems that last from those who inherit permanent technical debt.",
   "reflectionQuestions": [
-    "What is the partition key for your hottest entity?"
+    "Design a data model for a multi-tenant CRM with 10,000 tenants, each with custom fields. Each tenant has up to 1 million contacts. The required queries are: list all contacts by tenant, search by any custom field, and get a single contact by ID. What database and schema design would you choose?",
+    "You inherit a MongoDB collection with documents where each user document embeds an array of their last 10,000 purchases. Some documents are approaching 16 MB. How would you migrate to a better model without downtime?",
+    "Compare designing the same 'social network follow graph' in relational (PostgreSQL), document (MongoDB), and graph (Neo4j) models. What queries is each model most and least efficient at?"
   ],
   "numbersToKnow": [
-    "Know your p99 latency budget before adding hops",
-    "Peak load ≠ average load — plan headroom (often 2–3×)",
-    "Cross-region RTT is often ~50–150ms one way"
+    "16 MB: MongoDB document size hard limit; design for <1 MB per document in practice",
+    "100 MB: Cassandra partition size guideline; partition larger than this causes GC and read issues",
+    "CREATE INDEX CONCURRENTLY: non-blocking but 2–10× slower than CREATE INDEX; hours for billion-row tables",
+    "3NF: third normal form; most OLTP schemas target this; BCNF is stricter but rarely needed",
+    "JSONB GIN index: indexes all document keys and values; enables any-field containment queries at cost of write overhead"
   ],
   "diagrams": [
     {
-      "id": "db-modeling-overview",
-      "title": "Data Modeling for Scale overview",
-      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+      "id": "db-modeling-access-patterns",
+      "title": "NoSQL vs Relational: Query-First Design",
+      "mermaid": "flowchart LR\n  subgraph Relational - entity-first\n    E1[Users table] --> E2[Orders table]\n    E2 --> E3[Items table]\n    Q1[Query: user + orders] -->|JOIN users + orders| E1\n  end\n  subgraph DynamoDB - access-pattern-first\n    AP1[Access pattern: get user + orders] --> SK1[PK=CUST-123 SK=ORD-*]\n    AP2[Access pattern: get order items] --> SK2[PK=ORD-456 SK=ITEM-*]\n    SK1 --> T1[Single table - one partition read]\n    SK2 --> T1\n  end"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain Data Modeling for Scale and the main trade-offs in three minutes."
+    "Design the data model for a Twitter-like social network: users, tweets, follows, likes, retweets. For each entity, would you use relational or NoSQL? What access patterns drive your choices?",
+    "What is the difference between embedding and referencing in MongoDB? Give two concrete examples where you'd choose each, and explain the failure mode if you choose wrong.",
+    "How would you change the schema of a 1-billion row PostgreSQL table to add a NOT NULL column with a default value without taking downtime?"
   ],
   "exercises": [
-    "Sketch a design that depends on Data Modeling for Scale; list three trade-offs and one failure mode."
+    "Model an e-commerce order system in DynamoDB single-table design. Define PK and SK for Customer, Order, and OrderItem entities. Write the access patterns for: (1) get customer profile, (2) list all orders for a customer, (3) get all items in an order, (4) get a specific item.",
+    "Take a normalized relational schema for a blog (users, posts, tags, comments) and design equivalent MongoDB documents. Identify which relationships you embed and which you reference, with justification for each decision based on the access patterns."
   ],
-  "sources": [],
-  "relatedLessons": [
-    "db-backup-pit",
-    "db-cdc",
-    "db-connection-pooling"
-  ]
+  "sources": [
+    {
+      "title": "The DynamoDB Book — Alex DeBrie",
+      "url": "https://www.dynamodbbook.com/"
+    },
+    {
+      "title": "Designing Data-Intensive Applications — Martin Kleppmann (Chapter 2: Data Models)",
+      "url": "https://dataintensive.net/"
+    },
+    {
+      "title": "Cassandra Data Modeling — DataStax Documentation",
+      "url": "https://docs.datastax.com/en/dse/6.8/dse-arch/datastax_enterprise/dbInternals/dbIntAboutDataModeling.html"
+    },
+    {
+      "title": "High-Performance MySQL — Baron Schwartz (Chapter 4: Schema Optimization)",
+      "url": "https://www.oreilly.com/library/view/high-performance-mysql/9781492080503/"
+    }
+  ],
+  "relatedLessons": ["db-indexes-replication", "db-replication-sharding", "db-cdc", "db-transactions"]
 }

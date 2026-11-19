@@ -3,165 +3,232 @@
   "title": "SLOs & Error Budgets",
   "moduleId": "reliability",
   "phaseId": "fundamentals",
-  "durationMinutes": 40,
-  "summary": "Service Level Objectives define how reliable a service must be from the user view. Error budgets convert that into a measurable allowance for change velocity vs stability.",
+  "durationMinutes": 38,
+  "summary": "Service Level Objectives (SLOs) are the precision instruments of reliability engineering. They quantify what 'reliable' means for a specific service, enable data-driven reliability decisions, and create a principled framework for balancing feature velocity against system stability. SLOs transform vague aspirations ('we should be reliable') into measurable commitments ('99.9% of requests complete in <200ms in any 30-day window').",
   "kind": "evergreen",
   "difficulty": "intermediate",
   "status": "published",
   "version": "1.0.0",
   "lastReviewed": "2026-11-19",
-  "prerequisites": [
-    "fund-reliability"
-  ],
-  "tags": [
-    "reliability",
-    "evergreen",
-    "fundamentals"
-  ],
+  "prerequisites": ["fund-reliability"],
+  "tags": ["reliability", "slos", "sre", "evergreen", "fundamentals"],
   "sections": [
     {
-      "title": "SLI, SLO, SLA",
+      "title": "SLIs, SLOs, and SLAs: The Hierarchy",
       "paragraphs": [
-        "SLI: measured indicator (availability, latency). SLO: target on that indicator. SLA: contractual consequences. Engineers manage SLOs; legal owns SLAs.",
-        "Choose SLIs that mirror user pain — successful requests / total, or fraction under latency threshold — not CPU idle."
+        "SLI (Service Level Indicator) is a quantitative measurement of service behavior: the fraction of successful requests, 99th percentile latency, records processed per second, or system throughput. SLIs are the raw metrics. SLO (Service Level Objective) is a target value or range for an SLI: 'the success rate SLI must be >= 99.9% over any rolling 30-day window.' SLOs are internal engineering targets. SLA (Service Level Agreement) is a contractual commitment to customers: 'we guarantee 99.5% uptime; breach triggers a credit.' SLAs are the external contract—SLOs are the internal target, typically set higher than SLAs to leave buffer.",
+        "Choosing SLIs requires understanding what customers actually care about. For a web service: availability (is it up?), latency (how fast?), and error rate (how often does it return errors?). For a batch processing pipeline: freshness (how old is the latest processed record?) and throughput (how many records per hour?). For a storage system: durability (what fraction of written objects can be read back?). The SLI should directly capture user experience; a CPU utilization SLI correlates poorly with user satisfaction compared to a request error rate SLI.",
+        "Common SLI traps: (1) Using a metric that is easy to measure but doesn't reflect user experience (CPU is easy; latency is what users experience). (2) Measuring availability from internal health checks rather than from user-visible synthetic monitoring (a service can be 'up' but returning 500s to users). (3) Setting SLIs without a user journey map—users experience multiple services in sequence; measuring each service independently misses end-to-end quality. Best practice: use synthetic monitoring (periodic fake user requests) as the gold standard SLI."
+      ],
+      "bullets": [
+        "SLI: quantitative measurement (success rate, p99 latency, freshness)",
+        "SLO: target for an SLI ('success rate >= 99.9% over 30 days'); internal engineering target",
+        "SLA: contractual commitment to customers; set lower than SLO to leave buffer",
+        "Best SLIs: measure user experience directly (error rate, latency); not proxies (CPU)"
       ]
     },
     {
-      "title": "Error budgets",
+      "title": "Defining Good SLOs",
       "paragraphs": [
-        "If SLO is 99.9% monthly availability, budget is 0.1% failure. Burn the budget with incidents or risky releases; when exhausted, freeze features and fix reliability.",
-        "Multi-window burn-rate alerts catch fast burns (pages) and slow burns (tickets)."
+        "SLOs must be achievable with current architecture and reasonable investment. Setting 99.999% (five nines) for a service running on a single database without automated failover is aspirational theater—the architecture cannot support it. Work backward from the architecture's realistic failure modes to set achievable SLOs, then invest in improvements to raise them. Document the gap between current actual performance and the SLO; if the gap is large, the SLO was set wrong or investment is overdue.",
+        "SLO windows matter: 30-day rolling windows are most common (average performance over the last month). Event-based windows ('per release cycle') are useful when release quality is what you're measuring. Time-based windows (calendar month) are easier to reason about for contracts but allow poor performance to 'reset' at month boundaries. Rolling windows provide continuous measurement without cliff edges. The window length determines how quickly an SLO violation is detected—shorter windows detect problems faster but may trigger false alarms from brief spikes.",
+        "Multi-dimensional SLOs: a single service may have different SLOs for different request classes. Critical checkout requests: 99.99% success, p99 < 500ms. Background analytics events: 99% success, p99 < 10s. Separating SLOs by request criticality lets teams invest reliability work proportionally. Implement this by tagging requests at ingress (checkout vs analytics) and tracking SLIs per tag. A single composite SLO across all request types would mask poor performance on critical requests if diluted by high-volume low-importance events."
+      ],
+      "bullets": [
+        "Set achievable SLOs: backfill from current actual performance; don't set aspirationally above architecture",
+        "30-day rolling window: continuous; no cliff edge reset at month boundary",
+        "Multi-dimensional SLOs: separate targets for critical vs non-critical request classes",
+        "Document SLO gap: if current performance is far from target, the SLO or the investment is wrong"
       ]
     },
     {
-      "title": "Setting targets",
+      "title": "Error Budgets: Operationalizing SLOs",
       "paragraphs": [
-        "Tighter than dependencies is impossible long-term. Stack SLOs with dependency math. Leave margin.",
-        "Different user journeys may need different SLOs (checkout vs admin export)."
+        "The error budget is the allowed amount of unreliability in the SLO window. At 99.9% SLO over 30 days: error budget = 0.1% × 30 × 24 × 60 = 43.2 minutes. Every minute of downtime, every 1-in-1000 error, consumes this budget. When the budget is exhausted (or on track to be exhausted before the window closes), the error budget policy triggers: freeze risky deployments, halt feature work, dedicate engineering capacity to reliability improvements. When budget is ample, teams can move fast.",
+        "Error budget burn rate tells you how quickly you're consuming budget relative to the window. A burn rate of 1x means you're exactly on track (at 30 days, you'll have exactly 0% budget left). A burn rate of 10x means you'll exhaust your budget in 3 days at the current rate. Alert at burn rate > 2x for a slow burn alert (you'll exhaust budget in ~15 days); alert at burn rate > 14.4x for a fast burn alert (you'll exhaust budget in 1 hour). These multi-window burn rate alerts (from Google's SRE Workbook) provide both early warning and urgency signaling.",
+        "Error budget policy must be written down and agreed upon before it's needed. Without a policy, there's no mechanism to enforce slowing velocity when reliability is degraded. The policy answers: who decides to freeze deployments? What work counts as 'reliability work' (bug fixes count; new features don't)? What is the escalation path if the policy is violated? The error budget policy is a social and organizational contract as much as a technical one."
+      ],
+      "bullets": [
+        "Error budget = 1 - SLO; at 99.9% SLO: 43.2 minutes/month of allowed downtime/errors",
+        "Burn rate: how fast budget is consumed; burn rate > 1 = on track to exhaust before window closes",
+        "Alert thresholds: >2x (slow burn, 15 days to exhaustion); >14.4x (fast burn, 1 hour to exhaustion)",
+        "Written error budget policy: who can freeze deployments; what counts as reliability work"
       ]
     },
     {
-      "title": "Culture",
+      "title": "Toil, Automation, and SLO Improvement",
       "paragraphs": [
-        "Error budgets only work if leadership honors them. Otherwise they become dashboards nobody follows."
+        "Toil is manual, repetitive, operational work that is automatable. Restarting a service when it OOMs; manually scaling a database before a known traffic event; running a manual database cleanup script weekly; manually approving deployment steps. SRE practice caps toil at 50% of team time; above 50%, more toil crowds out engineering work that reduces future toil. Measuring toil quantitatively (hours per week per person per category) enables investment decisions: automate the highest-toil items first.",
+        "SLO improvement cycle: (1) Measure current SLI performance. (2) Identify the top-N sources of SLO violations (which error types, which latency outliers, which downtime events). (3) Prioritize the fix that eliminates the most SLO violations per engineering day. (4) Implement the fix. (5) Verify the new SLI performance. (6) Repeat. This systematic cycle, run as a regular (quarterly or monthly) reliability review, compounds reliability improvements over time. Without measurement, reliability work is guesswork.",
+        "Reliability reviews: a regular meeting (monthly or after each incident) to review SLI performance vs SLO targets, error budget consumption, incident frequency and severity, and toil metrics. The output is a prioritized list of reliability investments for the next period. This is the operational rhythm that makes SLOs real: without the review, SLOs are just numbers in a document that nobody acts on."
+      ],
+      "bullets": [
+        "Toil: manual, repetitive, automatable ops work; cap at 50% of team time",
+        "SLO improvement cycle: measure → identify violations → prioritize fix → implement → verify",
+        "Reliability review: monthly SLI vs SLO analysis; produces prioritized reliability investment list",
+        "Toil measurement: hours per week per category; invest in automating highest-toil items"
+      ]
+    },
+    {
+      "title": "SLO Anti-Patterns and Organizational Failure Modes",
+      "paragraphs": [
+        "SLO theater: setting SLOs that are never reviewed, never enforced, and have no consequences for violation. 'We have an SLO of 99.9% uptime' that nobody checks, that never triggers any action, and that wasn't based on actual user requirements. SLOs only have value if they drive behavior: they should be visibly tracked, trigger alerts when at risk, and enforce the error budget policy when exhausted. If an SLO violation doesn't change anyone's behavior, the SLO is theater.",
+        "SLOs set too high or too low are both failure modes. SLOs set higher than necessary waste engineering investment on reliability beyond what users actually need—overly tight SLOs block feature velocity for marginal user benefit. SLOs set too low allow poor reliability that damages user trust—a 90% success rate SLO means 1 in 10 user actions fails; for most products, this is unacceptably bad UX. Set SLOs by measuring what 'good enough' looks like from the user's perspective, not by what's technically impressive.",
+        "SLOs in conflict with incentives: if engineering teams are rewarded purely for feature delivery velocity, they will not invest in reliability unless SLO violations have real organizational consequences. The SRE model explicitly separates reliability ownership (SRE team holds the SLO, can veto risky deployments when error budget is exhausted) from feature ownership (product teams own features). Without this structural separation, feature pressure always wins over reliability in the absence of explicit policy enforcement."
+      ],
+      "bullets": [
+        "SLO theater: SLOs that are never reviewed or enforced; waste of documentation effort",
+        "Too-high SLO: blocks velocity for marginal user benefit; wasteful investment",
+        "Too-low SLO: poor UX; damages user trust; sets the wrong reliability culture",
+        "SRE model: SRE owns SLO enforcement; can veto deployments when error budget exhausted"
       ]
     }
   ],
   "depth": {
     "core": [
       {
-        "title": "SLI, SLO, SLA",
+        "title": "SLI/SLO/SLA Hierarchy",
         "paragraphs": [
-          "SLI: measured indicator (availability, latency). SLO: target on that indicator. SLA: contractual consequences. Engineers manage SLOs; legal owns SLAs.",
-          "Choose SLIs that mirror user pain — successful requests / total, or fraction under latency threshold — not CPU idle."
+          "SLI = raw measurement (error rate, latency). SLO = target for SLI (99.9% success rate over 30 days). SLA = contractual commitment; set lower than SLO.",
+          "Best SLIs measure user experience directly: error rate and latency, not CPU or memory.",
+          "Multi-dimensional SLOs: separate targets for critical vs non-critical request classes."
         ]
       },
       {
-        "title": "Error budgets",
+        "title": "Error Budget",
         "paragraphs": [
-          "If SLO is 99.9% monthly availability, budget is 0.1% failure. Burn the budget with incidents or risky releases; when exhausted, freeze features and fix reliability.",
-          "Multi-window burn-rate alerts catch fast burns (pages) and slow burns (tickets)."
+          "Error budget = 1 - SLO; at 99.9%: 43.2 min/month allowed downtime.",
+          "Burn rate: how fast budget is consumed. Alert at >2x (slow burn) and >14.4x (fast burn).",
+          "Written error budget policy: who can freeze deployments; enforced before it's needed."
         ]
       },
       {
-        "title": "Setting targets",
+        "title": "SLO Anti-Patterns",
         "paragraphs": [
-          "Tighter than dependencies is impossible long-term. Stack SLOs with dependency math. Leave margin.",
-          "Different user journeys may need different SLOs (checkout vs admin export)."
-        ]
-      },
-      {
-        "title": "Culture",
-        "paragraphs": [
-          "Error budgets only work if leadership honors them. Otherwise they become dashboards nobody follows."
+          "SLO theater: SLOs never reviewed, enforced, or used to drive behavior.",
+          "Too-high or too-low SLOs both fail: too high wastes investment; too low damages user trust.",
+          "SLOs require organizational incentives aligned with reliability; feature pressure must be counterbalanced."
         ]
       }
     ],
     "deepDive": [
       {
-        "title": "SLOs & Error Budgets — Operations",
+        "title": "Multi-Window Multi-Burn-Rate Alerting",
         "paragraphs": [
-          "Operating SLOs & Error Budgets in production means defining SLIs before tuning knobs, knowing amplification costs, and rehearsing failure modes.",
-          "Prefer reversible changes, feature flags, and canaries. Measure p50/p99 and error rate under load that matches production skew."
-        ],
-        "bullets": [
-          "Define capacity from the scarcest resource",
-          "Document blast radius per dependency",
-          "Keep rollback cheaper than forward repair when possible"
+          "Single-window burn rate alerts have high false positive and false negative rates. Multi-window alerting (from Google's SRE Workbook) uses two windows simultaneously: a short window (1 hour) detects fast-burning problems quickly; a long window (6 hours) confirms that the problem is sustained, not a brief spike. Alert only when both windows show burn rate above threshold.",
+          "Four alert thresholds provide graduated response: Page (immediate response required) at short window >14.4x AND long window >14.4x; Page at short >6x AND long >6x; Ticket (investigate soon) at short >3x AND long >3x; Ticket at slow >1x AND long >1x. This matrix provides fast detection for critical events while reducing false pages for transient spikes.",
+          "Alerting on SLO burn rate rather than raw metrics (CPU, error rate) is philosophically important: it aligns the alert with what matters (user experience and reliability contract) rather than with technical symptoms. A 5% error rate is alarming; a 5% error rate that will exhaust your error budget in 2 hours is a page-worthy emergency."
         ]
       },
       {
-        "title": "SLOs & Error Budgets — Failure modes",
+        "title": "SLO for Distributed Systems",
         "paragraphs": [
-          "Common failures around SLOs & Error Budgets include overload, partial dependency outages, and silent correctness bugs that pass happy-path tests.",
-          "Inject faults in staging: latency, loss, clock skew, and disk full. Verify alerts fire and degradation is intentional."
+          "End-to-end SLOs for user journeys: a checkout flow touches 10 services sequentially. The user experience is the composition of all 10 services. Measuring each service's SLO individually misses the forest for the trees—even if each service meets its 99.9% SLO, the checkout flow has 99.9%^10 = 99% success rate. Measure SLOs at the user journey level using distributed tracing: a checkout trace that completes successfully counts as a success; any service failure in the trace counts as a failure.",
+          "Dependency SLOs: explicitly model your upstream dependencies' SLOs in your own SLO. If your service calls database A (99.9% SLO), cache B (99.95%), and service C (99.99%), your theoretical availability ceiling is 0.999 × 0.9995 × 0.9999 = 99.84%. If your SLO is 99.9%, you need active mitigation (caching, circuit breaking, graceful degradation) to exceed the theoretical ceiling from dependencies."
         ]
       }
     ],
     "expert": [
       {
-        "title": "SLOs & Error Budgets — Expert notes",
+        "title": "Expert: Probabilistic SLOs and Cost of Reliability",
         "paragraphs": [
-          "At the expert level, SLOs & Error Budgets intersects multi-region consistency, cost envelopes, and organizational constraints (team ownership, on-call load).",
-          "Write down the non-goals. Many outages come from optimizing a metric that was never the product requirement."
+          "SLOs are probabilistic contracts: a 99.9% SLO means over a long period, 99.9% of requests succeed. In any given 1-minute window, the success rate may be lower (a brief spike) without violating the 30-day SLO. Probabilistic reasoning about SLOs requires understanding variance: a service with 99.9% average success but 10% variance in short windows will frequently alarm even when meeting the monthly SLO. Smoothing SLI measurement with rolling averages reduces alarm noise.",
+          "Cost of reliability is real and must be justified. The difference between 99% and 99.9% availability requires significant engineering investment: multi-AZ, automated failover, circuit breakers, chaos testing. The question is whether the marginal value to users justifies the cost. For a payment system, 99.9% vs 99% translates to 8.6 hours vs 87.6 hours of downtime per year—a clear business impact. For an internal developer tool, the same comparison may not justify the investment."
         ]
       }
     ]
   },
   "concepts": [
-    "SLI",
-    "SLO",
-    "Error budget",
-    "Burn rate",
-    "User journey SLIs"
+    "SLI (Service Level Indicator): quantitative measurement of service behavior",
+    "SLO (Service Level Objective): target value for an SLI; internal engineering commitment",
+    "SLA (Service Level Agreement): contractual commitment to customers; set lower than SLO",
+    "Error budget: allowed amount of unreliability = 1 - SLO; measured in time or error events",
+    "Burn rate: rate of error budget consumption relative to the window; >1 = on track to exhaust",
+    "Multi-window burn rate alerting: short + long window combination reduces false positives/negatives",
+    "Toil: manual, repetitive, automatable operational work; cap at 50% of team time",
+    "SLO theater: SLOs that are never reviewed or enforced; waste of documentation",
+    "Error budget policy: written document defining action when budget is exhausted",
+    "Reliability review: regular meeting to review SLI performance and prioritize reliability investments"
   ],
   "practices": [
-    "Alert on burn rate, not raw CPU",
-    "Review budget in planning",
-    "Align SLOs to dependencies"
+    "Define SLIs based on user experience (error rate, latency), not technical proxies (CPU)",
+    "Set SLOs by measuring current actual performance first; don't set aspirationally",
+    "Use 30-day rolling windows for SLOs; avoid calendar-month resets",
+    "Write the error budget policy before it's needed; get agreement when stakes are low",
+    "Use multi-window burn rate alerting (short + long window) to balance sensitivity and false alarms",
+    "Review SLI performance monthly; treat the review as a mandatory reliability ritual",
+    "Measure and cap toil at 50%; automate highest-toil items first"
   ],
   "pitfalls": [
-    "SLO on vanity metrics",
-    "100% targets",
-    "Ignoring dependency ceilings"
+    "SLO theater: setting SLOs that nobody reviews or enforces—waste of time",
+    "SLOs set too high: blocks feature velocity for marginal reliability improvement users don't notice",
+    "SLIs that don't reflect user experience—CPU SLIs don't tell you if users are having a bad time",
+    "Single-window burn rate alerting: high false positive rate from brief spikes",
+    "No error budget policy: when budget is exhausted, feature pressure wins every time",
+    "Measuring each microservice independently: composite SLO of 10 services at 99.9% each is only 99%"
   ],
   "examples": [
     {
-      "title": "Google SRE workbook",
-      "description": "Canonical error budget practice."
+      "title": "Google's SLO Practice",
+      "description": "Google's SRE teams maintain SLO dashboards for every service. When a service's error budget drops below 50% with 15 days remaining in the 30-day window, an automated alert is filed. The SRE team and product team review whether to freeze risky deployments or accept the risk. This data-driven conversation—'we have 20 minutes of error budget left; your proposed deployment has a 30% chance of causing a 15-minute outage'—replaces gut-feel decisions with explicit risk assessment."
+    },
+    {
+      "title": "Atlassian's Public Status Page SLOs",
+      "description": "Atlassian publicly commits to SLOs in their enterprise SLAs: Jira at 99.9% uptime for Enterprise (99.5% for Standard). Their SRE team maintains internal SLOs at 99.95% to provide buffer against the contractual 99.9% commitment. When internal error budget is exhausted, the team halts non-critical feature releases. This transparent SLO cascade (internal SLO > SLA) is the textbook implementation of the SLO/SLA relationship."
     }
   ],
   "keyTakeaways": [
-    "SLOs quantify reliability as a product feature",
-    "Budgets balance change vs stability"
+    "SLIs measure user experience; SLOs set targets; SLAs are the external contract—set SLOs above SLAs",
+    "Error budget = 1 - SLO; policy: when exhausted, slow risky work and prioritize reliability",
+    "Burn rate alerting (multi-window) provides early warning before budget is exhausted",
+    "SLOs only matter if they drive behavior; without enforcement, they are theater",
+    "Measure user journey SLOs (end-to-end), not just per-service SLOs",
+    "Set SLOs from actual performance data; aspirational SLOs above your architecture's capability are useless"
   ],
-  "whyItMatters": "Without SLOs, teams argue opinions. With them, reliability work gets prioritized rationally.",
+  "whyItMatters": "SLOs are the language of reliability in modern software organizations. Without them, reliability discussions are subjective; with them, they are data-driven. SRE practice has proven that explicitly setting, measuring, and enforcing SLOs with error budgets drives better reliability outcomes than vague commitments to 'high availability.' Interviewers at Google, AWS, and mature tech companies expect candidates to understand SLO concepts and apply them to system design.",
   "reflectionQuestions": [
-    "What is the user-facing SLI for your most critical journey?"
+    "Define an SLO for an e-commerce checkout service. What SLIs would you measure, what target would you set, and what is the error budget?",
+    "Your service's error budget is 60% exhausted with 20 days left in the window. What is your burn rate and what does the error budget policy recommend?",
+    "How do you set an SLO for an internal batch processing pipeline vs a user-facing API? What SLIs are appropriate for each?",
+    "A product manager wants to deploy a large feature that has a 20% chance of causing a 2-hour partial outage. You have 45 minutes of error budget left this month. How do you approach this decision?"
   ],
   "numbersToKnow": [
-    "Know your p99 latency budget before adding hops",
-    "Peak load ≠ average load — plan headroom (often 2–3×)",
-    "Cross-region RTT is often ~50–150ms one way"
+    "99.9% SLO: 43.2 min error budget/month; 8.76h/year",
+    "99.99% SLO: 4.32 min error budget/month; 52.6min/year",
+    "Fast burn alert threshold: 14.4x burn rate (exhausts budget in 1 hour)",
+    "Slow burn alert threshold: 2x burn rate (exhausts budget in 15 days at that rate)",
+    "SRE toil cap: 50% of team time; above 50%, reliability investment is overdue"
   ],
   "diagrams": [
     {
-      "id": "fund-slos-overview",
-      "title": "SLOs & Error Budgets overview",
-      "mermaid": "flowchart LR\n  Client --> System\n  System --> Dependency"
+      "id": "fund-slos-burn-rate",
+      "title": "Error Budget Burn Rate Thresholds",
+      "mermaid": "graph LR\n  BR1[Burn Rate 1x\nOn track, monitor] --> BR2[Burn Rate 2x\nSlow burn alert - ticket]\n  BR2 --> BR6[Burn Rate 6x\nMedium burn - page]\n  BR6 --> BR14[Burn Rate 14.4x\nFast burn - urgent page]"
     }
   ],
   "caseStudies": [],
   "interviewQuestions": [
-    "Explain SLOs & Error Budgets and the main trade-offs in three minutes."
+    "What is the difference between SLI, SLO, and SLA?",
+    "Define the SLO and error budget for a payment processing service with a contractual 99.9% uptime SLA.",
+    "What is error budget burn rate and why do we alert at different burn rate thresholds?",
+    "How do you set SLOs that reflect user experience rather than system metrics?",
+    "What is an error budget policy and what triggers it?"
   ],
   "exercises": [
-    "Sketch a design that depends on SLOs & Error Budgets; list three trade-offs and one failure mode."
+    "Define the full SLO for a social media notification service: SLIs, target values, measurement window, and error budget policy.",
+    "Given SLI data showing 99.95% success rate over the last 30 days with 500 total failures, calculate the error budget consumed and remaining burn rate.",
+    "Design a multi-window burn rate alerting system: define the two windows, the burn rate thresholds, and the alert severity for a 99.9% SLO service."
   ],
-  "sources": [],
+  "sources": [
+    { "title": "Site Reliability Engineering — Google SRE Book, Chapters 4–5 (SLOs, Toil)" },
+    { "title": "The Site Reliability Workbook — Google; Chapter 2 (Implementing SLOs)" },
+    { "title": "Alerting on SLOs Like Google — SRE Workbook, Chapter 5" },
+    { "title": "SRE with Java Microservices — Rob Hornsby; practical SLO implementation" }
+  ],
   "relatedLessons": [
-    "fund-bulkheads",
+    "fund-reliability",
     "fund-chaos",
-    "fund-graceful-degradation"
+    "fund-incidents",
+    "fund-capacity"
   ]
 }
