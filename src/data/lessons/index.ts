@@ -5,6 +5,7 @@ import { databaseLessons } from "./databases";
 import { fundamentalsLessons } from "./fundamentals";
 import { architectureInfraLessons } from "./architecture-infra";
 import { advancedLessons } from "./advanced";
+import { extendedLessons } from "./extended";
 
 export const lessons: Lesson[] = [
   ...networkingLessons,
@@ -13,4 +14,5 @@ export const lessons: Lesson[] = [
   ...fundamentalsLessons,
   ...architectureInfraLessons,
   ...advancedLessons,
+  ...extendedLessons,
 ];

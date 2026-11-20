@@ -141,6 +141,43 @@ export default function LessonPage() {
         </section>
       )}
 
+      {lesson.caseStudies && lesson.caseStudies.length > 0 && (
+        <section className="mb-8">
+          <h2 className="section-label mb-4">Case studies</h2>
+          <p className="mb-4 text-xs leading-relaxed text-subtle">
+            Illustrative design scenarios focused on constraints, decisions, and failure handling.
+          </p>
+          <div className="space-y-4">
+            {lesson.caseStudies.map((study, i) => (
+              <article key={i} className="card-lifted p-5">
+                <h3 className="font-serif text-base font-semibold text-[var(--color-ink)]">
+                  {study.title}
+                </h3>
+                <dl className="mt-4 space-y-4">
+                  {[
+                    ["Context", study.context],
+                    ["Constraints", study.constraints],
+                    ["Design", study.design],
+                    ["Trade-offs", study.tradeoffs],
+                    ["Failure modes", study.failureModes],
+                    ["Outcome", study.outcome],
+                  ].map(([label, detail]) => (
+                    <div key={label}>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">
+                        {label}
+                      </dt>
+                      <dd className="mt-1 text-sm leading-relaxed text-muted">
+                        {detail}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Best practices */}
       <section className="mb-8">
         <h2 className="section-label mb-4">Best practices</h2>

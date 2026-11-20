@@ -1,4 +1,4 @@
-import type { LessonSection, LessonExample } from "@/types";
+import type { LessonSection, LessonExample, LessonCaseStudy } from "@/types";
 
 /** Helper to keep lesson authoring consistent across module files. */
 export function lesson(partial: {
@@ -16,6 +16,7 @@ export function lesson(partial: {
   keyTakeaways: string[];
   whyItMatters: string;
   reflectionQuestions: string[];
+  caseStudies?: LessonCaseStudy[];
   resources?: string[];
 }) {
   return partial;

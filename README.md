@@ -8,8 +8,13 @@ A structured web app for learning system design from first principles — built 
 - **Flexible study sessions** — Pick 5, 15, 30, or 60 minutes; get a personalized plan from your current progress
 - **Progress tracking** — Lesson completion, streaks, time invested (stored locally in your browser)
 - **Design challenges** — Beginner to expert system design problems with hints and checklists
+- **Curated deep dives and case studies** — Durable, first-party guides for core concepts, trade-offs, and failure scenarios
 - **Reflection notes** — Capture your thoughts on each lesson
 - **Curated resources** — Books, engineering blogs, and open-source systems to study
+
+## Curriculum content
+
+The lesson guides in `src/data/lessons/` are the maintained learning baseline: they explain concepts, practices, pitfalls, and design decisions directly in the app. Scouting and AI-assisted research can complement this material with new references and changes in the ecosystem, but fetched material does not replace the core guides. Add or revise lessons when concepts or proven design approaches change, and use the structured case studies to make constraints, alternatives, failure modes, and outcomes explicit. The new case studies are illustrative design scenarios, not claims about a specific company's private architecture.
 
 ## Getting started
 

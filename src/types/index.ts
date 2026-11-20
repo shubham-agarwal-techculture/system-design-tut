@@ -11,6 +11,16 @@ export interface LessonExample {
   description: string;
 }
 
+export interface LessonCaseStudy {
+  title: string;
+  context: string;
+  constraints: string;
+  design: string;
+  tradeoffs: string;
+  failureModes: string;
+  outcome: string;
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -26,6 +36,7 @@ export interface Lesson {
   keyTakeaways: string[];
   whyItMatters: string;
   reflectionQuestions: string[];
+  caseStudies?: LessonCaseStudy[];
   resources?: string[];
 }
 

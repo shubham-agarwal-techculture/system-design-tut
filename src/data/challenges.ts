@@ -145,6 +145,27 @@ export const designChallenges: DesignChallenge[] = [
     ],
     estimatedMinutes: 45,
   },
+  {
+    id: "catalog-search",
+    title: "Marketplace Catalog Search",
+    difficulty: "intermediate",
+    description:
+      "Design a search service for a frequently updated catalog with typo tolerance, filters, relevance ranking, and a measurable freshness target.",
+    hints: [
+      "Treat the search index as a rebuildable projection of the source of truth",
+      "Use a change stream or outbox to keep the index current",
+      "Build and validate a replacement index before switching production traffic",
+    ],
+    checklist: [
+      "Searchable fields, analyzers, and query types defined",
+      "Index freshness objective and update pipeline",
+      "Ranking evaluation with representative queries",
+      "Tenant and authorization filters enforced",
+      "Versioned reindexing and rollback plan",
+      "Query complexity and shard fan-out bounded",
+    ],
+    estimatedMinutes: 45,
+  },
 
   // Advanced
   {
@@ -206,6 +227,69 @@ export const designChallenges: DesignChallenge[] = [
       "Payment processing integration",
       "Surge pricing mechanism",
       "ETA calculation",
+    ],
+    estimatedMinutes: 60,
+  },
+  {
+    id: "multi-region-subscriptions",
+    title: "Multi-Region Subscription Service",
+    difficulty: "advanced",
+    description:
+      "Design a subscription platform that serves global reads and recovers from a regional outage without allowing conflicting billing writes.",
+    hints: [
+      "Set explicit RTO and RPO before choosing replication topology",
+      "Separate read locality from write ownership",
+      "Fence the old writer before promoting a standby",
+    ],
+    checklist: [
+      "Recovery objectives by critical workflow",
+      "Active-passive or active-active topology justified",
+      "Replication lag and write ownership handled",
+      "Failover and failback runbooks",
+      "Isolated backups and measured restore test",
+      "Surviving-region capacity validated",
+    ],
+    estimatedMinutes: 60,
+  },
+  {
+    id: "multi-tenant-saas",
+    title: "Multi-Tenant Analytics SaaS",
+    difficulty: "advanced",
+    description:
+      "Design an analytics product where many customers share infrastructure while maintaining tenant isolation, fair resource use, and an option for dedicated storage.",
+    hints: [
+      "Derive tenant identity from trusted authentication context",
+      "Apply isolation consistently to jobs, search, caches, and storage",
+      "Use a placement directory if some tenants need dedicated infrastructure",
+    ],
+    checklist: [
+      "Tenant identity and authorization boundary",
+      "Shared versus dedicated data isolation model",
+      "Tenant-aware quotas and fair scheduling",
+      "Background job and cache isolation",
+      "Tenant migration and deletion workflow",
+      "Cross-tenant access tests and audit trail",
+    ],
+    estimatedMinutes: 60,
+  },
+  {
+    id: "durable-invoice-workflow",
+    title: "Durable Invoice Workflow",
+    difficulty: "advanced",
+    description:
+      "Design a month-end invoice pipeline that processes millions of accounts, survives worker crashes, and never silently skips or duplicates an invoice.",
+    hints: [
+      "Persist per-account workflow progress",
+      "Use stable idempotency keys for invoice creation and notifications",
+      "Monitor queue age and downstream capacity, not only queue depth",
+    ],
+    checklist: [
+      "Durable run and per-account job model",
+      "Idempotent steps and duplicate delivery handling",
+      "Retry, deadline, and dead-letter policy",
+      "Resume and manual repair workflow",
+      "Downstream-aware worker scaling",
+      "Auditability and customer-visible status",
     ],
     estimatedMinutes: 60,
   },
